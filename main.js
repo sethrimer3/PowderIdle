@@ -3,8 +3,8 @@
       const BASE_SCREEN_H = 640;
       let SCREEN_W = BASE_SCREEN_W;
       let SCREEN_H = BASE_SCREEN_H;
-      let MENU_H = SCREEN_H / 3;
-      let POWDER_AREA_H = SCREEN_H - MENU_H;
+      let MENU_W = Math.round(SCREEN_W * 0.34);
+      let PLAY_AREA_W = SCREEN_W - MENU_W;
       let cellPixelSize = 6;
       let layoutScaleX = 1;
       let layoutScaleY = 1;
@@ -62,9 +62,13 @@
       let milestoneMessageTimer = 0;
       let codexUnlocked = false;
       let buttons = [];
+      let menuScroll = 0;
+      let menuScrollMax = 0;
       let fullscreenModule = null;
       let jarVisible = true;
       let selectedModule = null;
+      let duneHeightUnits = 0;
+      let duneDustMultiplier = 1;
       const moduleInteractionHints = {
         conveyor: 'Click to rush extra cargo.',
         rocket: 'Tap to fuel launches faster.',
@@ -619,7 +623,15 @@
         cellHeight: 0
       };
       let jarRect = { left: 0, top: 0, width: 0, height: 0 };
-      let menuContentArea = { left: 0, right: 0, center: 0, width: 0, top: 0, bottom: 0 };
+      let menuContentArea = {
+        left: 0,
+        right: 0,
+        center: 0,
+        width: 0,
+        top: 0,
+        bottom: 0,
+        scrollOffset: 0
+      };
       let powdersDataRaw = null;
       let machinesDataRaw = null;
       let upgradesDataRaw = null;
@@ -792,6 +804,8 @@
         codexUnlocked = false;
         selectedModule = activeMenu === 'jar' ? 'jar' : null;
         moduleStates = createDefaultModuleStates();
+        menuScroll = 0;
+        menuScrollMax = 0;
       }
 
       function getMilestoneState(key) {
@@ -1024,6 +1038,7 @@
           renderPowders();
           drawJarOverlay();
         }
+        drawDuneMultiplierIndicator();
         drawMenu();
       }
 
@@ -1077,15 +1092,27 @@
         drawJarInterior();
       }
 
+      function drawDuneMultiplierIndicator() {
+        push();
+        let x = PLAY_AREA_W - scaledX(18);
+        let y = scaledY(18);
+        textAlign(RIGHT, TOP);
+        textSize(scaledFont(9));
+        fill('#94a3b8');
+        text(`x${duneDustMultiplier.toFixed(2)}`, x, y);
+        pop();
+      }
+
       function drawCollageBackdrop() {
         push();
         noStroke();
         let panelPaddingX = scaledX(32);
         let panelPaddingY = scaledY(36);
         let panelCenterY = collageLayout.top + collageLayout.height / 2;
+        let panelCenterX = collageLayout.left + collageLayout.width / 2;
         fill('#071021');
         rect(
-          SCREEN_W / 2,
+          panelCenterX,
           panelCenterY,
           collageLayout.width + panelPaddingX,
           collageLayout.height + panelPaddingY,
@@ -1127,25 +1154,26 @@
         let rectInfo = getMachineRect(machine);
         let center = getMachineCenter(rectInfo);
         let unlocked = isMachineUnlocked(machine.key);
-        let panelW = rectInfo.width * 0.88;
-        let panelH = rectInfo.height * 0.78;
+        let panelSize = Math.min(rectInfo.width, rectInfo.height) * 0.8;
+        let panelW = panelSize;
+        let panelH = panelSize;
         push();
         rectMode(CENTER);
         if (selectedModule === machine.key) {
           stroke('#facc15');
           strokeWeight(4);
           noFill();
-          rect(center.x, center.y, panelW + scaledX(18), panelH + scaledY(18), 24);
+          rect(center.x, center.y, panelW + scaledX(18), panelH + scaledY(18));
         }
         stroke(unlocked ? '#1e3a8a' : '#1e293b');
         strokeWeight(2);
         fill(unlocked ? '#0b1220' : '#040810');
-        rect(center.x, center.y, panelW, panelH, 18);
+        rect(center.x, center.y, panelW, panelH);
         noStroke();
         let interactButton = null;
         if (!unlocked) {
           fill(withAlpha('#020617', 220));
-          rect(center.x, center.y, panelW - 8, panelH - 8, 16);
+          rect(center.x, center.y, panelW - scaledX(8), panelH - scaledY(8));
           fill('#334155');
           textSize(scaledFont(10));
           text('Locked', center.x, center.y);
@@ -1194,7 +1222,7 @@
         pop();
         drawFullscreenToggle(rectInfo, machine.key, unlocked);
         if (interactButton) {
-          buttons.push(interactButton);
+          addButton(interactButton);
         }
       }
 
@@ -2837,7 +2865,7 @@
         }
         pop();
         if (enabled) {
-          buttons.push({ action: 'toggleFullscreen', key, x, y, w: size, h: size });
+        addButton({ action: 'toggleFullscreen', key, x, y, w: size, h: size });
         }
       }
 
@@ -2937,17 +2965,19 @@
       }
 
       function updateCollageLayout() {
-        let horizontalPadding = Math.max(36, SCREEN_W * 0.08);
-        let topPadding = Math.max(28, POWDER_AREA_H * 0.08);
-        let bottomPadding = Math.max(36, POWDER_AREA_H * 0.12);
-        let width = Math.max(180, SCREEN_W - horizontalPadding * 2);
-        let height = Math.max(200, POWDER_AREA_H - topPadding - bottomPadding);
-        collageLayout.left = (SCREEN_W - width) / 2;
+        let horizontalPadding = Math.max(24, PLAY_AREA_W * 0.04);
+        let topPadding = Math.max(32, SCREEN_H * 0.08);
+        let bottomPadding = Math.max(32, SCREEN_H * 0.08);
+        let availableWidth = Math.max(220, PLAY_AREA_W - horizontalPadding * 2);
+        let availableHeight = Math.max(220, SCREEN_H - topPadding - bottomPadding);
+        let size = Math.min(availableWidth, availableHeight);
+        let rightMargin = Math.max(horizontalPadding, PLAY_AREA_W * 0.08);
+        collageLayout.left = Math.max(horizontalPadding, PLAY_AREA_W - size - rightMargin);
         collageLayout.top = topPadding;
-        collageLayout.width = width;
-        collageLayout.height = height;
-        collageLayout.cellWidth = width / 3;
-        collageLayout.cellHeight = height / 3;
+        collageLayout.width = size;
+        collageLayout.height = size;
+        collageLayout.cellWidth = size / 3;
+        collageLayout.cellHeight = size / 3;
         let jarMachine = machineDefinitions.find((m) => m.key === 'jar');
         if (jarMachine) {
           let rect = getMachineRect(jarMachine);
@@ -2957,14 +2987,14 @@
             jarWidth = Math.round(rect.width * 0.92);
             jarHeight = Math.round(rect.height * 0.9);
           } else {
-            let targetWidth = SCREEN_W * 0.2;
+            let targetWidth = PLAY_AREA_W * 0.28;
             let maxWidth = rect.width * 0.82;
             jarWidth = Math.max(
               MAX_POWDER_SIZE + 6,
               Math.min(targetWidth, maxWidth)
             );
             let maxHeight = rect.height * 0.92;
-            let targetHeight = POWDER_AREA_H * 0.5;
+            let targetHeight = SCREEN_H * 0.5;
             jarHeight = Math.max(
               MAX_POWDER_SIZE + 32,
               Math.min(targetHeight, maxHeight)
@@ -2983,10 +3013,11 @@
         }
         if (fullscreenModule === machine.key) {
           let paddingX = scaledX(24);
-          let width = Math.max(220, SCREEN_W - paddingX * 2);
-          let height = Math.max(220, POWDER_AREA_H - scaledY(48));
-          height = Math.max(160, Math.min(height, POWDER_AREA_H - scaledY(16)));
-          let x = (SCREEN_W - width) / 2;
+          let width = Math.max(220, PLAY_AREA_W - paddingX);
+          width = Math.min(width, PLAY_AREA_W - scaledX(32));
+          let height = Math.max(220, SCREEN_H - scaledY(96));
+          height = Math.min(height, SCREEN_H - scaledY(48));
+          let x = Math.max(scaledX(16), (PLAY_AREA_W - width) / 2);
           let y = scaledY(24);
           return { x, y, width, height };
         }
@@ -3042,6 +3073,7 @@
       function updatePowders() {
         if (gridRows <= 0 || gridCols <= 0) return;
         rebuildGrid();
+        updateDuneMultiplierFromGrid();
         let fallSpeed =
           BASE_FALL_SPEED * getGravityMultiplier() * (deltaTime / 16.67);
         let fallCells = fallSpeed / cellPixelSize;
@@ -3070,6 +3102,7 @@
             continue;
           }
         }
+        updateDuneMultiplierFromGrid();
       }
 
       function renderPowders() {
@@ -3097,7 +3130,9 @@
         powderCounts[type] += powderGain;
         totalPowderCollected += powderGain;
         let baseValue = powderTypes[type].dustValue;
-        let dustGain = Math.round(baseValue * getDustMultiplier());
+        let dustGain = Math.round(
+          baseValue * getDustMultiplier() * duneDustMultiplier
+        );
         dust += dustGain;
         totalDustEarned += dustGain;
         addLayerProgress(baseValue * powderGain);
@@ -3148,11 +3183,30 @@
         }
       }
 
+      function updateDuneMultiplierFromGrid() {
+        if (gridRows <= 0 || gridCols <= 0) {
+          duneHeightUnits = 0;
+          duneDustMultiplier = 1;
+          return;
+        }
+        let heightCells = 0;
+        outer: for (let r = 0; r < gridRows; r++) {
+          for (let c = 0; c < gridCols; c++) {
+            if (grid[r][c]) {
+              heightCells = gridRows - r;
+              break outer;
+            }
+          }
+        }
+        duneHeightUnits = Math.max(0, heightCells);
+        duneDustMultiplier = 1 + duneHeightUnits * 0.1;
+      }
+
       function refreshPowderGrid(rescale = false) {
         let prevCols = gridCols || 1;
         let prevRows = gridRows || 1;
-        let widthPixels = Math.max(jarRect.width, SCREEN_W * 0.2);
-        let heightPixels = Math.max(jarRect.height, POWDER_AREA_H * 0.4);
+        let widthPixels = Math.max(jarRect.width, PLAY_AREA_W * 0.3);
+        let heightPixels = Math.max(jarRect.height, SCREEN_H * 0.4);
         gridCols = Math.max(
           MAX_POWDER_SIZE,
           Math.floor(widthPixels / cellPixelSize)
@@ -3284,85 +3338,85 @@
       }
 
       function drawMenu() {
+        let panelLeft = PLAY_AREA_W;
+        let panelRight = SCREEN_W;
+        let panelWidth = MENU_W;
+        let panelCenter = panelLeft + panelWidth / 2;
         fill('#0f172a');
-        rect(SCREEN_W / 2, POWDER_AREA_H + MENU_H / 2, SCREEN_W, MENU_H);
+        rect(panelCenter, SCREEN_H / 2, panelWidth, SCREEN_H);
 
-        let headerBottom = drawResourceHeader();
+        menuContentArea.left = panelLeft + scaledX(20);
+        menuContentArea.right = panelRight - scaledX(20);
+        menuContentArea.width = Math.max(
+          0,
+          menuContentArea.right - menuContentArea.left
+        );
+        menuContentArea.center =
+          (menuContentArea.left + menuContentArea.right) / 2;
+
+        let headerBottom = drawResourceHeader(panelCenter);
         let tabs = getUnlockedMenuTabs();
         if (tabs.length === 0) {
+          menuContentArea.bottom = SCREEN_H - scaledY(32);
+          drawDropButton(true);
           return;
         }
         if (!tabs.some((tab) => tab.key === activeMenu)) {
           activeMenu = tabs[tabs.length - 1].key;
         }
-        let tabsBottom = drawMenuTabs(headerBottom + scaledY(6), tabs);
-        let contentStart = tabsBottom + scaledY(18);
-        let panelBottom = POWDER_AREA_H + MENU_H - scaledY(24);
-        let panelHeight = Math.max(scaledY(120), panelBottom - contentStart);
-        let panelWidth = SCREEN_W - scaledX(60);
-        let panelX = SCREEN_W / 2;
-        let panelY = contentStart + panelHeight / 2;
-        fill('#0a1326');
-        rect(panelX, panelY, panelWidth, panelHeight, 18);
-        menuContentArea.left = panelX - panelWidth / 2 + scaledX(28);
-        menuContentArea.right = panelX + panelWidth / 2 - scaledX(28);
-        menuContentArea.width = menuContentArea.right - menuContentArea.left;
-        menuContentArea.center = (menuContentArea.left + menuContentArea.right) / 2;
-        menuContentArea.top = contentStart + scaledY(26);
-        menuContentArea.bottom = panelBottom - scaledY(22);
-        let contentY = menuContentArea.top;
+        let tabsBottom = drawMenuTabs(headerBottom + scaledY(8), tabs);
+        let contentTop = tabsBottom + scaledY(14);
+        let contentBottom = SCREEN_H - scaledY(90);
+        menuContentArea.top = contentTop;
+        menuContentArea.bottom = contentBottom;
+        menuContentArea.height = Math.max(0, contentBottom - contentTop);
 
-        switch (activeMenu) {
-          case 'jar':
-            drawJarMenu(contentY);
-            break;
-          case 'conveyor':
-            drawConveyorMenu(contentY);
-            break;
-          case 'rocket':
-            drawRocketMenu(contentY);
-            break;
-          case 'asteroid':
-            drawAsteroidMenu(contentY);
-            break;
-          case 'planet':
-            drawPlanetMenu(contentY);
-            break;
-          case 'forge':
-            drawForgeMenu(contentY);
-            break;
-          case 'galaxy':
-            drawGalaxyMenu(contentY);
-            break;
-          case 'universe':
-            drawUniverseMenu(contentY);
-            break;
-          case 'singularity':
-            drawSingularityMenu(contentY);
-            break;
-          case 'codex':
-            drawCodexMenu(contentY);
-            break;
+        let visibleHeight = Math.max(0, menuContentArea.bottom - menuContentArea.top);
+        let contentStart = menuContentArea.top - menuScroll;
+        let contentEnd = contentStart;
+        let clipWidth = menuContentArea.width;
+        if (clipWidth > 0 && visibleHeight > 0) {
+          drawingContext.save();
+          drawingContext.beginPath();
+          drawingContext.rect(
+            menuContentArea.left,
+            menuContentArea.top,
+            clipWidth,
+            visibleHeight
+          );
+          drawingContext.clip();
+          menuContentArea.scrollOffset = menuScroll;
+          contentEnd = drawActiveMenuContent(contentStart);
+          drawingContext.restore();
+        } else {
+          menuContentArea.scrollOffset = menuScroll;
+          contentEnd = drawActiveMenuContent(contentStart);
         }
+        menuContentArea.scrollOffset = 0;
+        let contentHeight = contentEnd - contentStart;
+        menuScrollMax = Math.max(0, contentHeight - visibleHeight);
+        menuScroll = constrain(menuScroll, 0, menuScrollMax);
 
         drawDropButton(activeMenu !== 'jar');
       }
 
-      function drawResourceHeader() {
+      function drawResourceHeader(panelCenter) {
+        let headerY = scaledY(32);
         fill('#f8fafc');
         textSize(scaledFont(13));
         text(
           `Dust: ${Math.floor(dust)} | Cores: ${crystalCores} | Powder: ${totalPowderCollected}`,
-          SCREEN_W / 2,
-          POWDER_AREA_H + scaledY(24)
+          panelCenter,
+          headerY
         );
+        let nextLineY = headerY + scaledY(20);
         if (milestoneMessage) {
           fill('#38bdf8');
           textSize(scaledFont(10));
-          text(milestoneMessage, SCREEN_W / 2, POWDER_AREA_H + scaledY(38));
+          text(milestoneMessage, panelCenter, nextLineY);
+          nextLineY += scaledY(18);
         }
-        let counterOffset = milestoneMessage ? 58 : 46;
-        let nextY = drawPowderCounters(POWDER_AREA_H + scaledY(counterOffset));
+        let nextY = drawPowderCounters(nextLineY + scaledY(8));
         textSize(scaledFont(14));
         return nextY;
       }
@@ -3420,28 +3474,45 @@
         if (!tabs || tabs.length === 0) {
           return y;
         }
-        let tabW = scaledX(68);
-        let tabH = scaledY(30);
-        let xs = getRowPositions(tabs.length);
+        let columns = Math.min(3, tabs.length);
+        let rows = Math.ceil(tabs.length / columns);
+        let tabH = scaledY(28);
+        let spacingY = scaledY(10);
+        let currentY = y;
         textSize(scaledFont(12));
-        for (let i = 0; i < tabs.length; i++) {
-          let tab = tabs[i];
-          let active = tab.key === activeMenu;
-          fill(active ? '#22d3ee' : '#1b2640');
-          rect(xs[i], y, tabW, tabH, 10);
-          fill(active ? '#071426' : '#f0f4f8');
-          text(tab.label, xs[i], y);
-          buttons.push({
-            action: 'switchMenu',
-            key: tab.key,
-            x: xs[i],
-            y,
-            w: tabW,
-            h: tabH
-          });
+        for (let row = 0; row < rows; row++) {
+          let rowTabs = tabs.slice(row * columns, row * columns + columns);
+          let availableWidth = menuContentArea.width || SCREEN_W - scaledX(80);
+          let tabW = Math.min(
+            scaledX(120),
+            Math.max(
+              scaledX(60),
+              availableWidth / Math.max(1, rowTabs.length) - scaledX(8)
+            )
+          );
+          let xs = getRowPositions(rowTabs.length);
+          for (let i = 0; i < rowTabs.length; i++) {
+            let tab = rowTabs[i];
+            let active = tab.key === activeMenu;
+            fill(active ? '#22d3ee' : '#1b2640');
+            rect(xs[i], currentY, tabW, tabH, 8);
+            fill(active ? '#071426' : '#f0f4f8');
+            text(tab.label, xs[i], currentY);
+            addButton(
+              {
+                action: 'switchMenu',
+                key: tab.key,
+                x: xs[i],
+                y: currentY,
+                w: tabW,
+                h: tabH
+              }
+            );
+          }
+          currentY += tabH + spacingY;
         }
         textSize(scaledFont(14));
-        return y + scaledY(30);
+        return currentY - spacingY + scaledY(2);
       }
 
       function drawSectionHeader(title, y) {
@@ -3563,6 +3634,33 @@
         y = drawSectionHeader('Development Roadmap', y + scaledY(18));
         y = drawDevelopmentNotes(y + scaledY(10));
         return y;
+      }
+
+      function drawActiveMenuContent(y) {
+        switch (activeMenu) {
+          case 'jar':
+            return drawJarMenu(y);
+          case 'conveyor':
+            return drawConveyorMenu(y);
+          case 'rocket':
+            return drawRocketMenu(y);
+          case 'asteroid':
+            return drawAsteroidMenu(y);
+          case 'planet':
+            return drawPlanetMenu(y);
+          case 'forge':
+            return drawForgeMenu(y);
+          case 'galaxy':
+            return drawGalaxyMenu(y);
+          case 'universe':
+            return drawUniverseMenu(y);
+          case 'singularity':
+            return drawSingularityMenu(y);
+          case 'codex':
+            return drawCodexMenu(y);
+          default:
+            return y;
+        }
       }
 
       function drawMilestoneCard(config, state, y) {
@@ -3707,14 +3805,17 @@
           text(project.description, x, y + scaledY(2));
           textSize(scaledFont(11));
           text(`Cost: ${cost}`, x, y + scaledY(16));
-          buttons.push({
-            action: 'buyResearch',
-            key: project.key,
-            x,
-            y,
-            w: btnW,
-            h: btnH
-          });
+          addButton(
+            {
+              action: 'buyResearch',
+              key: project.key,
+              x,
+              y,
+              w: btnW,
+              h: btnH
+            },
+            { scrollAware: true }
+          );
         }
         textSize(scaledFont(14));
         return y + btnH + scaledY(18);
@@ -3749,14 +3850,17 @@
             text(`${control.label}: ${enabled ? 'ON' : 'OFF'}`, x, y - scaledY(12));
             textSize(scaledFont(11));
             text(control.description, x, y + scaledY(6));
-            buttons.push({
-              action: 'toggleAutomation',
-              key: control.key,
-              x,
-              y,
-              w: btnW,
-              h: btnH
-            });
+            addButton(
+              {
+                action: 'toggleAutomation',
+                key: control.key,
+                x,
+                y,
+                w: btnW,
+                h: btnH
+              },
+              { scrollAware: true }
+            );
           } else {
             fill('#1e293b');
             rect(x, y, btnW, btnH, 12);
@@ -3804,14 +3908,17 @@
           rect(x, y, btnW, btnH, 10);
           fill(isSelected ? '#0b1120' : '#f8fafc');
           text(powderTypes[i].name, x, y);
-          buttons.push({
-            action: 'selectPowder',
-            index: i,
-            x,
-            y,
-            w: btnW,
-            h: btnH
-          });
+          addButton(
+            {
+              action: 'selectPowder',
+              index: i,
+              x,
+              y,
+              w: btnW,
+              h: btnH
+            },
+            { scrollAware: true }
+          );
         }
         textSize(scaledFont(14));
         return y + scaledY(34);
@@ -3836,14 +3943,17 @@
             x,
             y
           );
-          buttons.push({
-            action: 'tierUpgrade',
-            index: i,
-            x,
-            y,
-            w: btnW,
-            h: btnH
-          });
+          addButton(
+            {
+              action: 'tierUpgrade',
+              index: i,
+              x,
+              y,
+              w: btnW,
+              h: btnH
+            },
+            { scrollAware: true }
+          );
         }
         textSize(scaledFont(14));
         return y + scaledY(34);
@@ -3873,14 +3983,17 @@
             x,
             y
           );
-          buttons.push({
-            action: 'buyDropper',
-            index: i,
-            x,
-            y,
-            w: btnW,
-            h: btnH
-          });
+          addButton(
+            {
+              action: 'buyDropper',
+              index: i,
+              x,
+              y,
+              w: btnW,
+              h: btnH
+            },
+            { scrollAware: true }
+          );
         }
         textSize(scaledFont(14));
         return y + scaledY(34);
@@ -3913,14 +4026,17 @@
               rowY - scaledY(8)
             );
             text(config.description, x, rowY + scaledY(6));
-            buttons.push({
-              action: 'buyUpgrade',
-              key: config.key,
-              x,
-              y: rowY,
-              w: btnW,
-              h: btnH
-            });
+            addButton(
+              {
+                action: 'buyUpgrade',
+                key: config.key,
+                x,
+                y: rowY,
+                w: btnW,
+                h: btnH
+              },
+              { scrollAware: true }
+            );
           }
         }
         textSize(scaledFont(14));
@@ -3947,14 +4063,17 @@
           fill('#fff');
           text(`${config.name} Lv.${level} (\u2212${cost})`, x, y - scaledY(8));
           text(config.description, x, y + scaledY(6));
-          buttons.push({
-            action: 'buyUpgrade',
-            key: config.key,
-            x,
-            y,
-            w: btnW,
-            h: btnH
-          });
+          addButton(
+            {
+              action: 'buyUpgrade',
+              key: config.key,
+              x,
+              y,
+              w: btnW,
+              h: btnH
+            },
+            { scrollAware: true }
+          );
         }
         textSize(scaledFont(14));
         return y + scaledY(36);
@@ -3994,14 +4113,17 @@
             textSize(scaledFont(9));
             fill('#e2e8f0');
             text(config.description, x, rowY + scaledY(14));
-            buttons.push({
-              action: 'buyUpgrade',
-              key: config.key,
-              x,
-              y: rowY,
-              w: btnW,
-              h: btnH
-            });
+            addButton(
+              {
+                action: 'buyUpgrade',
+                key: config.key,
+                x,
+                y: rowY,
+                w: btnW,
+                h: btnH
+              },
+              { scrollAware: true }
+            );
           }
         }
         textSize(scaledFont(14));
@@ -4049,7 +4171,10 @@
             x,
             y
           );
-          buttons.push({ action: 'compress', recipe, x, y, w: btnW, h: btnH });
+          addButton(
+            { action: 'compress', recipe, x, y, w: btnW, h: btnH },
+            { scrollAware: true }
+          );
         }
         textSize(scaledFont(14));
         return y + scaledY(34);
@@ -4072,7 +4197,10 @@
           y + scaledY(8)
         );
         textSize(scaledFont(14));
-        buttons.push({ action: 'prestige', x: center, y, w: btnW, h: btnH });
+        addButton(
+          { action: 'prestige', x: center, y, w: btnW, h: btnH },
+          { scrollAware: true }
+        );
         return y + btnH + scaledY(12);
       }
 
@@ -4160,7 +4288,7 @@
           (menuContentArea.right || SCREEN_W - scaledX(70)) -
           scaledX(compact ? 18 : 22);
         let dropY =
-          (menuContentArea.bottom || POWDER_AREA_H + MENU_H - scaledY(32)) -
+          (menuContentArea.bottom || SCREEN_H - scaledY(32)) -
           scaledY(compact ? 14 : 18);
         fill(compact ? '#2dd4bf' : '#1976d2');
         rect(dropX, dropY, btnW, btnH, compact ? 8 : 10);
@@ -4168,7 +4296,18 @@
         textSize(scaledFont(compact ? 11 : 12));
         text(compact ? 'Quick Drop' : 'Drop', dropX, dropY);
         textSize(scaledFont(14));
-        buttons.push({ action: 'drop', x: dropX, y: dropY, w: btnW, h: btnH });
+        addButton({ action: 'drop', x: dropX, y: dropY, w: btnW, h: btnH });
+      }
+
+      function addButton(btn, options = {}) {
+        let entry = { ...btn };
+        if (options.scrollAware) {
+          let offset = menuContentArea && menuContentArea.scrollOffset
+            ? menuContentArea.scrollOffset
+            : 0;
+          entry.y = entry.y - offset;
+        }
+        buttons.push(entry);
       }
 
       function mousePressed() {
@@ -4190,6 +4329,22 @@
         }
         if (!handled && jarVisible && isInsideJar(mouseX, mouseY)) {
           dropPowder(selectedPowder, mouseX);
+        }
+      }
+
+      function mouseWheel(event) {
+        if (!gameInitialized) {
+          return;
+        }
+        let panelLeft = PLAY_AREA_W;
+        if (mouseX >= panelLeft) {
+          let delta = event.delta || 0;
+          menuScroll = constrain(
+            menuScroll + delta * 0.6,
+            0,
+            menuScrollMax
+          );
+          return false;
         }
       }
 
@@ -4222,6 +4377,8 @@
           case 'switchMenu':
             if (isMenuTabUnlocked(btn.key)) {
               activeMenu = btn.key;
+              menuScroll = 0;
+              menuScrollMax = 0;
               let tab = menuTabs.find((t) => t.key === btn.key);
               if (tab && tab.machine) {
                 selectedModule = tab.machine;
@@ -4235,6 +4392,8 @@
             selectedModule = btn.key;
             if (isMenuTabUnlocked(btn.key)) {
               activeMenu = btn.key;
+              menuScroll = 0;
+              menuScrollMax = 0;
             }
             handleModuleInteraction(btn.key);
             break;
@@ -4523,6 +4682,8 @@
         fullscreenModule = null;
         selectedModule = activeMenu === 'jar' ? 'jar' : null;
         moduleStates = createDefaultModuleStates();
+        menuScroll = 0;
+        menuScrollMax = 0;
         updateLayoutDimensions(true);
         refreshPowderGrid(true);
       }
@@ -4654,12 +4815,17 @@
         SCREEN_H = Math.round(
           Math.min(Math.max(availableHeight, BASE_SCREEN_H), 960)
         );
-        MENU_H = Math.round(SCREEN_H * 0.35);
-        POWDER_AREA_H = SCREEN_H - MENU_H;
+        let desiredMenuW = Math.max(160, Math.round(SCREEN_W * 0.32));
+        if (SCREEN_W - desiredMenuW < 240) {
+          desiredMenuW = Math.max(120, SCREEN_W - 240);
+        }
+        MENU_W = Math.max(120, Math.min(desiredMenuW, SCREEN_W - 160));
+        PLAY_AREA_W = SCREEN_W - MENU_W;
         layoutScaleX = SCREEN_W / BASE_SCREEN_W;
         layoutScaleY = SCREEN_H / BASE_SCREEN_H;
         cellPixelSize = 1;
         updateCollageLayout();
+        menuScroll = constrain(menuScroll, 0, menuScrollMax);
         if (resize && canvas) {
           resizeCanvas(SCREEN_W, SCREEN_H);
         }
