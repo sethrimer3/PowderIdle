@@ -75,6 +75,491 @@
         universe: 'Nudge worlds to sync their orbit.',
         singularity: 'Channel collapsing light into cores.'
       };
+      const FALLBACK_DATA = {
+        powders: {
+          types: [
+            { key: 'grain', name: 'Grains', color: '#e7c97a', size: 1 },
+            { key: 'package', name: 'Packages', color: '#f2b066', size: 2 },
+            { key: 'launch', name: 'Launches', color: '#4ade80', size: 3 },
+            { key: 'asteroid', name: 'Asteroids', color: '#94a3b8', size: 4 },
+            { key: 'planet', name: 'Planets', color: '#38bdf8', size: 5 },
+            { key: 'star', name: 'Stars', color: '#fde68a', size: 6 },
+            { key: 'galaxy', name: 'Galaxies', color: '#c084fc', size: 7 },
+            { key: 'universe', name: 'Universes', color: '#22d3ee', size: 8 },
+            { key: 'singularity', name: 'Singularities', color: '#f8fafc', size: 9 }
+          ],
+          tierUnlockCosts: [10, 60, 260, 1100, 4600, 19000, 78000, 320000],
+          compressionRecipes: [
+            { from: 0, to: 1, baseCost: 18, output: 1 },
+            { from: 1, to: 2, baseCost: 14, output: 1 },
+            { from: 2, to: 3, baseCost: 12, output: 1 },
+            { from: 3, to: 4, baseCost: 10, output: 1 },
+            { from: 4, to: 5, baseCost: 8, output: 1 },
+            { from: 5, to: 6, baseCost: 6, output: 1 },
+            { from: 6, to: 7, baseCost: 4, output: 1 },
+            { from: 7, to: 8, baseCost: 3, output: 1 }
+          ]
+        },
+        machines: {
+          definitions: [
+            {
+              key: 'jar',
+              name: 'Sandfall Jar',
+              description: 'The heart of your atelier.',
+              grid: { col: 1, row: 1, width: 1, height: 1 }
+            },
+            {
+              key: 'conveyor',
+              name: 'Grain Conveyor',
+              description: 'Collects grains for packaging.',
+              grid: { col: 1, row: 2, width: 1, height: 1 }
+            },
+            {
+              key: 'rocket',
+              name: 'Launch Bay',
+              description: 'Bundles packages into launch fuel.',
+              grid: { col: 0, row: 2, width: 1, height: 1 }
+            },
+            {
+              key: 'asteroid',
+              name: 'Asteroid Crucible',
+              description: 'Pressurizes launches into asteroids.',
+              grid: { col: 0, row: 1, width: 1, height: 1 }
+            },
+            {
+              key: 'planet',
+              name: 'Planetarium',
+              description: 'Accretes asteroids into planets.',
+              grid: { col: 0, row: 0, width: 1, height: 1 }
+            },
+            {
+              key: 'forge',
+              name: 'Star Forge',
+              description: 'Ignites planets into radiant stars.',
+              grid: { col: 1, row: 0, width: 1, height: 1 }
+            },
+            {
+              key: 'galaxy',
+              name: 'Celestial Loom',
+              description: 'Weaves stars into galaxies.',
+              grid: { col: 2, row: 0, width: 1, height: 1 }
+            },
+            {
+              key: 'universe',
+              name: 'Universe Foundry',
+              description: 'Binds galaxies into universes.',
+              grid: { col: 2, row: 1, width: 1, height: 1 }
+            },
+            {
+              key: 'singularity',
+              name: 'Singularity Crucible',
+              description: 'Collapses universes into singularities.',
+              grid: { col: 2, row: 2, width: 1, height: 1 }
+            }
+          ],
+          connections: [
+            { from: 'jar', to: 'conveyor' },
+            { from: 'conveyor', to: 'rocket' },
+            { from: 'rocket', to: 'asteroid' },
+            { from: 'asteroid', to: 'planet' },
+            { from: 'planet', to: 'forge' },
+            { from: 'forge', to: 'galaxy' },
+            { from: 'galaxy', to: 'universe' },
+            { from: 'universe', to: 'singularity' }
+          ],
+          menuTabs: [
+            { key: 'jar', label: 'Sandfall', machine: 'jar' },
+            { key: 'conveyor', label: 'Conveyor', machine: 'conveyor' },
+            { key: 'rocket', label: 'Launch Bay', machine: 'rocket' },
+            { key: 'asteroid', label: 'Asteroids', machine: 'asteroid' },
+            { key: 'planet', label: 'Planets', machine: 'planet' },
+            { key: 'forge', label: 'Star Forge', machine: 'forge' },
+            { key: 'galaxy', label: 'Galaxies', machine: 'galaxy' },
+            { key: 'universe', label: 'Universe', machine: 'universe' },
+            { key: 'singularity', label: 'Singularity', machine: 'singularity' },
+            { key: 'codex', label: 'Codex', requiresMilestone: 'chronicle' }
+          ]
+        },
+        upgrades: {
+          upgrades: [
+            {
+              key: 'gravity',
+              name: 'Gravity Well',
+              description: 'Powders fall 20% faster per level.',
+              baseCost: 50,
+              costMult: 2
+            },
+            {
+              key: 'refinery',
+              name: 'Refinery Vats',
+              description: 'Dust yield +35% per level.',
+              baseCost: 80,
+              costMult: 2.2
+            },
+            {
+              key: 'compressor',
+              name: 'Powder Compressor',
+              description: 'Unlocks compression recipes and improves efficiency.',
+              baseCost: 120,
+              costMult: 2.6
+            },
+            {
+              key: 'lanterns',
+              name: 'Aether Lanterns',
+              description: 'Layer stabilization +25% per level.',
+              baseCost: 140,
+              costMult: 2.4
+            },
+            {
+              key: 'harmonics',
+              name: 'Harmonic Resonator',
+              description: 'Automation cadence +20% per level.',
+              baseCost: 200,
+              costMult: 2.8
+            },
+            {
+              key: 'conveyorAutomation',
+              module: 'conveyor',
+              name: 'Self-Jolting Belt',
+              description: 'Automatically jolts the conveyor every few seconds.',
+              baseCost: 90,
+              costMult: 2.4
+            },
+            {
+              key: 'conveyorAutomationSpeed',
+              module: 'conveyor',
+              name: 'Flux Gearbox',
+              description: 'Speeds up automated conveyor jolts.',
+              baseCost: 120,
+              costMult: 2.6
+            },
+            {
+              key: 'conveyorOverfill',
+              module: 'conveyor',
+              name: 'Overflow Catchers',
+              description: 'Overflowing hoppers sometimes double packaged output and dust.',
+              baseCost: 150,
+              costMult: 2.7
+            },
+            {
+              key: 'rocketAutomation',
+              module: 'rocket',
+              name: 'Launch Scripts',
+              description: 'Automates launch bay boosts at a steady cadence.',
+              baseCost: 160,
+              costMult: 2.5
+            },
+            {
+              key: 'rocketAutomationSpeed',
+              module: 'rocket',
+              name: 'Cryo Pumps',
+              description: 'Cuts the delay between automated launch bay boosts.',
+              baseCost: 190,
+              costMult: 2.6
+            },
+            {
+              key: 'rocketSuccessRate',
+              module: 'rocket',
+              name: 'Telemetry Drones',
+              description: 'Raises launch success chance by +18% per level.',
+              baseCost: 140,
+              costMult: 2.4
+            },
+            {
+              key: 'asteroidAutomation',
+              module: 'asteroid',
+              name: 'Crucible Sequencer',
+              description: 'Automates cracking the crucible for asteroid gains.',
+              baseCost: 230,
+              costMult: 2.6
+            },
+            {
+              key: 'asteroidAutomationSpeed',
+              module: 'asteroid',
+              name: 'Geode Shifters',
+              description: 'Accelerates automated crucible strikes.',
+              baseCost: 270,
+              costMult: 2.7
+            },
+            {
+              key: 'asteroidFissionBoost',
+              module: 'asteroid',
+              name: 'Fission Catalyst',
+              description: 'Asteroid crafts sometimes fracture into extra rubble and dust.',
+              baseCost: 300,
+              costMult: 2.8
+            },
+            {
+              key: 'planetAutomation',
+              module: 'planet',
+              name: 'Orbital Metronome',
+              description: 'Automates tuning of the planetarium.',
+              baseCost: 320,
+              costMult: 2.6
+            },
+            {
+              key: 'planetAutomationSpeed',
+              module: 'planet',
+              name: 'Gravimetric Drives',
+              description: 'Spins automated tuning cycles faster.',
+              baseCost: 360,
+              costMult: 2.7
+            },
+            {
+              key: 'planetMoonNursery',
+              module: 'planet',
+              name: 'Moon Nurseries',
+              description: 'Every new moon grants bonus planets and dust.',
+              baseCost: 380,
+              costMult: 2.9
+            },
+            {
+              key: 'forgeAutomation',
+              module: 'forge',
+              name: 'Hammer Servitors',
+              description: 'Automates striking the forge.',
+              baseCost: 430,
+              costMult: 2.7
+            },
+            {
+              key: 'forgeAutomationSpeed',
+              module: 'forge',
+              name: 'Solar Flywheels',
+              description: 'Reduces the wait between automated forge strikes.',
+              baseCost: 470,
+              costMult: 2.8
+            },
+            {
+              key: 'forgeSupernova',
+              module: 'forge',
+              name: 'Supernova Crucibles',
+              description: 'Forged stars erupt for bonus dust and occasional extra stars.',
+              baseCost: 520,
+              costMult: 2.9
+            },
+            {
+              key: 'galaxyAutomation',
+              module: 'galaxy',
+              name: 'Autonomous Loom',
+              description: 'Spins the celestial loom on its own.',
+              baseCost: 560,
+              costMult: 2.8
+            },
+            {
+              key: 'galaxyAutomationSpeed',
+              module: 'galaxy',
+              name: 'Stellar Relays',
+              description: 'Quickens the cadence of automated galaxy weaving.',
+              baseCost: 600,
+              costMult: 3
+            },
+            {
+              key: 'galaxyCluster',
+              module: 'galaxy',
+              name: 'Cluster Architects',
+              description: 'Galaxy weaves may cluster into extra galaxies and light bursts.',
+              baseCost: 640,
+              costMult: 3.1
+            },
+            {
+              key: 'universeAutomation',
+              module: 'universe',
+              name: 'Continuum Orchestrator',
+              description: 'Synchronizes universes automatically.',
+              baseCost: 700,
+              costMult: 3
+            },
+            {
+              key: 'universeAutomationSpeed',
+              module: 'universe',
+              name: 'Quantum Gyres',
+              description: 'Accelerates automated universe syncing.',
+              baseCost: 760,
+              costMult: 3.1
+            },
+            {
+              key: 'universeContinuum',
+              module: 'universe',
+              name: 'Continuum Harmonizers',
+              description: 'Linked universes can resonate into extra output.',
+              baseCost: 820,
+              costMult: 3.2
+            },
+            {
+              key: 'singularityAutomation',
+              module: 'singularity',
+              name: 'Singularity Shepherds',
+              description: 'Automates harvesting the crucible.',
+              baseCost: 880,
+              costMult: 3.2
+            },
+            {
+              key: 'singularityAutomationSpeed',
+              module: 'singularity',
+              name: 'Event Horizon Lattices',
+              description: 'Accelerates automated crucible harvests.',
+              baseCost: 930,
+              costMult: 3.3
+            },
+            {
+              key: 'singularityCatalyst',
+              module: 'singularity',
+              name: 'Catalytic Mirrors',
+              description: 'Cores may refract into bonus cores and dust.',
+              baseCost: 990,
+              costMult: 3.4
+            }
+          ],
+          research: [
+            {
+              key: 'lens',
+              name: 'Graviton Lens',
+              description: 'Magnifies gravity and dust yield slightly.',
+              baseCost: 700,
+              maxLevel: 4
+            },
+            {
+              key: 'overclock',
+              name: 'Overclock Arrays',
+              description: 'Boosts machine craft speed and output.',
+              baseCost: 900,
+              maxLevel: 4
+            },
+            {
+              key: 'quantum',
+              name: 'Quantum Weave',
+              description: 'Compression cycles occasionally skip a tier.',
+              baseCost: 1100,
+              maxLevel: 3
+            },
+            {
+              key: 'archives',
+              name: 'Archivist Accord',
+              description: 'Milestones grant stronger bonuses.',
+              baseCost: 1200,
+              maxLevel: 3
+            }
+          ]
+        },
+        progression: {
+          strataLayers: [
+            {
+              key: 'surface',
+              name: 'Surface Crust',
+              requirement: 160,
+              dustBonus: 0.06,
+              gravityBonus: 0.05,
+              color: '#1f2937',
+              description: 'Stabilize the loose crust to focus the fall.'
+            },
+            {
+              key: 'basalt',
+              name: 'Basalt Vein',
+              requirement: 420,
+              dustBonus: 0.08,
+              gravityBonus: 0.08,
+              color: '#111c2d',
+              description: 'Dense basalt channels powders into tighter streams.'
+            },
+            {
+              key: 'shimmer',
+              name: 'Shimmer Cavern',
+              requirement: 900,
+              dustBonus: 0.14,
+              gravityBonus: 0.12,
+              color: '#2c1b47',
+              description: 'Glittering caverns hum with resonant dust currents.'
+            },
+            {
+              key: 'mantle',
+              name: 'Aether Mantle',
+              requirement: 1600,
+              dustBonus: 0.22,
+              gravityBonus: 0.18,
+              color: '#3b185f',
+              description: 'Liquid aether bends gravity toward your funnels.'
+            },
+            {
+              key: 'spire',
+              name: 'Stellar Spire',
+              requirement: 2400,
+              dustBonus: 0.28,
+              gravityBonus: 0.22,
+              color: '#36155a',
+              description: 'A needle of stardust concentrates every grain that falls.'
+            },
+            {
+              key: 'abyss',
+              name: 'Chrono Abyss',
+              requirement: 3600,
+              dustBonus: 0.34,
+              gravityBonus: 0.26,
+              color: '#250f43',
+              description: 'Time coils inward, dragging matter toward the crucible.'
+            }
+          ],
+          milestones: [
+            {
+              key: 'artisan',
+              name: "Artisan's Rhythm",
+              resource: 'dust',
+              requirement: 250,
+              description: 'Unlock auto dropper toggles to keep the jar raining.',
+              reward: 'Auto drop enabled',
+              type: 'unlockAutoDrop'
+            },
+            {
+              key: 'engine',
+              name: 'Clockwork Engine',
+              resource: 'dust',
+              requirement: 1200,
+              description: 'Unlock automated compression routines.',
+              reward: 'Auto compression enabled',
+              type: 'unlockAutoCompress'
+            },
+            {
+              key: 'gravityPulse',
+              name: 'Gravity Pulse',
+              resource: 'dust',
+              requirement: 2800,
+              description: 'Amplify the pull within the jar for faster settling.',
+              reward: '+15% global gravity',
+              type: 'gravityBonus',
+              magnitude: 0.15
+            },
+            {
+              key: 'dustBloom',
+              name: 'Dust Bloom',
+              resource: 'dust',
+              requirement: 5200,
+              description: 'Crystallize stray grains into useful dust.',
+              reward: '+18% dust yield',
+              type: 'dustBonus',
+              magnitude: 0.18
+            },
+            {
+              key: 'chronicle',
+              name: 'Chronicle of Echoes',
+              resource: 'dust',
+              requirement: 9000,
+              description: 'Record your discoveries to unlock the codex.',
+              reward: 'Codex tab + automation boost',
+              type: 'codexUnlock',
+              magnitude: 0.25
+            },
+            {
+              key: 'coreForge',
+              name: 'Core Forge',
+              resource: 'cores',
+              requirement: 24,
+              description: 'Channel singularity cores to enrich future cores.',
+              reward: '+20% crystal yield',
+              type: 'coreBonus',
+              magnitude: 0.2
+            }
+          ]
+        }
+      };
       let moduleStates = createDefaultModuleStates();
 
       function createDefaultModuleStates() {
@@ -140,12 +625,84 @@
       let upgradesDataRaw = null;
       let progressionDataRaw = null;
       let milestoneLookup = {};
+      let gameInitialized = false;
+      let dataLoadError = null;
+      let fallbackUsed = false;
+      let loadingMessage = 'Preparing the atelier...';
 
-      function preload() {
-        powdersDataRaw = loadJSON('data/powders.json');
-        machinesDataRaw = loadJSON('data/machines.json');
-        upgradesDataRaw = loadJSON('data/upgrades.json');
-        progressionDataRaw = loadJSON('data/progression.json');
+      function cloneData(data) {
+        return JSON.parse(JSON.stringify(data));
+      }
+
+      function loadJSONWithFallback(path, fallback, forceFallback = false) {
+        if (forceFallback) {
+          fallbackUsed = true;
+          return Promise.resolve(cloneData(fallback));
+        }
+        return fetch(path)
+          .then((response) => {
+            if (!response.ok) {
+              throw new Error(`Failed to load ${path}: ${response.status}`);
+            }
+            return response.json();
+          })
+          .catch((err) => {
+            console.warn(`Falling back to embedded data for ${path}`, err);
+            fallbackUsed = true;
+            if (!dataLoadError) {
+              dataLoadError = err;
+            }
+            return cloneData(fallback);
+          });
+      }
+
+      function loadGameData() {
+        let forceFallback = window.location && window.location.protocol === 'file:';
+        loadingMessage = 'Channeling powder schematics...';
+        return Promise.all([
+          loadJSONWithFallback('data/powders.json', FALLBACK_DATA.powders, forceFallback),
+          loadJSONWithFallback('data/machines.json', FALLBACK_DATA.machines, forceFallback),
+          loadJSONWithFallback('data/upgrades.json', FALLBACK_DATA.upgrades, forceFallback),
+          loadJSONWithFallback('data/progression.json', FALLBACK_DATA.progression, forceFallback)
+        ]).then(([powderData, machineData, upgradeData, progressionData]) => {
+          powdersDataRaw = powderData;
+          machinesDataRaw = machineData;
+          upgradesDataRaw = upgradeData;
+          progressionDataRaw = progressionData;
+        });
+      }
+
+      function beginGameInitialization() {
+        gameInitialized = false;
+        loadingMessage = 'Stoking the atelier...';
+        loadGameData()
+          .then(() => {
+            initializeGameData();
+            initializeGameState();
+            updateLayoutDimensions(true);
+            refreshPowderGrid(true);
+            gameInitialized = true;
+            if (fallbackUsed) {
+              milestoneMessage = 'Running with bundled data (local JSON unavailable).';
+              milestoneMessageTimer = 5600;
+            }
+          })
+          .catch((err) => {
+            console.error('Failed to initialize Powder Idle data.', err);
+            dataLoadError = err;
+            powdersDataRaw = cloneData(FALLBACK_DATA.powders);
+            machinesDataRaw = cloneData(FALLBACK_DATA.machines);
+            upgradesDataRaw = cloneData(FALLBACK_DATA.upgrades);
+            progressionDataRaw = cloneData(FALLBACK_DATA.progression);
+            initializeGameData();
+            initializeGameState();
+            updateLayoutDimensions(true);
+            refreshPowderGrid(true);
+            fallbackUsed = true;
+            gameInitialized = true;
+            milestoneMessage = 'Using bundled data after load failure.';
+            milestoneMessageTimer = 6400;
+          });
       }
 
       function initializeGameData() {
@@ -427,8 +984,6 @@
       }
 
       function setup() {
-        initializeGameData();
-        initializeGameState();
         updateLayoutDimensions();
         canvas = createCanvas(SCREEN_W, SCREEN_H);
         pixelDensity(1);
@@ -438,12 +993,14 @@
         noStroke();
         frameRate(60);
         updateLayoutDimensions(true);
-        refreshPowderGrid(true);
+        beginGameInitialization();
       }
 
       function windowResized() {
         updateLayoutDimensions(true);
-        refreshPowderGrid(true);
+        if (gameInitialized) {
+          refreshPowderGrid(true);
+        }
       }
 
       function draw() {
@@ -451,6 +1008,11 @@
 
         buttons = [];
         jarVisible = false;
+
+        if (!gameInitialized) {
+          drawLoadingState();
+          return;
+        }
 
         drawPowderField();
 
@@ -463,6 +1025,25 @@
           drawJarOverlay();
         }
         drawMenu();
+      }
+
+      function drawLoadingState() {
+        fill('#22d3ee');
+        textSize(scaledFont(14));
+        text(loadingMessage, SCREEN_W / 2, SCREEN_H / 2);
+        let messageY = SCREEN_H / 2 + scaledY(24);
+        if (fallbackUsed) {
+          fill('#94a3b8');
+          textSize(scaledFont(10));
+          text('Using bundled data assets.', SCREEN_W / 2, messageY);
+          messageY += scaledY(18);
+        }
+        if (dataLoadError) {
+          fill('#fca5a5');
+          textSize(scaledFont(10));
+          text('Unable to load external data files.', SCREEN_W / 2, messageY);
+        }
+        textSize(scaledFont(14));
       }
 
       function drawPowderField() {
@@ -3591,6 +4172,9 @@
       }
 
       function mousePressed() {
+        if (!gameInitialized) {
+          return;
+        }
         let handled = false;
         for (let btn of buttons) {
           if (
@@ -4082,6 +4666,9 @@
       }
 
       function keyPressed() {
+        if (!gameInitialized) {
+          return;
+        }
         if (key === ' ' || keyCode === 32) {
           dropPowder(selectedPowder);
         }
