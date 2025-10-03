@@ -13,6 +13,7 @@
       const BASE_DROPPER_INTERVAL = 2000; // ms
       const AUTO_DROP_INTERVAL = 1200;
       const AUTO_COMPRESS_INTERVAL = 1800;
+      const CHAIN_REQUIREMENT = 100;
 
       let powderTypes = [];
       let machineDefinitions = [];
@@ -72,19 +73,27 @@
       const moduleInteractionHints = {
         conveyor: 'Click to rush extra cargo.',
         rocket: 'Tap to fuel launches faster.',
-        forge: 'Strike the forge to shape alloys.',
+        asteroid: 'Crack launches into stardust.',
+        planet: 'Steady the rings for perfect worlds.',
+        forge: 'Ignite the forge to birth stars.',
         galaxy: 'Stir the loom to weave galaxies.',
         universe: 'Nudge worlds to sync their orbit.',
-        singularity: 'Channel diamonds into cores.'
+        singularity: 'Channel collapsing light into cores.'
       };
-      let moduleStates = {
-        conveyor: { grains: [], spawnTimer: 0 },
-        rocket: { pods: [] },
-        forge: { progress: 0, pulses: [] },
-        galaxy: { progress: 0, angle: 0, pixels: [] },
-        universe: { progress: 0, angle: 0, nodes: [] },
-        singularity: { progress: 0, shards: [], orbit: 0 }
-      };
+      let moduleStates = createDefaultModuleStates();
+
+      function createDefaultModuleStates() {
+        return {
+          conveyor: { grains: [], spawnTimer: 0, packageProgress: 0, packagePulse: 0 },
+          rocket: { pods: [] },
+          asteroid: { progress: 0, fragments: [], ring: 0 },
+          planet: { progress: 0, orbiters: [], spin: 0 },
+          forge: { progress: 0, pulses: [], corona: 0 },
+          galaxy: { progress: 0, angle: 0, pixels: [] },
+          universe: { progress: 0, angle: 0, nodes: [] },
+          singularity: { progress: 0, shards: [], orbit: 0, halo: 0 }
+        };
+      }
       let grid = [];
       let gridCols = 0;
       let gridRows = 0;
@@ -188,6 +197,7 @@
         milestoneMessageTimer = 0;
         activeMenu = menuTabs.length > 0 ? menuTabs[0].key : 'jar';
         codexUnlocked = false;
+        moduleStates = createDefaultModuleStates();
       }
 
       function getMilestoneState(key) {
@@ -572,6 +582,12 @@
           case 'rocket':
             drawRocketModule(context);
             break;
+          case 'asteroid':
+            drawAsteroidModule(context);
+            break;
+          case 'planet':
+            drawPlanetModule(context);
+            break;
           case 'forge':
             drawForgeModule(context);
             break;
@@ -624,6 +640,12 @@
           case 'rocket':
             updateRocketState(dt);
             break;
+          case 'asteroid':
+            updateAsteroidState(dt);
+            break;
+          case 'planet':
+            updatePlanetState(dt);
+            break;
           case 'forge':
             updateForgeState(dt);
             break;
@@ -636,6 +658,28 @@
           case 'singularity':
             updateSingularityState(dt);
             break;
+        }
+      }
+
+      function craftNextTier(state, inputIndex, outputIndex, speed, dt, dustBase, onCraft) {
+        if (!state) return;
+        state.progress = state.progress || 0;
+        if (powderCounts[inputIndex] >= CHAIN_REQUIREMENT) {
+          state.progress += dt * speed;
+          while (state.progress >= 1 && powderCounts[inputIndex] >= CHAIN_REQUIREMENT) {
+            state.progress -= 1;
+            powderCounts[inputIndex] -= CHAIN_REQUIREMENT;
+            powderCounts[outputIndex] += 1;
+            if (dustBase && dustBase > 0) {
+              let gain = Math.max(1, Math.round(dustBase * getDustMultiplier()));
+              dust += gain;
+            }
+            if (onCraft) {
+              onCraft();
+            }
+          }
+        } else {
+          state.progress = Math.max(0, state.progress - dt * 0.35);
         }
       }
 
@@ -665,15 +709,33 @@
         while (state.grains.length > 14) {
           state.grains.shift();
         }
+        if (powderCounts[0] >= CHAIN_REQUIREMENT) {
+          let packagingSpeed = 0.45 + speedBoost * 0.08;
+          state.packageProgress = (state.packageProgress || 0) + dt * packagingSpeed;
+          while (
+            state.packageProgress >= 1 &&
+            powderCounts[0] >= CHAIN_REQUIREMENT
+          ) {
+            state.packageProgress -= 1;
+            powderCounts[0] -= CHAIN_REQUIREMENT;
+            powderCounts[1] += 1;
+            state.packagePulse = 1;
+          }
+        } else {
+          state.packageProgress = Math.max(0, (state.packageProgress || 0) - dt * 0.4);
+        }
+        state.packagePulse = Math.max(0, (state.packagePulse || 0) - dt * 2.2);
       }
 
       function updateRocketState(dt) {
         let state = moduleStates.rocket;
         if (!state) return;
         if (!state.pods || state.pods.length === 0) {
-          state.pods = new Array(3).fill(0).map(() => ({ progress: 0, launch: 0 }));
+          state.pods = new Array(3)
+            .fill(0)
+            .map(() => ({ progress: 0, launch: 0, fueling: false }));
         }
-        let speed = 0.08 + upgradesState.refinery * 0.04 + getGravityMultiplier() * 0.02;
+        let fuelSpeed = 0.32 + upgradesState.refinery * 0.08 + getGravityMultiplier() * 0.03;
         for (let pod of state.pods) {
           if (pod.launch > 0) {
             pod.launch += dt;
@@ -683,13 +745,88 @@
             }
             continue;
           }
-          pod.progress += dt * speed;
-          if (pod.progress >= 1) {
-            pod.progress = 1;
-            pod.launch = 0.01;
-            let yieldAmount = 1 + Math.floor(upgradesState.refinery * 0.4);
-            powderCounts[2] += yieldAmount;
-            dust += Math.max(2, Math.round(3 * getDustMultiplier()));
+          if (!pod.fueling && powderCounts[1] >= CHAIN_REQUIREMENT) {
+            powderCounts[1] -= CHAIN_REQUIREMENT;
+            pod.fueling = true;
+            pod.progress = 0;
+          }
+          if (pod.fueling) {
+            pod.progress += dt * fuelSpeed;
+            if (pod.progress >= 1) {
+              pod.progress = 1;
+              pod.launch = 0.01;
+              pod.fueling = false;
+              powderCounts[2] += 1;
+              dust += Math.max(2, Math.round(6 * getDustMultiplier()));
+            }
+          } else {
+            pod.progress = Math.max(0, pod.progress - dt * 0.3);
+          }
+        }
+      }
+
+      function updateAsteroidState(dt) {
+        let state = moduleStates.asteroid;
+        if (!state) return;
+        state.ring = (state.ring || 0) + dt * 0.8;
+        if (!state.fragments) {
+          state.fragments = [];
+        }
+        craftNextTier(
+          state,
+          2,
+          3,
+          0.26 + (researchState.lens || 0) * 0.03,
+          dt,
+          8,
+          () => {
+            state.fragments.push({
+              life: 1,
+              angle: Math.random() * TAU,
+              drift: random(0.4, 1.1),
+              radius: random(0.12, 0.28)
+            });
+          }
+        );
+        for (let i = state.fragments.length - 1; i >= 0; i--) {
+          let fragment = state.fragments[i];
+          fragment.life -= dt * 0.9;
+          fragment.angle += dt * fragment.drift;
+          if (fragment.life <= 0) {
+            state.fragments.splice(i, 1);
+          }
+        }
+      }
+
+      function updatePlanetState(dt) {
+        let state = moduleStates.planet;
+        if (!state) return;
+        state.spin = (state.spin || 0) + dt * 0.6;
+        if (!state.orbiters) {
+          state.orbiters = [];
+        }
+        craftNextTier(
+          state,
+          3,
+          4,
+          0.24 + (researchState.overclock || 0) * 0.02,
+          dt,
+          10,
+          () => {
+            state.orbiters.push({
+              life: 1,
+              angle: Math.random() * TAU,
+              radius: random(0.18, 0.32),
+              speed: random(0.5, 1.3)
+            });
+          }
+        );
+        for (let i = state.orbiters.length - 1; i >= 0; i--) {
+          let orbiter = state.orbiters[i];
+          orbiter.life -= dt * 0.6;
+          orbiter.angle += dt * orbiter.speed;
+          if (orbiter.life <= 0) {
+            state.orbiters.splice(i, 1);
           }
         }
       }
@@ -697,19 +834,21 @@
       function updateForgeState(dt) {
         let state = moduleStates.forge;
         if (!state) return;
-        let speed = 0.06 + upgradesState.compressor * 0.04;
-        if (powderCounts[2] > 0) {
-          state.progress += dt * speed;
-          while (state.progress >= 1 && powderCounts[2] > 0) {
-            state.progress -= 1;
-            powderCounts[2] -= 1;
-            powderCounts[3] += 1;
-            dust += Math.max(2, Math.round(4 * getDustMultiplier()));
+        state.corona = (state.corona || 0) + dt * 1.4;
+        if (!state.pulses) {
+          state.pulses = [];
+        }
+        craftNextTier(
+          state,
+          4,
+          5,
+          0.22 + upgradesState.compressor * 0.05,
+          dt,
+          12,
+          () => {
             state.pulses.push({ life: 1, angle: Math.random() * TAU });
           }
-        } else {
-          state.progress = 0;
-        }
+        );
         for (let i = state.pulses.length - 1; i >= 0; i--) {
           state.pulses[i].life -= dt * 1.6;
           if (state.pulses[i].life <= 0) {
@@ -732,18 +871,14 @@
             });
           }
         }
-        let speed = 0.05 + (researchState.lens || 0) * 0.02 + upgradesState.lanterns * 0.03;
-        if (powderCounts[3] > 0) {
-          state.progress += dt * speed;
-          while (state.progress >= 1 && powderCounts[3] > 0) {
-            state.progress -= 1;
-            powderCounts[3] -= 1;
-            powderCounts[4] += 1;
-            dust += Math.max(3, Math.round(5 * getDustMultiplier()));
-          }
-        } else {
-          state.progress = 0;
-        }
+        craftNextTier(
+          state,
+          5,
+          6,
+          0.18 + (researchState.lens || 0) * 0.03 + upgradesState.lanterns * 0.02,
+          dt,
+          15
+        );
       }
 
       function updateUniverseState(dt) {
@@ -760,30 +895,28 @@
             });
           }
         }
-        let speed = 0.04 + (researchState.overclock || 0) * 0.02 + upgradesState.harmonics * 0.03;
-        if (powderCounts[4] > 0) {
-          state.progress += dt * speed;
-          while (state.progress >= 1 && powderCounts[4] > 0) {
-            state.progress -= 1;
-            powderCounts[4] -= 1;
-            powderCounts[5] += 1;
-            dust += Math.max(4, Math.round(6 * getDustMultiplier()));
-          }
-        } else {
-          state.progress = 0;
-        }
+        craftNextTier(
+          state,
+          6,
+          7,
+          0.16 + (researchState.overclock || 0) * 0.02 + upgradesState.harmonics * 0.02,
+          dt,
+          18
+        );
       }
 
       function updateSingularityState(dt) {
         let state = moduleStates.singularity;
         if (!state) return;
         state.orbit += dt * 0.5;
-        let speed = 0.035 + crystalCores * 0.01;
-        if (powderCounts[5] > 0) {
+        state.halo = (state.halo || 0) + dt * 1.1;
+        let speed = 0.12 + crystalCores * 0.008;
+        if (powderCounts[7] >= CHAIN_REQUIREMENT) {
           state.progress += dt * speed;
-          while (state.progress >= 1 && powderCounts[5] > 0) {
+          while (state.progress >= 1 && powderCounts[7] >= CHAIN_REQUIREMENT) {
             state.progress -= 1;
-            powderCounts[5] -= 1;
+            powderCounts[7] -= CHAIN_REQUIREMENT;
+            powderCounts[8] += 1;
             let coreGain = 1 + milestoneBonuses.core * getMilestoneBonusScale();
             let wholeCores = Math.floor(coreGain);
             let remainder = coreGain - wholeCores;
@@ -791,11 +924,11 @@
             if (Math.random() < remainder) {
               crystalCores += 1;
             }
-            dust += Math.max(5, Math.round(8 * getDustMultiplier()));
+            dust += Math.max(5, Math.round(22 * getDustMultiplier()));
             state.shards.push({ life: 1, angle: Math.random() * TAU });
           }
         } else {
-          state.progress = 0;
+          state.progress = Math.max(0, state.progress - dt * 0.25);
         }
         for (let i = state.shards.length - 1; i >= 0; i--) {
           state.shards[i].life -= dt * 1.2;
@@ -830,6 +963,43 @@
             fill('#bfa568');
             rect(x - size * 0.28, y - size * 0.24, size * 0.6, size * 0.4, 2);
           }
+          let housingW = panelW * 0.24;
+          let housingH = panelH * 0.34;
+          push();
+          translate(panelW * 0.34, -panelH * 0.02);
+          fill('#0f1a2c');
+          rect(0, 0, housingW, housingH, 10);
+          fill('#1e2b44');
+          rect(0, -housingH * 0.08, housingW * 0.78, housingH * 0.56, 8);
+          let pulse = 1 + (state.packagePulse || 0) * 0.25;
+          push();
+          translate(0, -housingH * 0.1);
+          rotate(frameCount / 18);
+          fill('#facc15');
+          rect(0, 0, housingW * 0.26 * pulse, housingW * 0.26 * pulse, 6);
+          pop();
+          push();
+          translate(0, -housingH * 0.1);
+          rotate(-frameCount / 24);
+          stroke('#fde68a');
+          strokeWeight(2);
+          noFill();
+          rect(0, 0, housingW * 0.4, housingW * 0.4, 9);
+          pop();
+          noStroke();
+          fill('#f59e0b');
+          let gaugeHeight = housingH * 0.58 * constrain(state.packageProgress || 0, 0, 1);
+          rect(-housingW * 0.34, housingH * 0.12 - gaugeHeight / 2, housingW * 0.16, gaugeHeight, 4);
+          pop();
+          let packagesVisible = Math.min(4, Math.floor(powderCounts[1] || 0));
+          for (let i = 0; i < packagesVisible; i++) {
+            let stackX = panelW * 0.48;
+            let stackY = panelH * 0.16 - i * panelH * 0.08;
+            fill('#f2b066');
+            rect(stackX, stackY, panelW * 0.16, panelH * 0.08, 4);
+            fill('#c08457');
+            rect(stackX, stackY - panelH * 0.02, panelW * 0.1, panelH * 0.04, 3);
+          }
         }
         pop();
       }
@@ -851,13 +1021,24 @@
           let bodyH = panelH * 0.42;
           fill('#1f2a40');
           rect(0, 0, bodyW, bodyH, 6);
-          fill('#334c7a');
+          let fueling = pod.fueling && pod.launch === 0;
+          fill(fueling ? '#2563eb' : '#334c7a');
           rect(0, -bodyH * 0.2, bodyW * 0.78, bodyH * 0.48, 4);
           let fuelHeight = constrain(pod.progress, 0, 1) * bodyH * 0.6;
           fill('#f59e0b');
           rect(0, bodyH * 0.12 - fuelHeight / 2, bodyW * 0.6, fuelHeight, 2);
           fill('#9ca3af');
           rect(0, -bodyH * 0.55, bodyW * 0.52, bodyH * 0.26, 4);
+          if (fueling) {
+            push();
+            translate(0, -bodyH * 0.18);
+            rotate(frameCount / 14 + i);
+            stroke('#fcd34d');
+            strokeWeight(2);
+            noFill();
+            rect(0, 0, bodyW * 0.46, bodyW * 0.46, 6);
+            pop();
+          }
           if (pod.launch > 0) {
             let flame = (Math.sin(frameCount / 3 + i) * 0.2 + 1) * bodyH * 0.22;
             fill('#fb923c');
@@ -868,6 +1049,85 @@
           }
           pop();
         }
+        let queue = Math.min(6, Math.floor((powderCounts[1] || 0) / 5));
+        for (let i = 0; i < queue; i++) {
+          let qx = -panelW * 0.48;
+          let qy = panelH * 0.24 - i * panelH * 0.08;
+          fill('#f2b066');
+          rect(qx, qy, panelW * 0.14, panelH * 0.08, 4);
+          fill('#c08457');
+          rect(qx, qy - panelH * 0.02, panelW * 0.08, panelH * 0.04, 3);
+        }
+        pop();
+      }
+
+      function drawAsteroidModule(context) {
+        let { center, panelW, panelH } = context;
+        let state = moduleStates.asteroid;
+        if (!state) return;
+        push();
+        translate(center.x, center.y);
+        fill('#0d1527');
+        rect(0, 0, panelW * 0.86, panelH * 0.68, 12);
+        stroke('#1e293b');
+        strokeWeight(2);
+        noFill();
+        ellipse(0, 0, panelW * 0.62, panelH * 0.44);
+        ellipse(0, 0, panelW * 0.44, panelH * 0.3);
+        noStroke();
+        fill('#1f2937');
+        rect(0, 0, panelW * 0.32, panelW * 0.32, 10);
+        fill('#94a3b8');
+        rect(0, 0, panelW * 0.16, panelW * 0.16, 6);
+        let baseAngle = state.ring || 0;
+        for (let fragment of state.fragments || []) {
+          let angle = baseAngle + fragment.angle;
+          let radiusX = panelW * fragment.radius;
+          let radiusY = panelH * fragment.radius * 0.6;
+          let x = Math.cos(angle) * radiusX;
+          let y = Math.sin(angle) * radiusY;
+          let size = Math.max(4, panelW * 0.08 * fragment.life);
+          fill(withAlpha('#e2e8f0', fragment.life * 220));
+          rect(x, y, size, size * 0.8, 4);
+        }
+        drawModuleProgressBar(0, panelH * 0.3, panelW * 0.6, state.progress || 0, '#94a3b8');
+        pop();
+      }
+
+      function drawPlanetModule(context) {
+        let { center, panelW, panelH } = context;
+        let state = moduleStates.planet;
+        if (!state) return;
+        push();
+        translate(center.x, center.y);
+        fill('#0c1729');
+        rect(0, 0, panelW * 0.88, panelH * 0.68, 12);
+        let spin = state.spin || 0;
+        let planetSize = panelW * 0.28;
+        noStroke();
+        fill('#102a44');
+        rect(0, 0, planetSize * 1.6, planetSize, planetSize * 0.6);
+        push();
+        rotate(spin);
+        fill('#38bdf8');
+        rect(0, 0, planetSize * 1.2, planetSize * 1.2, planetSize * 0.6);
+        pop();
+        stroke('#22d3ee');
+        strokeWeight(2);
+        noFill();
+        ellipse(0, 0, planetSize * 2.6, planetSize * 1.8);
+        noStroke();
+        for (let orbiter of state.orbiters || []) {
+          let angle = orbiter.angle || 0;
+          let radiusX = panelW * orbiter.radius;
+          let radiusY = panelH * orbiter.radius * 0.6;
+          let x = Math.cos(angle) * radiusX;
+          let y = Math.sin(angle) * radiusY;
+          let size = Math.max(4, panelW * 0.08 * orbiter.life);
+          fill(withAlpha('#f8fafc', orbiter.life * 220));
+          rect(x, y, size, size, 4);
+        }
+        drawModuleProgressBar(0, panelH * 0.32, panelW * 0.6, state.progress || 0, '#38bdf8');
         pop();
       }
 
@@ -876,23 +1136,23 @@
         let state = moduleStates.forge;
         push();
         translate(center.x, center.y);
-        fill('#1a0f25');
-        rect(0, panelH * 0.24, panelW * 0.82, panelH * 0.26, 10);
-        fill('#c084fc');
-        rect(0, -panelH * 0.02, panelW * 0.32, panelH * 0.2, 8);
-        let glow = panelW * 0.2 + Math.sin(frameCount / 12) * panelW * 0.02;
-        fill('#f97316');
-        rect(0, 0, glow, glow, 6);
+        fill('#120b1f');
+        rect(0, panelH * 0.24, panelW * 0.82, panelH * 0.28, 10);
+        let corona = 1 + Math.sin((state && state.corona) || 0) * 0.08;
+        fill('#fde68a');
+        rect(0, -panelH * 0.04, panelW * 0.32 * corona, panelW * 0.32 * corona, 12);
+        fill('#fcd34d');
+        rect(0, -panelH * 0.04, panelW * 0.2 * corona, panelW * 0.2 * corona, 8);
         if (state) {
           for (let pulse of state.pulses) {
-            let radius = panelW * 0.16 + (1 - pulse.life) * panelW * 0.24;
+            let radius = panelW * 0.18 + (1 - pulse.life) * panelW * 0.28;
             let size = Math.max(6, panelW * 0.08 * pulse.life);
             let x = Math.cos(pulse.angle) * radius;
             let y = Math.sin(pulse.angle) * radius * 0.6;
             fill(withAlpha('#fbbf24', pulse.life * 220));
             rect(x, y, size, size, 4);
           }
-          drawModuleProgressBar(0, panelH * 0.3, panelW * 0.6, state.progress, '#f97316');
+          drawModuleProgressBar(0, panelH * 0.3, panelW * 0.6, state.progress || 0, '#fde68a');
         }
         pop();
       }
@@ -961,12 +1221,13 @@
         translate(center.x, center.y);
         fill('#050910');
         rect(0, 0, panelW * 0.86, panelH * 0.7, 14);
+        let halo = 1 + Math.sin((state.halo || 0)) * 0.08;
         stroke('#fb7185');
         strokeWeight(2);
         noFill();
-        ellipse(0, 0, panelW * 0.64, panelH * 0.46);
+        ellipse(0, 0, panelW * 0.64 * halo, panelH * 0.46 * halo);
         stroke('#38bdf8');
-        ellipse(0, 0, panelW * 0.5, panelH * 0.36);
+        ellipse(0, 0, panelW * 0.5 * halo, panelH * 0.36 * halo);
         noStroke();
         fill('#0f172a');
         rect(0, 0, panelW * 0.24, panelW * 0.24, 6);
@@ -981,7 +1242,7 @@
           fill(withAlpha('#fde68a', shard.life * 220));
           rect(x, y, size, size, 3);
         }
-        drawModuleProgressBar(0, panelH * 0.34, panelW * 0.6, state.progress, '#fb7185');
+        drawModuleProgressBar(0, panelH * 0.34, panelW * 0.6, state.progress || 0, '#fb7185');
         pop();
       }
 
@@ -1196,14 +1457,18 @@
             return !!tierUpgrades[0];
           case 'rocket':
             return !!tierUpgrades[1];
-          case 'forge':
+          case 'asteroid':
             return !!tierUpgrades[2];
-          case 'galaxy':
+          case 'planet':
             return !!tierUpgrades[3];
-          case 'universe':
+          case 'forge':
             return !!tierUpgrades[4];
-          case 'singularity':
+          case 'galaxy':
             return !!tierUpgrades[5];
+          case 'universe':
+            return !!tierUpgrades[6];
+          case 'singularity':
+            return !!tierUpgrades[7];
           default:
             return false;
         }
@@ -1496,6 +1761,12 @@
           case 'rocket':
             drawRocketMenu(contentY);
             break;
+          case 'asteroid':
+            drawAsteroidMenu(contentY);
+            break;
+          case 'planet':
+            drawPlanetMenu(contentY);
+            break;
           case 'forge':
             drawForgeMenu(contentY);
             break;
@@ -1660,6 +1931,18 @@
         y = drawSpecificUpgradeRow(['refinery'], y + scaledY(10));
         y = drawSectionHeader('Launch Status', y + scaledY(12));
         y = drawRocketStatus(y + scaledY(12));
+        return y;
+      }
+
+      function drawAsteroidMenu(y) {
+        y = drawSectionHeader('Crucible Report', y);
+        y = drawAsteroidStatus(y + scaledY(12));
+        return y;
+      }
+
+      function drawPlanetMenu(y) {
+        y = drawSectionHeader('Planetary Ledger', y);
+        y = drawPlanetStatus(y + scaledY(12));
         return y;
       }
 
@@ -2172,9 +2455,9 @@
         let center = menuContentArea.center || SCREEN_W / 2;
         fill('#cbd5f5');
         textSize(scaledFont(11));
-        text('Conveyors deliver new sand blocks on their own cadence.', center, y);
-        text('Click the module to rush an extra shipment.', center, y + scaledY(16));
-        text('Gravity Well upgrades increase belt speed.', center, y + scaledY(32));
+        text('Conveyors sweep stray grains into the packager.', center, y);
+        text(`Every ${CHAIN_REQUIREMENT} grains bundles a fresh package.`, center, y + scaledY(16));
+        text('Click the module to jolt the belt and draw faster.', center, y + scaledY(32));
         textSize(scaledFont(14));
         return y + scaledY(48);
       }
@@ -2191,8 +2474,30 @@
         }
         let ready = state.pods.filter((pod) => pod.progress >= 1 && pod.launch === 0).length;
         text(`Pads fueled: ${ready}/${state.pods.length}`, center, y);
-        text('Tap the bay to fuel faster launches.', center, y + scaledY(16));
-        text('Refinery upgrades amplify cargo yield.', center, y + scaledY(32));
+        text(`Packages on hand: ${powderCounts[1] || 0}`, center, y + scaledY(16));
+        text(`Tap the bay to hasten the ${CHAIN_REQUIREMENT}-to-1 fueling cycle.`, center, y + scaledY(32));
+        textSize(scaledFont(14));
+        return y + scaledY(48);
+      }
+
+      function drawAsteroidStatus(y) {
+        let center = menuContentArea.center || SCREEN_W / 2;
+        fill('#cbd5f5');
+        textSize(scaledFont(11));
+        text(`Launches awaiting compression: ${powderCounts[2] || 0}`, center, y);
+        text(`Asteroids in storage: ${powderCounts[3] || 0}`, center, y + scaledY(16));
+        text('Strike the crucible to rattle loose extra rubble.', center, y + scaledY(32));
+        textSize(scaledFont(14));
+        return y + scaledY(48);
+      }
+
+      function drawPlanetStatus(y) {
+        let center = menuContentArea.center || SCREEN_W / 2;
+        fill('#cbd5f5');
+        textSize(scaledFont(11));
+        text(`Asteroids swirling: ${powderCounts[3] || 0}`, center, y);
+        text(`Planets formed: ${powderCounts[4] || 0}`, center, y + scaledY(16));
+        text('Stabilize orbits by tapping the module rhythmically.', center, y + scaledY(32));
         textSize(scaledFont(14));
         return y + scaledY(48);
       }
@@ -2201,16 +2506,17 @@
         let center = menuContentArea.center || SCREEN_W / 2;
         fill('#cbd5f5');
         textSize(scaledFont(11));
-        text(`Diamonds awaiting collapse: ${powderCounts[5] || 0}`, center, y);
-        text(`Crystallized cores: ${crystalCores}`, center, y + scaledY(16));
+        text(`Universes awaiting collapse: ${powderCounts[7] || 0}`, center, y);
+        text(`Singularities forged: ${powderCounts[8] || 0}`, center, y + scaledY(16));
+        text(`Crystallized cores: ${crystalCores}`, center, y + scaledY(32));
         let coreBoost = Math.round(milestoneBonuses.core * getMilestoneBonusScale() * 100);
         if (coreBoost > 0) {
-          text(`Codex bonus: +${coreBoost}% core yield`, center, y + scaledY(32));
+          text(`Codex bonus: +${coreBoost}% core yield`, center, y + scaledY(48));
         } else {
-          text('Strike the crucible to channel fresh cores.', center, y + scaledY(32));
+          text('Strike the crucible to channel fresh cores.', center, y + scaledY(48));
         }
         textSize(scaledFont(14));
-        return y + scaledY(46);
+        return y + scaledY(62);
       }
 
       function drawDropButton(compact = false) {
@@ -2301,6 +2607,12 @@
           case 'rocket':
             boostRockets();
             break;
+          case 'asteroid':
+            crackAsteroidCrucible();
+            break;
+          case 'planet':
+            tunePlanetarium();
+            break;
           case 'forge':
             hammerForge();
             break;
@@ -2333,7 +2645,43 @@
         if (!state || !state.pods) return;
         for (let pod of state.pods) {
           if (pod.launch > 0) continue;
-          pod.progress = Math.min(1, pod.progress + 0.28);
+          if (!pod.fueling && powderCounts[1] >= CHAIN_REQUIREMENT) {
+            powderCounts[1] -= CHAIN_REQUIREMENT;
+            pod.fueling = true;
+            pod.progress = 0;
+          }
+          if (pod.fueling) {
+            pod.progress = Math.min(1, pod.progress + 0.35);
+          }
+        }
+      }
+
+      function crackAsteroidCrucible() {
+        let state = moduleStates.asteroid;
+        if (!state) return;
+        state.progress = Math.min(1, (state.progress || 0) + 0.35);
+        if (state.fragments) {
+          state.fragments.push({
+            life: 1,
+            angle: Math.random() * TAU,
+            drift: random(0.6, 1.4),
+            radius: random(0.16, 0.32)
+          });
+        }
+      }
+
+      function tunePlanetarium() {
+        let state = moduleStates.planet;
+        if (!state) return;
+        state.progress = Math.min(1, (state.progress || 0) + 0.32);
+        state.spin = (state.spin || 0) + 0.4;
+        if (state.orbiters) {
+          state.orbiters.push({
+            life: 0.8,
+            angle: Math.random() * TAU,
+            radius: random(0.18, 0.3),
+            speed: random(0.8, 1.4)
+          });
         }
       }
 
@@ -2529,14 +2877,7 @@
         autoCompressTimer = 0;
         activeMenu = menuTabs[0].key;
         fullscreenModule = null;
-        moduleStates = {
-          conveyor: { grains: [], spawnTimer: 0 },
-          rocket: { pods: [] },
-          forge: { progress: 0, pulses: [] },
-          galaxy: { progress: 0, angle: 0, pixels: [] },
-          universe: { progress: 0, angle: 0, nodes: [] },
-          singularity: { progress: 0, shards: [], orbit: 0 }
-        };
+        moduleStates = createDefaultModuleStates();
         updateLayoutDimensions(true);
         refreshPowderGrid(true);
       }
