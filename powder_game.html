@@ -153,11 +153,13 @@
         }
 
         // Drop powder button
-        let bx = SCREEN_W - 60, by = POWDER_AREA_H + MENU_H - 50;
-        let btnW = 80, btnH = 40;
+        let bx = SCREEN_W - 60,
+          by = POWDER_AREA_H + MENU_H - 50,
+          dropBtnW = 80,
+          dropBtnH = 40;
         if (
-          mouseX > bx - btnW / 2 && mouseX < bx + btnW / 2 &&
-          mouseY > by - btnH / 2 && mouseY < by + btnH / 2
+          mouseX > bx - dropBtnW / 2 && mouseX < bx + dropBtnW / 2 &&
+          mouseY > by - dropBtnH / 2 && mouseY < by + dropBtnH / 2
         ) {
           dropPowder(selectedPowder);
         }
