@@ -1,0 +1,118 @@
+{
+  "strataLayers": [
+    {
+      "key": "surface",
+      "name": "Surface Crust",
+      "requirement": 160,
+      "dustBonus": 0.06,
+      "gravityBonus": 0.05,
+      "color": "#1f2937",
+      "description": "Stabilize the loose crust to focus the fall."
+    },
+    {
+      "key": "basalt",
+      "name": "Basalt Vein",
+      "requirement": 420,
+      "dustBonus": 0.08,
+      "gravityBonus": 0.08,
+      "color": "#111c2d",
+      "description": "Dense basalt channels powders into tighter streams."
+    },
+    {
+      "key": "shimmer",
+      "name": "Shimmer Cavern",
+      "requirement": 900,
+      "dustBonus": 0.14,
+      "gravityBonus": 0.12,
+      "color": "#2c1b47",
+      "description": "Glittering caverns hum with resonant dust currents."
+    },
+    {
+      "key": "mantle",
+      "name": "Aether Mantle",
+      "requirement": 1600,
+      "dustBonus": 0.22,
+      "gravityBonus": 0.18,
+      "color": "#3b185f",
+      "description": "Liquid aether bends gravity toward your funnels."
+    },
+    {
+      "key": "spire",
+      "name": "Stellar Spire",
+      "requirement": 2400,
+      "dustBonus": 0.28,
+      "gravityBonus": 0.22,
+      "color": "#36155a",
+      "description": "A needle of stardust concentrates every grain that falls."
+    },
+    {
+      "key": "abyss",
+      "name": "Chrono Abyss",
+      "requirement": 3600,
+      "dustBonus": 0.34,
+      "gravityBonus": 0.26,
+      "color": "#250f43",
+      "description": "Time coils inward, dragging matter toward the crucible."
+    }
+  ],
+  "milestones": [
+    {
+      "key": "artisan",
+      "name": "Artisan's Rhythm",
+      "resource": "dust",
+      "requirement": 250,
+      "description": "Unlock auto dropper toggles to keep the jar raining.",
+      "reward": "Auto drop enabled",
+      "type": "unlockAutoDrop"
+    },
+    {
+      "key": "engine",
+      "name": "Clockwork Engine",
+      "resource": "dust",
+      "requirement": 1200,
+      "description": "Unlock automated compression routines.",
+      "reward": "Auto compression enabled",
+      "type": "unlockAutoCompress"
+    },
+    {
+      "key": "gravityPulse",
+      "name": "Gravity Pulse",
+      "resource": "dust",
+      "requirement": 2800,
+      "description": "Amplify the pull within the jar for faster settling.",
+      "reward": "+15% global gravity",
+      "type": "gravityBonus",
+      "magnitude": 0.15
+    },
+    {
+      "key": "dustBloom",
+      "name": "Dust Bloom",
+      "resource": "dust",
+      "requirement": 5200,
+      "description": "Crystallize stray grains into useful dust.",
+      "reward": "+18% dust yield",
+      "type": "dustBonus",
+      "magnitude": 0.18
+    },
+    {
+      "key": "chronicle",
+      "name": "Chronicle of Echoes",
+      "resource": "dust",
+      "requirement": 9000,
+      "description": "Record your discoveries to unlock the codex.",
+      "reward": "Codex tab + automation boost",
+      "type": "codexUnlock",
+      "magnitude": 0.25
+    },
+    {
+      "key": "coreForge",
+      "name": "Core Forge",
+      "resource": "cores",
+      "requirement": 24,
+      "description": "Channel singularity cores to enrich future cores.",
+      "reward": "+20% crystal yield",
+      "type": "coreBonus",
+      "magnitude": 0.2
+    }
+  ]
+}

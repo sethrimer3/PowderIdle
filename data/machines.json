@@ -1,0 +1,64 @@
+{
+  "definitions": [
+    {
+      "key": "jar",
+      "name": "Sandfall Jar",
+      "description": "The heart of your atelier.",
+      "grid": { "col": 1, "row": 1, "width": 1, "height": 1 }
+    },
+    {
+      "key": "conveyor",
+      "name": "Grain Conveyor",
+      "description": "Carries grains into the world.",
+      "grid": { "col": 1, "row": 2, "width": 1, "height": 1 }
+    },
+    {
+      "key": "rocket",
+      "name": "Launch Bay",
+      "description": "Loads rockets with dense sand.",
+      "grid": { "col": 0, "row": 2, "width": 1, "height": 1 }
+    },
+    {
+      "key": "forge",
+      "name": "Stellar Forge",
+      "description": "Compresses matter into celestial bodies.",
+      "grid": { "col": 0, "row": 0, "width": 1, "height": 1 }
+    },
+    {
+      "key": "galaxy",
+      "name": "Celestial Loom",
+      "description": "Spins stars into galaxies.",
+      "grid": { "col": 1, "row": 0, "width": 1, "height": 1 }
+    },
+    {
+      "key": "universe",
+      "name": "Universe Foundry",
+      "description": "Weaves galaxies into universes.",
+      "grid": { "col": 2, "row": 0, "width": 1, "height": 1 }
+    },
+    {
+      "key": "singularity",
+      "name": "Singularity Crucible",
+      "description": "Collapses universes into singularities.",
+      "grid": { "col": 2, "row": 1, "width": 1, "height": 1 }
+    }
+  ],
+  "connections": [
+    { "from": "jar", "to": "conveyor" },
+    { "from": "conveyor", "to": "rocket" },
+    { "from": "rocket", "to": "forge" },
+    { "from": "forge", "to": "galaxy" },
+    { "from": "galaxy", "to": "universe" },
+    { "from": "universe", "to": "singularity" }
+  ],
+  "menuTabs": [
+    { "key": "jar", "label": "Sandfall", "machine": "jar" },
+    { "key": "conveyor", "label": "Conveyor", "machine": "conveyor" },
+    { "key": "rocket", "label": "Launch Bay", "machine": "rocket" },
+    { "key": "forge", "label": "Forge", "machine": "forge" },
+    { "key": "galaxy", "label": "Galaxies", "machine": "galaxy" },
+    { "key": "universe", "label": "Universe", "machine": "universe" },
+    { "key": "singularity", "label": "Singularity", "machine": "singularity" },
+    { "key": "codex", "label": "Codex", "requiresMilestone": "chronicle" }
+  ]
+}

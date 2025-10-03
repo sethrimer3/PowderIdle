@@ -1,0 +1,26 @@
+{
+  "types": [
+    { "key": "sand", "name": "Sand", "color": "#e7c97a", "size": 1 },
+    { "key": "stone", "name": "Stone", "color": "#888888", "size": 2 },
+    { "key": "bronze", "name": "Bronze", "color": "#b08d57", "size": 3 },
+    { "key": "silver", "name": "Silver", "color": "#c0c0c0", "size": 4 },
+    { "key": "gold", "name": "Gold", "color": "#ffdd55", "size": 5 },
+    { "key": "diamond", "name": "Diamond", "color": "#3de6e1", "size": 6 },
+    { "key": "void", "name": "Void Crystal", "color": "#c084fc", "size": 7 },
+    { "key": "mythril", "name": "Mythril", "color": "#6bb6ff", "size": 8 },
+    { "key": "ember", "name": "Sunforge Ember", "color": "#ff8a4c", "size": 9 },
+    { "key": "singularity", "name": "Singularity Core", "color": "#f8f99c", "size": 10 }
+  ],
+  "tierUnlockCosts": [10, 25, 80, 220, 650, 1800, 5200, 15000, 42000],
+  "compressionRecipes": [
+    { "from": 0, "to": 1, "baseCost": 15, "output": 1 },
+    { "from": 1, "to": 2, "baseCost": 12, "output": 1 },
+    { "from": 2, "to": 3, "baseCost": 10, "output": 1 },
+    { "from": 3, "to": 4, "baseCost": 8, "output": 1 },
+    { "from": 4, "to": 5, "baseCost": 6, "output": 1 },
+    { "from": 5, "to": 6, "baseCost": 5, "output": 1 },
+    { "from": 6, "to": 7, "baseCost": 4, "output": 1 },
+    { "from": 7, "to": 8, "baseCost": 3, "output": 1 },
+    { "from": 8, "to": 9, "baseCost": 2, "output": 1 }
+  ]
+}
