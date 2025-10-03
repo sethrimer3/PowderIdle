@@ -4374,12 +4374,12 @@
         let indices = getUnlockedIndices();
         if (indices.length === 0) return y;
         let availableWidth = menuContentArea.width || SCREEN_W - scaledX(80);
-        let spacingX = scaledX(8);
-        let spacingY = scaledY(8);
+        let spacingX = scaledX(6);
+        let spacingY = scaledY(6);
         let minColumns = indices.length === 1 ? 1 : 2;
         let maxColumns = Math.min(4, indices.length);
         let columns = minColumns;
-        let minSize = scaledX(60);
+        let minSize = scaledX(42);
         for (let c = maxColumns; c >= minColumns; c--) {
           let candidate = (availableWidth - spacingX * (c - 1)) / c;
           if (candidate >= minSize) {
@@ -4388,7 +4388,7 @@
           }
         }
         let btnSize = Math.min(
-          scaledX(96),
+          scaledX(64),
           (availableWidth - spacingX * (columns - 1)) / columns
         );
         let rows = Math.ceil(indices.length / columns);
@@ -4400,7 +4400,7 @@
           let rowWidth = rowCount * btnSize + Math.max(0, rowCount - 1) * spacingX;
           let startX = centerX - rowWidth / 2 + btnSize / 2;
           let centerY = currentTop + btnSize / 2;
-          textSize(scaledFont(12));
+          textSize(scaledFont(8));
           for (let i = 0; i < rowIndices.length; i++) {
             let powderIndex = rowIndices[i];
             let x = startX + i * (btnSize + spacingX);
@@ -4410,7 +4410,7 @@
               active: isSelected,
               accentColor: baseColor,
               baseColor: mixColors(baseColor, '#0b1220', 0.7),
-              radius: Math.min(12, btnSize / 2)
+              radius: Math.min(10, btnSize / 2)
             });
             push();
             textAlign(CENTER, CENTER);
@@ -4419,8 +4419,8 @@
               powderTypes[powderIndex].name,
               x,
               centerY,
-              btnSize - scaledX(12),
-              btnSize - scaledY(12)
+              btnSize - scaledX(10),
+              btnSize - scaledY(10)
             );
             pop();
             addButton(
@@ -4442,50 +4442,56 @@
       }
 
       function drawTierUpgradeRow(y) {
-        let rowWidth = menuContentArea.width || SCREEN_W - scaledX(80);
-        let btnW = Math.min(
-          scaledX(110),
-          Math.max(
-            scaledX(70),
-            rowWidth / Math.max(1, tierUnlockCosts.length) - scaledX(10)
-          )
-        );
-        let btnH = scaledY(30);
-        let xs = getRowPositions(tierUnlockCosts.length);
-        textSize(scaledFont(11));
+        let availableWidth = menuContentArea.width || SCREEN_W - scaledX(80);
+        let centerX = menuContentArea.center || SCREEN_W / 2;
+        let btnSize = Math.min(scaledX(64), availableWidth);
+        let spacingY = scaledY(12);
+        textSize(scaledFont(9));
         for (let i = 0; i < tierUnlockCosts.length; i++) {
-          let x = xs[i];
           let cost = tierUnlockCosts[i];
           let canUpgrade = powderCounts[i] >= cost && !tierUpgrades[i];
-          drawNeonButton(x, y, btnW, btnH, {
+          let centerY = y + btnSize / 2 + i * (btnSize + spacingY);
+          drawNeonButton(centerX, centerY, btnSize, btnSize, {
             active: tierUpgrades[i],
             enabled: canUpgrade || tierUpgrades[i],
             accentColor: '#34d399',
             baseColor: '#16323f',
-            radius: 10
+            radius: Math.min(10, btnSize / 2)
           });
           fill('#e0f2f1');
-          text(
-            tierUpgrades[i]
-              ? `${powderTypes[i + 1].name} unlocked`
-              : `Unlock ${powderTypes[i + 1].name} (-${cost})`,
-            x,
-            y
-          );
+          push();
+          textAlign(CENTER, CENTER);
+          if (tierUpgrades[i]) {
+            textSize(scaledFont(9));
+            text(powderTypes[i + 1].name, centerX, centerY - scaledY(8));
+            textSize(scaledFont(8));
+            text('Unlocked', centerX, centerY + scaledY(6));
+          } else {
+            textSize(scaledFont(8));
+            text('Unlock', centerX, centerY - scaledY(12));
+            textSize(scaledFont(9));
+            text(powderTypes[i + 1].name, centerX, centerY);
+            textSize(scaledFont(8));
+            text(`-${cost}`, centerX, centerY + scaledY(12));
+          }
+          pop();
           addButton(
             {
               action: 'tierUpgrade',
               index: i,
-              x,
-              y,
-              w: btnW,
-              h: btnH
+              x: centerX,
+              y: centerY,
+              w: btnSize,
+              h: btnSize
             },
             { scrollAware: true }
           );
         }
         textSize(scaledFont(14));
-        return y + scaledY(34);
+        let totalHeight =
+          tierUnlockCosts.length * btnSize +
+          Math.max(0, tierUnlockCosts.length - 1) * spacingY;
+        return y + totalHeight;
       }
 
       function drawAutoDropperRow(y) {
