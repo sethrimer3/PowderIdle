@@ -37,7 +37,7 @@
       let SCREEN_H = BASE_SCREEN_H;
       let MENU_H = SCREEN_H / 3;
       let POWDER_AREA_H = SCREEN_H - MENU_H;
-      let powderSize = 6;
+      let cellPixelSize = 6;
       let layoutScaleX = 1;
       let layoutScaleY = 1;
       let canvas;
@@ -48,23 +48,33 @@
 
       // Powder tiers and recipes
       const powderTypes = [
-        { name: "Sand", color: "#e7c97a", dustValue: 1 },
-        { name: "Stone", color: "#888888", dustValue: 6 },
-        { name: "Diamond", color: "#3de6e1", dustValue: 30 },
-        { name: "Void Crystal", color: "#c084fc", dustValue: 120 },
-        { name: "Mythril", color: "#6bb6ff", dustValue: 420 },
-        { name: "Sunforge Ember", color: "#ff8a4c", dustValue: 1500 },
-        { name: "Singularity Core", color: "#f8f99c", dustValue: 5200 }
+        { name: "Sand", color: "#e7c97a", size: 1 },
+        { name: "Stone", color: "#888888", size: 2 },
+        { name: "Bronze", color: "#b08d57", size: 3 },
+        { name: "Silver", color: "#c0c0c0", size: 4 },
+        { name: "Gold", color: "#ffdd55", size: 5 },
+        { name: "Diamond", color: "#3de6e1", size: 6 },
+        { name: "Void Crystal", color: "#c084fc", size: 7 },
+        { name: "Mythril", color: "#6bb6ff", size: 8 },
+        { name: "Sunforge Ember", color: "#ff8a4c", size: 9 },
+        { name: "Singularity Core", color: "#f8f99c", size: 10 }
       ];
+      for (let type of powderTypes) {
+        type.dustValue = type.size * type.size;
+      }
+      const MAX_POWDER_SIZE = Math.max(...powderTypes.map((type) => type.size));
 
-      const tierUnlockCosts = [10, 25, 80, 220, 650, 1800];
+      const tierUnlockCosts = [10, 25, 80, 220, 650, 1800, 5200, 15000, 42000];
       const compressionRecipes = [
         { from: 0, to: 1, baseCost: 15, output: 1 },
-        { from: 1, to: 2, baseCost: 10, output: 1 },
-        { from: 2, to: 3, baseCost: 6, output: 1 },
-        { from: 3, to: 4, baseCost: 5, output: 1 },
-        { from: 4, to: 5, baseCost: 4, output: 1 },
-        { from: 5, to: 6, baseCost: 3, output: 1 }
+        { from: 1, to: 2, baseCost: 12, output: 1 },
+        { from: 2, to: 3, baseCost: 10, output: 1 },
+        { from: 3, to: 4, baseCost: 8, output: 1 },
+        { from: 4, to: 5, baseCost: 6, output: 1 },
+        { from: 5, to: 6, baseCost: 5, output: 1 },
+        { from: 6, to: 7, baseCost: 4, output: 1 },
+        { from: 7, to: 8, baseCost: 3, output: 1 },
+        { from: 8, to: 9, baseCost: 2, output: 1 }
       ];
 
       const upgradeConfigs = [
@@ -211,6 +221,112 @@
       let gridCols = 0;
       let gridRows = 0;
 
+      function getPowderSizeByType(type) {
+        if (!powderTypes[type]) return 1;
+        return powderTypes[type].size;
+      }
+
+      function getPowderSize(powder) {
+        return getPowderSizeByType(powder.type);
+      }
+
+      function createEmptyGrid() {
+        grid = Array.from({ length: gridRows }, () =>
+          new Array(gridCols).fill(null)
+        );
+      }
+
+      function occupyPowderCells(powder) {
+        let size = getPowderSize(powder);
+        for (let r = 0; r < size; r++) {
+          for (let c = 0; c < size; c++) {
+            let row = powder.row + r;
+            let col = powder.col + c;
+            if (row >= 0 && row < gridRows && col >= 0 && col < gridCols) {
+              grid[row][col] = powder;
+            }
+          }
+        }
+      }
+
+      function clearPowderCells(powder) {
+        let size = getPowderSize(powder);
+        for (let r = 0; r < size; r++) {
+          for (let c = 0; c < size; c++) {
+            let row = powder.row + r;
+            let col = powder.col + c;
+            if (row >= 0 && row < gridRows && col >= 0 && col < gridCols) {
+              if (grid[row][col] === powder) {
+                grid[row][col] = null;
+              }
+            }
+          }
+        }
+      }
+
+      function canOccupy(row, col, size, ignorePowder = null) {
+        if (row < 0 || col < 0) return false;
+        if (row + size > gridRows || col + size > gridCols) return false;
+        for (let r = 0; r < size; r++) {
+          for (let c = 0; c < size; c++) {
+            let occupant = grid[row + r][col + c];
+            if (occupant && occupant !== ignorePowder) {
+              return false;
+            }
+          }
+        }
+        return true;
+      }
+
+      function clampPowderToBounds(powder) {
+        let size = getPowderSize(powder);
+        if (gridCols <= 0 || gridRows <= 0) return;
+        powder.col = Math.max(0, Math.min(gridCols - size, powder.col));
+        powder.row = Math.max(0, Math.min(gridRows - size, powder.row));
+      }
+
+      function measureOpenDepth(powder, dir) {
+        let size = getPowderSize(powder);
+        let targetCol = powder.col + dir;
+        if (targetCol < 0 || targetCol + size > gridCols) {
+          return -Infinity;
+        }
+        let depth = 0;
+        let stepRow = powder.row;
+        while (stepRow + 1 + size <= gridRows) {
+          if (canOccupy(stepRow + 1, targetCol, size, powder)) {
+            depth++;
+            stepRow++;
+          } else {
+            break;
+          }
+        }
+        let gridCenter = gridCols / 2;
+        let currentCenter = powder.col + size / 2;
+        let newCenter = currentCenter + dir;
+        let centerBias = 0;
+        if (gridCenter > 0) {
+          centerBias = 1 - Math.min(1, Math.abs(newCenter - gridCenter) / gridCenter);
+        }
+        return depth + centerBias * 0.25;
+      }
+
+      function getDirectionalPreference(powder) {
+        let dirs = [-1, 1];
+        dirs.sort((a, b) => measureOpenDepth(powder, b) - measureOpenDepth(powder, a));
+        return dirs;
+      }
+
+      function sampleGaussian(mean, stdDev) {
+        let u = 0;
+        let v = 0;
+        while (u === 0) u = Math.random();
+        while (v === 0) v = Math.random();
+        let mag = Math.sqrt(-2.0 * Math.log(u));
+        let z = mag * Math.cos(2.0 * Math.PI * v);
+        return z * stdDev + mean;
+      }
+
       function setup() {
         updateLayoutDimensions();
         canvas = createCanvas(SCREEN_W, SCREEN_H);
@@ -266,13 +382,13 @@
         rebuildGrid();
         let fallSpeed =
           BASE_FALL_SPEED * getGravityMultiplier() * (deltaTime / 16.67);
-        let fallCells = fallSpeed / powderSize;
+        let fallCells = fallSpeed / cellPixelSize;
         for (let i = powders.length - 1; i >= 0; i--) {
           let p = powders[i];
           p.fallProgress = (p.fallProgress || 0) + fallCells;
-          let moved = false;
           let removed = false;
           while (p.fallProgress >= 1 && !removed) {
+            clearPowderCells(p);
             let moveResult = tryMovePowder(p, i);
             if (moveResult === 'removed') {
               removed = true;
@@ -280,29 +396,16 @@
             }
             if (moveResult) {
               p.fallProgress -= 1;
-              moved = true;
             } else {
               p.fallProgress = 0;
+            }
+            occupyPowderCells(p);
+            if (!moveResult) {
               break;
             }
           }
           if (removed) {
             continue;
-          }
-          if (!moved) {
-            if (p.row >= gridRows - 1) {
-              if (isHoleColumn(p.col)) {
-                grid[p.row][p.col] = false;
-                collectPowder(p);
-                powders.splice(i, 1);
-              } else {
-                collectPowder(p);
-                p.fallProgress = 0;
-              }
-            } else if (grid[p.row + 1][p.col]) {
-              collectPowder(p);
-              p.fallProgress = 0;
-            }
           }
         }
       }
@@ -310,9 +413,12 @@
       function renderPowders() {
         for (let p of powders) {
           fill(powderTypes[p.type].color);
-          let x = (p.col + 0.5) * powderSize;
-          let y = (p.row + 0.5) * powderSize;
-          rect(x, y, powderSize, powderSize, 2);
+          let size = getPowderSize(p);
+          let width = size * cellPixelSize;
+          let x = (p.col + size / 2) * cellPixelSize;
+          let y = (p.row + size / 2) * cellPixelSize;
+          let radius = Math.min(width / 2, Math.max(2, cellPixelSize / 1.5));
+          rect(x, y, width, width, radius);
         }
       }
 
@@ -332,96 +438,86 @@
       }
 
       function tryMovePowder(powder, index) {
-        let currentRow = powder.row;
-        let currentCol = powder.col;
-        let nextRow = currentRow + 1;
-        if (nextRow >= gridRows) {
-          if (isHoleColumn(currentCol)) {
-            grid[currentRow][currentCol] = false;
+        let size = getPowderSize(powder);
+        let nextRow = powder.row + 1;
+        if (nextRow + size > gridRows) {
+          if (isHoleSpan(powder.col, size)) {
             collectPowder(powder);
             powders.splice(index, 1);
             return 'removed';
           }
           return false;
         }
-        if (!grid[nextRow][currentCol]) {
-          grid[currentRow][currentCol] = false;
+        if (canOccupy(nextRow, powder.col, size, powder)) {
           powder.row = nextRow;
-          grid[powder.row][currentCol] = true;
           return true;
         }
-        let directions = Math.random() < 0.5 ? [-1, 1] : [1, -1];
+        let directions = getDirectionalPreference(powder);
         for (let dir of directions) {
-          let newCol = currentCol + dir;
-          if (newCol < 0 || newCol >= gridCols) continue;
-          if (!grid[nextRow][newCol]) {
-            grid[currentRow][currentCol] = false;
-            powder.row = nextRow;
+          let newCol = powder.col + dir;
+          if (newCol < 0 || newCol + size > gridCols) continue;
+          if (canOccupy(nextRow, newCol, size, powder)) {
             powder.col = newCol;
-            grid[powder.row][powder.col] = true;
+            powder.row = nextRow;
             return true;
           }
         }
         return false;
       }
 
-      function isHoleColumn(col) {
+      function isHoleSpan(col, size) {
         if (gridCols <= 0) return false;
-        let width = Math.max(1, Math.min(Math.floor(gridCols / 8), EDGE_HOLE_WIDTH));
+        let baseWidth = Math.max(
+          1,
+          Math.min(Math.floor(gridCols / 8), EDGE_HOLE_WIDTH)
+        );
+        let width = Math.max(size, baseWidth);
         width = Math.min(width, Math.floor(gridCols / 2));
         if (width <= 0) {
           return false;
         }
-        return col < width || col >= gridCols - width;
+        let inLeft = col >= 0 && col + size <= width;
+        let inRight = col >= gridCols - width && col + size <= gridCols;
+        return inLeft || inRight;
       }
 
       function rebuildGrid() {
-        for (let r = 0; r < gridRows; r++) {
-          grid[r] = grid[r] || new Array(gridCols).fill(false);
-          for (let c = 0; c < gridCols; c++) {
-            grid[r][c] = false;
-          }
-        }
+        createEmptyGrid();
         for (let p of powders) {
-          if (
-            p.row >= 0 &&
-            p.row < gridRows &&
-            p.col >= 0 &&
-            p.col < gridCols
-          ) {
-            grid[p.row][p.col] = true;
-          }
+          clampPowderToBounds(p);
+          occupyPowderCells(p);
         }
       }
 
       function refreshPowderGrid(rescale = false) {
         let prevCols = gridCols || 1;
         let prevRows = gridRows || 1;
-        gridCols = Math.max(1, Math.floor(SCREEN_W / powderSize));
-        gridRows = Math.max(1, Math.floor(POWDER_AREA_H / powderSize));
-        grid = Array.from({ length: gridRows }, () =>
-          new Array(gridCols).fill(false)
+        gridCols = Math.max(
+          MAX_POWDER_SIZE,
+          Math.floor(SCREEN_W / cellPixelSize)
         );
+        gridRows = Math.max(
+          MAX_POWDER_SIZE,
+          Math.floor(POWDER_AREA_H / cellPixelSize)
+        );
+        createEmptyGrid();
         for (let p of powders) {
           if (rescale && (prevCols !== gridCols || prevRows !== gridRows)) {
-            let colRatio = prevCols <= 1 ? 0 : p.col / (prevCols - 1);
-            let rowRatio = prevRows <= 1 ? 0 : p.row / (prevRows - 1);
-            p.col = Math.max(
-              0,
-              Math.min(gridCols - 1, Math.round(colRatio * (gridCols - 1)))
-            );
-            p.row = Math.max(
-              0,
-              Math.min(gridRows - 1, Math.round(rowRatio * (gridRows - 1)))
-            );
+            let size = getPowderSize(p);
+            let prevCenterCol = prevCols <= 0 ? 0 : p.col + size / 2;
+            let prevCenterRow = prevRows <= 0 ? 0 : p.row + size / 2;
+            let colRatio = prevCols <= 0 ? 0 : prevCenterCol / prevCols;
+            let rowRatio = prevRows <= 0 ? 0 : prevCenterRow / prevRows;
+            let newCenterCol = colRatio * gridCols;
+            let newCenterRow = rowRatio * gridRows;
+            p.col = Math.round(newCenterCol - size / 2);
+            p.row = Math.round(newCenterRow - size / 2);
           } else {
-            p.col = Math.min(p.col, gridCols - 1);
-            p.row = Math.min(p.row, gridRows - 1);
+            clampPowderToBounds(p);
           }
           p.fallProgress = 0;
-          if (gridRows > 0 && gridCols > 0) {
-            grid[p.row][p.col] = true;
-          }
+          clampPowderToBounds(p);
+          occupyPowderCells(p);
         }
       }
 
@@ -1053,15 +1149,31 @@
         if (gridRows <= 0 || gridCols <= 0) {
           refreshPowderGrid();
         }
-        let x =
-          spawnX === undefined
-            ? random(powderSize / 2, SCREEN_W - powderSize / 2)
-            : constrain(spawnX, powderSize / 2, SCREEN_W - powderSize / 2);
-        let col = constrain(Math.floor(x / powderSize), 0, gridCols - 1);
-        if (grid.length === 0) {
-          refreshPowderGrid();
+        let size = getPowderSizeByType(type);
+        if (gridCols < size || gridRows < size) {
+          return;
         }
-        if (grid[0] && grid[0][col]) {
+        let halfWidth = (size * cellPixelSize) / 2;
+        let centerX;
+        if (spawnX === undefined) {
+          let mean = SCREEN_W / 2;
+          let stdDev = SCREEN_W / 5;
+          let attempts = 0;
+          do {
+            centerX = sampleGaussian(mean, stdDev);
+            attempts++;
+          } while (
+            (centerX < halfWidth || centerX > SCREEN_W - halfWidth) &&
+            attempts < 8
+          );
+          centerX = constrain(centerX, halfWidth, SCREEN_W - halfWidth);
+        } else {
+          centerX = constrain(spawnX, halfWidth, SCREEN_W - halfWidth);
+        }
+        let centerCol = centerX / cellPixelSize;
+        let col = Math.round(centerCol - size / 2);
+        col = Math.max(0, Math.min(gridCols - size, col));
+        if (!canOccupy(0, col, size)) {
           return;
         }
         let powder = {
@@ -1072,9 +1184,7 @@
           collected: false
         };
         powders.push(powder);
-        if (grid[0]) {
-          grid[0][col] = true;
-        }
+        occupyPowderCells(powder);
       }
 
       function unlockTier(index) {
@@ -1305,7 +1415,7 @@
         POWDER_AREA_H = SCREEN_H - MENU_H;
         layoutScaleX = SCREEN_W / BASE_SCREEN_W;
         layoutScaleY = SCREEN_H / BASE_SCREEN_H;
-        powderSize = Math.max(8, Math.round(Math.min(SCREEN_W, POWDER_AREA_H) / 50));
+        cellPixelSize = Math.max(8, Math.round(Math.min(SCREEN_W, POWDER_AREA_H) / 50));
         if (resize && canvas) {
           resizeCanvas(SCREEN_W, SCREEN_H);
         }
