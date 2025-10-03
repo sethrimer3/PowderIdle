@@ -573,14 +573,22 @@
             modules: [],
             queue: [],
             packageBuffer: [],
-            packages: [],
+            packageHistory: [],
+            departures: [],
             spawnTimer: 0,
             deliveryPulse: 0,
             packageProgress: 0,
             packagePulse: 0,
             autoTimer: 0
           },
-          rocket: { pods: [], autoTimer: 0, explosions: [], successPulse: 0 },
+          rocket: {
+            pods: [],
+            autoTimer: 0,
+            explosions: [],
+            successPulse: 0,
+            incoming: [],
+            nextLane: 0
+          },
           asteroid: {
             progress: 0,
             asteroids: [],
@@ -1373,7 +1381,8 @@
           state.modules.length = 0;
           state.queue = [];
           state.packageBuffer = [];
-          state.packages = [];
+          state.packageHistory = [];
+          state.departures = [];
           state.packageProgress = 0;
           state.packagePulse = Math.max(0, (state.packagePulse || 0) - dt * 2.2);
           state.deliveryPulse = Math.max(0, (state.deliveryPulse || 0) - dt * 1.6);
@@ -1411,10 +1420,29 @@
           state.packagePulse = 1;
           state.deliveryPulse = 1;
           let colors = packageGrains.map((grain) => grain.color);
-          state.packages = state.packages || [];
-          state.packages.push({ colors, pulse: 1 });
-          while (state.packages.length > 4) {
-            state.packages.shift();
+          state.packageHistory = state.packageHistory || [];
+          state.packageHistory.push({ colors, pulse: 1 });
+          while (state.packageHistory.length > 4) {
+            state.packageHistory.shift();
+          }
+          let packageWorth = packageGrains.reduce((total, grain) => {
+            let type = grain.type != null ? grain.type : 0;
+            let dustValue =
+              powderTypes[type] && powderTypes[type].dustValue != null
+                ? powderTypes[type].dustValue
+                : 1;
+            return total + dustValue;
+          }, 0);
+          state.departures = state.departures || [];
+          state.departures.push({
+            colors,
+            pulse: 1,
+            progress: 0,
+            worth: packageWorth,
+            rocket: isMachineUnlocked('rocket')
+          });
+          while (state.departures.length > 12) {
+            state.departures.shift();
           }
           let overfillLevel = getUpgradeLevel('conveyorOverfill');
           if (overfillLevel > 0) {
@@ -1437,11 +1465,12 @@
           0,
           (state.deliveryPulse || 0) - dt * 1.6
         );
-        if (state.packages) {
-          for (let pkg of state.packages) {
+        if (state.packageHistory) {
+          for (let pkg of state.packageHistory) {
             pkg.pulse = Math.max(0, (pkg.pulse || 0) - dt * 1.2);
           }
         }
+        updateConveyorDepartures(state, dt, speedBoost);
         runModuleAutomation(state, 'conveyor', dt, 5.5, rushConveyor);
       }
 
@@ -1452,7 +1481,8 @@
         state.modules = state.modules || [];
         state.queue = state.queue || [];
         state.packageBuffer = state.packageBuffer || [];
-        state.packages = state.packages || [];
+        state.packageHistory = state.packageHistory || [];
+        state.departures = state.departures || [];
         state.geometry = {
           holeTop: -0.68,
           beltY: -0.28,
@@ -1490,7 +1520,8 @@
               type: 'belt'
             }
           ],
-          packageSpot: { x: 0.4, y: 0.42 }
+          packageSpot: { x: 0.4, y: 0.42 },
+          packageExit: { x: -0.74, y: 0.34 }
         };
       }
 
@@ -1597,6 +1628,54 @@
         }
       }
 
+      function updateConveyorDepartures(state, dt, speedBoost) {
+        if (!state.geometry) return;
+        state.departures = state.departures || [];
+        let start = state.geometry.packageSpot || { x: 0.4, y: 0.42 };
+        let exit = state.geometry.packageExit || { x: -0.72, y: start.y - 0.08 };
+        let moveSpeed = 0.42 + speedBoost * 0.18;
+        for (let i = state.departures.length - 1; i >= 0; i--) {
+          let pkg = state.departures[i];
+          pkg.progress = (pkg.progress || 0) + dt * moveSpeed;
+          pkg.pulse = Math.max(0, (pkg.pulse || 0) - dt * 1.4);
+          let completed = pkg.progress >= 1;
+          if (!completed) {
+            continue;
+          }
+          if (pkg.rocket) {
+            registerRocketArrival(pkg);
+          } else {
+            let payout = Math.round((pkg.worth || 0) * 100 * getDustMultiplier());
+            if (payout > 0) {
+              dust += payout;
+              totalDustEarned += payout;
+            }
+          }
+          state.departures.splice(i, 1);
+        }
+      }
+
+      function registerRocketArrival(pkg) {
+        let rocketState = moduleStates && moduleStates.rocket;
+        if (!rocketState) return;
+        rocketState.incoming = rocketState.incoming || [];
+        let laneCount =
+          rocketState.pods && rocketState.pods.length > 0
+            ? rocketState.pods.length
+            : 3;
+        let lane = rocketState.nextLane || 0;
+        rocketState.nextLane = (lane + 1) % laneCount;
+        rocketState.incoming.push({
+          colors: pkg.colors,
+          pulse: 1,
+          progress: 0,
+          lane
+        });
+        while (rocketState.incoming.length > 8) {
+          rocketState.incoming.shift();
+        }
+      }
+
       function smoothStep(t) {
         let clamped = constrain(t, 0, 1);
         return clamped * clamped * (3 - 2 * clamped);
@@ -1612,6 +1691,15 @@
         }
         state.explosions = state.explosions || [];
         state.successPulse = Math.max(0, (state.successPulse || 0) - dt * 1.1);
+        state.incoming = state.incoming || [];
+        for (let i = state.incoming.length - 1; i >= 0; i--) {
+          let incoming = state.incoming[i];
+          incoming.progress = (incoming.progress || 0) + dt * 0.9;
+          incoming.pulse = Math.max(0, (incoming.pulse || 0) - dt * 1.6);
+          if (incoming.progress >= 1.1) {
+            state.incoming.splice(i, 1);
+          }
+        }
         let fuelSpeed = 0.32 + getUpgradeLevel('refinery') * 0.08 + getGravityMultiplier() * 0.03;
         let successRate = getRocketSuccessRate();
         for (let i = 0; i < state.pods.length; i++) {
@@ -2315,8 +2403,10 @@
         if (state && state.geometry) {
           let scaleX = panelW * 0.45;
           let scaleY = panelH * 0.38;
+          let beltPixelY = panelH * 0.12;
+          let offsetY = beltPixelY - (state.geometry.beltY || 0) * scaleY;
           let px = (x) => x * scaleX;
-          let py = (y) => y * scaleY;
+          let py = (y) => y * scaleY + offsetY;
           noStroke();
           fill('#071324');
           rect(0, panelH * 0.1, panelW * 0.9, panelH * 0.12, 12);
@@ -2362,6 +2452,11 @@
             pop();
           }
 
+          let packageSpot = state.geometry.packageSpot || { x: 0.4, y: 0.42 };
+          let packageExit = state.geometry.packageExit || {
+            x: -0.74,
+            y: packageSpot.y - 0.08
+          };
           if (state.fallers) {
             for (let faller of state.fallers) {
               let fx = px(faller.x);
@@ -2397,7 +2492,21 @@
             }
           }
 
-          let packageSpot = state.geometry.packageSpot || { x: 0.4, y: 0.42 };
+          if (state.departures && state.departures.length > 0) {
+            for (let pkg of state.departures) {
+              let progress = constrain(pkg.progress || 0, 0, 1);
+              let eased = smoothStep(progress);
+              let arc = Math.sin(eased * Math.PI) * 0.12;
+              let pathX = lerp(packageSpot.x, packageExit.x, eased);
+              let pathY =
+                lerp(packageSpot.y, packageExit.y, eased) - arc * (pkg.rocket ? 0.6 : 0.4);
+              let drawX = px(pathX);
+              let drawY = py(pathY);
+              let size = panelW * 0.22 * (1 - eased * 0.18);
+              drawPackageSprite(pkg, drawX, drawY, size);
+            }
+          }
+
           let pkgX = px(packageSpot.x);
           let pkgY = py(packageSpot.y);
           let pkgSize = panelW * 0.26;
@@ -2437,43 +2546,43 @@
           );
           pop();
 
-          if (state.packages && state.packages.length > 0) {
-            let display = state.packages.slice(-2);
+          if (state.packageHistory && state.packageHistory.length > 0) {
+            let display = state.packageHistory.slice(-2);
             for (let i = 0; i < display.length; i++) {
               let pkg = display[display.length - 1 - i];
               let x = pkgX - panelW * 0.34;
               let y = pkgY - i * panelH * 0.22;
-              drawPackageTile(pkg, x, y, panelW * 0.22);
+              drawPackageSprite(pkg, x, y, panelW * 0.22);
             }
           }
         }
         pop();
+      }
 
-        function drawPackageTile(pkg, x, y, size) {
-          push();
-          translate(x, y);
-          rectMode(CENTER);
-          let pulse = pkg.pulse || 0;
-          let grid = Math.min(10, Math.max(5, Math.round(Math.sqrt(CHAIN_REQUIREMENT))));
-          let cell = size / grid;
-          let colors = pkg.colors && pkg.colors.length > 0 ? pkg.colors : ['#f2d28b'];
-          let totalCells = grid * grid;
-          for (let i = 0; i < totalCells; i++) {
-            let col = i % grid;
-            let row = Math.floor(i / grid);
-            let fillColor = colors[i % colors.length];
-            let cx = -size / 2 + cell / 2 + col * cell;
-            let cy = -size / 2 + cell / 2 + row * cell;
-            fill(fillColor);
-            noStroke();
-            rect(cx, cy, cell * 0.9, cell * 0.9, 2);
-          }
-          stroke('#0f172a');
-          strokeWeight(2 + pulse * 2);
-          noFill();
-          rect(0, 0, size, size, 8);
-          pop();
+      function drawPackageSprite(pkg, x, y, size) {
+        push();
+        translate(x, y);
+        rectMode(CENTER);
+        let pulse = pkg.pulse || 0;
+        let grid = Math.min(10, Math.max(5, Math.round(Math.sqrt(CHAIN_REQUIREMENT))));
+        let cell = size / grid;
+        let colors = pkg.colors && pkg.colors.length > 0 ? pkg.colors : ['#f2d28b'];
+        let totalCells = grid * grid;
+        for (let i = 0; i < totalCells; i++) {
+          let col = i % grid;
+          let row = Math.floor(i / grid);
+          let fillColor = colors[i % colors.length];
+          let cx = -size / 2 + cell / 2 + col * cell;
+          let cy = -size / 2 + cell / 2 + row * cell;
+          fill(fillColor);
+          noStroke();
+          rect(cx, cy, cell * 0.9, cell * 0.9, 2);
         }
+        stroke('#0f172a');
+        strokeWeight(2 + pulse * 2);
+        noFill();
+        rect(0, 0, size, size, 8);
+        pop();
       }
 
       function drawRocketModule(context) {
@@ -2489,6 +2598,22 @@
           rect(0, -panelH * 0.12, panelW * 0.96, panelH * 0.36, 12);
         }
         let spacing = panelW * 0.3;
+        if (state.incoming && state.incoming.length > 0) {
+          for (let pkg of state.incoming) {
+            let laneCount = Math.max(1, state.pods.length || 1);
+            let lane = Math.min(laneCount - 1, Math.max(0, pkg.lane || 0));
+            let startX = -panelW * 0.52;
+            let startY = panelH * 0.26;
+            let targetX = -spacing + spacing * lane;
+            let targetY = -panelH * 0.02;
+            let progress = constrain(pkg.progress || 0, 0, 1);
+            let eased = smoothStep(progress);
+            let arc = Math.sin(eased * Math.PI) * panelH * 0.08;
+            let drawX = lerp(startX, targetX, eased);
+            let drawY = lerp(startY, targetY, eased) - arc;
+            drawPackageSprite(pkg, drawX, drawY, panelW * 0.18 * (1 - eased * 0.1));
+          }
+        }
         for (let i = 0; i < state.pods.length; i++) {
           let pod = state.pods[i];
           push();
