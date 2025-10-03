@@ -571,9 +571,10 @@
           conveyor: {
             fallers: [],
             modules: [],
+            queue: [],
+            packageBuffer: [],
+            packages: [],
             spawnTimer: 0,
-            nextHole: 0,
-            moldCooldown: 0,
             deliveryPulse: 0,
             packageProgress: 0,
             packagePulse: 0,
@@ -1094,7 +1095,7 @@
 
       function drawDuneMultiplierIndicator() {
         push();
-        let x = PLAY_AREA_W - scaledX(18);
+        let x = MENU_W + PLAY_AREA_W - scaledX(18);
         let y = scaledY(18);
         textAlign(RIGHT, TOP);
         textSize(scaledFont(9));
@@ -1359,44 +1360,83 @@
         let state = moduleStates.conveyor;
         if (!state) return;
         setupConveyorGeometry(state);
-        let speedBoost = 1 + getUpgradeLevel('gravity') * 0.12 + getLayerGravityBonus() * 0.6;
-        let spawnRate = state.geometry.spawnRate / Math.max(0.2, speedBoost);
-        state.spawnTimer -= dt;
-        if (state.spawnTimer <= 0) {
+        let unlocked = isMachineUnlocked('conveyor');
+        let speedBoost =
+          1 + getUpgradeLevel('gravity') * 0.12 + getLayerGravityBonus() * 0.6;
+        if (!unlocked) {
+          state.fallers.length = 0;
+          state.modules.length = 0;
+          state.queue = [];
+          state.packageBuffer = [];
+          state.packages = [];
+          state.packageProgress = 0;
+          state.packagePulse = Math.max(0, (state.packagePulse || 0) - dt * 2.2);
+          state.deliveryPulse = Math.max(0, (state.deliveryPulse || 0) - dt * 1.6);
+          return;
+        }
+        let spawnInterval = Math.max(
+          0.08,
+          (state.geometry.spawnRate || 0.22) / Math.max(0.4, speedBoost)
+        );
+        state.spawnTimer = (state.spawnTimer || 0) - dt;
+        while (state.queue && state.queue.length > 0 && state.spawnTimer <= 0) {
           spawnConveyorBatch(state);
-          state.spawnTimer = spawnRate + random(-0.2, 0.2);
+          state.spawnTimer += spawnInterval;
         }
         updateConveyorFallers(state, dt, speedBoost);
         updateConveyorModules(state, dt, speedBoost);
-        if (powderCounts[0] >= CHAIN_REQUIREMENT) {
-          let packagingSpeed = 0.45 + speedBoost * 0.08;
+        let packagingSpeed = 0.45 + speedBoost * 0.08;
+        if ((state.packageBuffer || []).length >= CHAIN_REQUIREMENT) {
           state.packageProgress = (state.packageProgress || 0) + dt * packagingSpeed;
-          while (
-            state.packageProgress >= 1 &&
-            powderCounts[0] >= CHAIN_REQUIREMENT
-          ) {
-            state.packageProgress -= 1;
-            powderCounts[0] -= CHAIN_REQUIREMENT;
-            powderCounts[1] += 1;
-            state.packagePulse = 1;
-            let overfillLevel = getUpgradeLevel('conveyorOverfill');
-            if (overfillLevel > 0) {
-              let extraChance = Math.min(0.6, 0.18 * overfillLevel);
-              if (Math.random() < extraChance) {
-                powderCounts[1] += 1;
-                dust += Math.max(
-                  1,
-                  Math.round((2 + overfillLevel) * getDustMultiplier())
-                );
-                state.deliveryPulse = 1;
-              }
+        } else {
+          state.packageProgress = Math.max(
+            0,
+            (state.packageProgress || 0) - dt * 0.4
+          );
+        }
+        while (
+          (state.packageProgress || 0) >= 1 &&
+          (state.packageBuffer || []).length >= CHAIN_REQUIREMENT &&
+          powderCounts[0] >= CHAIN_REQUIREMENT
+        ) {
+          state.packageProgress -= 1;
+          let packageGrains = state.packageBuffer.splice(0, CHAIN_REQUIREMENT);
+          powderCounts[0] -= CHAIN_REQUIREMENT;
+          powderCounts[1] += 1;
+          state.packagePulse = 1;
+          state.deliveryPulse = 1;
+          let colors = packageGrains.map((grain) => grain.color);
+          state.packages = state.packages || [];
+          state.packages.push({ colors, pulse: 1 });
+          while (state.packages.length > 4) {
+            state.packages.shift();
+          }
+          let overfillLevel = getUpgradeLevel('conveyorOverfill');
+          if (overfillLevel > 0) {
+            let extraChance = Math.min(0.6, 0.18 * overfillLevel);
+            if (Math.random() < extraChance) {
+              powderCounts[1] += 1;
+              dust += Math.max(
+                1,
+                Math.round((2 + overfillLevel) * getDustMultiplier())
+              );
+              state.deliveryPulse = 1;
             }
           }
-        } else {
-          state.packageProgress = Math.max(0, (state.packageProgress || 0) - dt * 0.4);
         }
-        state.packagePulse = Math.max(0, (state.packagePulse || 0) - dt * 2.2);
-        state.deliveryPulse = Math.max(0, (state.deliveryPulse || 0) - dt * 1.6);
+        state.packagePulse = Math.max(
+          0,
+          (state.packagePulse || 0) - dt * 2.2
+        );
+        state.deliveryPulse = Math.max(
+          0,
+          (state.deliveryPulse || 0) - dt * 1.6
+        );
+        if (state.packages) {
+          for (let pkg of state.packages) {
+            pkg.pulse = Math.max(0, (pkg.pulse || 0) - dt * 1.2);
+          }
+        }
         runModuleAutomation(state, 'conveyor', dt, 5.5, rushConveyor);
       }
 
@@ -1405,155 +1445,102 @@
         state.initialized = true;
         state.fallers = state.fallers || [];
         state.modules = state.modules || [];
+        state.queue = state.queue || [];
+        state.packageBuffer = state.packageBuffer || [];
+        state.packages = state.packages || [];
         state.geometry = {
-          moldTop: -0.78,
-          moldSettle: -0.46,
-          releaseY: -0.3,
-          beltY: -0.22,
-          dropThreshold: -0.18,
-          holes: [-0.58, -0.18, 0.28],
-          spawnRate: 1.05,
+          holeTop: -0.68,
+          beltY: -0.28,
+          entryRange: [-0.32, 0.32],
+          spawnRate: 0.22,
           beltSegments: [
             {
-              from: { x: 0.74, y: -0.22 },
-              to: { x: -0.82, y: -0.22 },
+              from: { x: 0, y: -0.28 },
+              to: { x: 0.66, y: -0.28 },
+              speed: 0.42,
+              type: 'belt'
+            },
+            {
+              from: { x: 0.66, y: -0.28 },
+              to: { x: 0.66, y: 0.18 },
+              speed: 0.58,
+              type: 'drop'
+            },
+            {
+              from: { x: 0.66, y: 0.18 },
+              to: { x: -0.54, y: 0.18 },
               speed: 0.34,
               type: 'belt'
             },
             {
-              from: { x: -0.82, y: -0.22 },
-              to: { x: -0.82, y: 0.08 },
-              speed: 0.62,
+              from: { x: -0.54, y: 0.18 },
+              to: { x: -0.54, y: 0.42 },
+              speed: 0.6,
               type: 'drop'
             },
             {
-              from: { x: -0.82, y: 0.08 },
-              to: { x: 0.66, y: 0.08 },
-              speed: 0.3,
-              type: 'belt'
-            },
-            {
-              from: { x: 0.66, y: 0.08 },
-              to: { x: 0.66, y: 0.34 },
-              speed: 0.68,
-              type: 'drop'
-            },
-            {
-              from: { x: 0.66, y: 0.34 },
-              to: { x: -0.86, y: 0.34 },
+              from: { x: -0.54, y: 0.42 },
+              to: { x: 0.4, y: 0.42 },
               speed: 0.32,
               type: 'belt'
             }
-          ]
+          ],
+          packageSpot: { x: 0.4, y: 0.42 }
         };
       }
 
       function spawnConveyorBatch(state) {
-        if (!state.geometry) return;
-        let patterns = [
-          [
-            { x: -0.24, y: 0 },
-            { x: 0, y: 0 },
-            { x: 0.24, y: 0 }
-          ],
-          [
-            { x: -0.3, y: 0 },
-            { x: -0.1, y: -0.08 },
-            { x: 0.12, y: 0.06 },
-            { x: 0.32, y: -0.04 }
-          ],
-          [
-            { x: -0.2, y: 0.04 },
-            { x: 0, y: -0.04 },
-            { x: 0.2, y: 0.04 },
-            { x: 0.4, y: -0.04 }
-          ]
-        ];
-        let pattern = random(patterns);
-        for (let offset of pattern) {
+        if (!state.geometry || !state.queue || state.queue.length === 0) {
+          return;
+        }
+        let count = Math.min(3, state.queue.length);
+        let range = state.geometry.entryRange || [-0.32, 0.32];
+        for (let i = 0; i < count; i++) {
+          let entry = state.queue.shift();
+          let source = entry.source != null ? entry.source : 0.5;
+          let spawnX = lerp(range[0], range[1], source);
+          spawnX += random(-0.02, 0.02);
           state.fallers.push({
-            x: offset.x,
-            y: state.geometry.moldTop + random(-0.04, 0.04),
+            x: spawnX,
+            y: state.geometry.holeTop,
             vx: 0,
-            vy: 0,
-            phase: 'mold',
-            timer: 0.25 + Math.random() * 0.25,
-            jitter: Math.random() * TAU,
-            size: 0.06 + Math.random() * 0.04,
-            targetHole: null,
-            drop: false
+            vy: -0.04,
+            type: entry.type,
+            color: entry.color
           });
         }
-        while (state.fallers.length > 18) {
+        while (state.fallers.length > 48) {
           state.fallers.shift();
         }
       }
 
       function updateConveyorFallers(state, dt, speedBoost) {
         if (!state.geometry) return;
-        let gravity = 1.4 * speedBoost;
-        let moldSettle = state.geometry.moldSettle;
-        let releaseY = state.geometry.releaseY;
+        let gravity = 1.6 * speedBoost;
         let beltY = state.geometry.beltY;
-        let dropThreshold = state.geometry.dropThreshold;
         for (let i = state.fallers.length - 1; i >= 0; i--) {
           let faller = state.fallers[i];
-          if (faller.phase === 'mold') {
-            faller.y = Math.min(moldSettle, faller.y + dt * 0.55 * speedBoost);
-            faller.timer -= dt * speedBoost;
-            if (faller.y >= moldSettle - 0.01 && faller.timer <= 0) {
-              faller.phase = 'settled';
-              faller.timer = 0.25 + Math.random() * 0.35;
-            }
-          } else if (faller.phase === 'settled') {
-            faller.timer -= dt * speedBoost;
-            faller.jitter += dt * 3;
-            faller.y = moldSettle + Math.sin(faller.jitter) * 0.01;
-            if (faller.timer <= 0) {
-              faller.phase = 'release';
-              faller.targetHole = state.geometry.holes[state.nextHole % state.geometry.holes.length];
-              state.nextHole += 1;
-              faller.vx = 0;
-              faller.vy = 0.2;
-            }
-          } else if (faller.phase === 'release') {
-            if (!faller.drop) {
-              let dx = (faller.targetHole || 0) - faller.x;
-              faller.vx += dx * dt * 2.2 * speedBoost;
-              faller.vx = constrain(faller.vx, -0.9, 0.9);
-              faller.x += faller.vx * dt;
-              faller.vx *= 0.94;
-              faller.y = Math.min(releaseY, faller.y + faller.vy * dt);
-              if (Math.abs(dx) < 0.04) {
-                faller.drop = true;
-                faller.vy = 0;
-              }
-            } else {
-              faller.vy += gravity * dt;
-              faller.y += faller.vy * dt;
-              faller.x += faller.vx * dt * 0.4;
-            }
-          } else {
-            faller.vy += gravity * dt;
-            faller.y += faller.vy * dt;
-          }
-          if (faller.y >= dropThreshold) {
+          faller.vy = (faller.vy || 0) + gravity * dt;
+          faller.y += faller.vy * dt;
+          faller.vx = (faller.vx || 0) * 0.9 + (0 - faller.x) * dt * 1.4 * speedBoost;
+          faller.x += faller.vx * dt;
+          if (faller.y >= beltY) {
             state.modules.push({
               segment: 0,
               progress: 0,
               wobble: Math.random() * TAU,
-              size: 0.9 + Math.random() * 0.4,
               x: faller.x,
               y: beltY,
-              vy: 0
+              type: faller.type,
+              color: faller.color
             });
-            if (state.modules.length > 18) {
+            if (state.modules.length > 48) {
               state.modules.shift();
             }
             state.fallers.splice(i, 1);
             continue;
           }
-          if (faller.y > 1.2 || Math.abs(faller.x) > 1.2) {
+          if (faller.y > 1.4 || Math.abs(faller.x) > 1.2) {
             state.fallers.splice(i, 1);
           }
         }
@@ -1561,35 +1548,47 @@
 
       function updateConveyorModules(state, dt, speedBoost) {
         if (!state.geometry) return;
-        let segments = state.geometry.beltSegments;
+        let segments = state.geometry.beltSegments || [];
         for (let i = state.modules.length - 1; i >= 0; i--) {
-          let module = state.modules[i];
-          let segment = segments[module.segment];
+          let grain = state.modules[i];
+          let segment = segments[grain.segment];
           if (!segment) {
-            powderCounts[0] += 1;
-            dust += Math.max(1, Math.round(getDustMultiplier()));
             state.modules.splice(i, 1);
+            state.packageBuffer.push({ type: grain.type, color: grain.color });
+            if (state.packageBuffer.length > CHAIN_REQUIREMENT * 3) {
+              state.packageBuffer.splice(0, state.packageBuffer.length - CHAIN_REQUIREMENT * 3);
+            }
             state.deliveryPulse = 1;
             continue;
           }
-          let speed = segment.speed * (segment.type === 'drop' ? Math.max(1, speedBoost * 1.2) : speedBoost);
-          module.progress += dt * speed;
-          if (module.progress >= 1) {
-            module.progress -= 1;
-            module.segment += 1;
-            segment = segments[module.segment];
+          let speed =
+            segment.speed *
+            (segment.type === 'drop' ? Math.max(1, speedBoost * 1.1) : speedBoost);
+          grain.progress += dt * speed;
+          while (grain.progress >= 1) {
+            grain.progress -= 1;
+            grain.segment += 1;
+            segment = segments[grain.segment];
             if (!segment) {
-              powderCounts[0] += 1;
-              dust += Math.max(1, Math.round(getDustMultiplier()));
-              state.modules.splice(i, 1);
-              state.deliveryPulse = 1;
-              continue;
+              break;
             }
           }
-          let eased = segment.type === 'drop' ? module.progress * module.progress : smoothStep(module.progress);
-          module.x = lerp(segment.from.x, segment.to.x, eased);
-          module.y = lerp(segment.from.y, segment.to.y, eased);
-          module.wobble += dt * 6;
+          if (!segment) {
+            state.modules.splice(i, 1);
+            state.packageBuffer.push({ type: grain.type, color: grain.color });
+            if (state.packageBuffer.length > CHAIN_REQUIREMENT * 3) {
+              state.packageBuffer.splice(0, state.packageBuffer.length - CHAIN_REQUIREMENT * 3);
+            }
+            state.deliveryPulse = 1;
+            continue;
+          }
+          let eased =
+            segment.type === 'drop'
+              ? Math.pow(grain.progress, 1.4)
+              : smoothStep(grain.progress);
+          grain.x = lerp(segment.from.x, segment.to.x, eased);
+          grain.y = lerp(segment.from.y, segment.to.y, eased);
+          grain.wobble = (grain.wobble || 0) + dt * 6;
         }
       }
 
@@ -2313,27 +2312,21 @@
           let scaleY = panelH * 0.38;
           let px = (x) => x * scaleX;
           let py = (y) => y * scaleY;
-          let moldHeight = Math.max(
-            scaledY(18),
-            (state.geometry.moldSettle - state.geometry.moldTop) * scaleY
-          );
-          fill('#0a1a31');
-          rect(0, py((state.geometry.moldSettle + state.geometry.moldTop) / 2), panelW * 0.72, moldHeight, 12);
-          fill('#112845');
-          rect(0, py(state.geometry.releaseY) - scaledY(3), panelW * 0.76, scaledY(14), 8);
-          fill('#061123');
-          rect(0, py(state.geometry.moldSettle) + scaledY(12), panelW * 0.76, scaledY(24), 12);
-          for (let hole of state.geometry.holes) {
-            let hx = px(hole);
-            push();
-            translate(hx, py(state.geometry.releaseY));
-            fill('#030914');
-            rect(0, 0, panelW * 0.14, scaledY(20), 6);
-            fill('#173155');
-            rect(0, 0, panelW * 0.08, scaledY(20), 4);
-            pop();
-          }
-          let thickness = panelH * 0.11;
+          noStroke();
+          fill('#071324');
+          rect(0, panelH * 0.1, panelW * 0.9, panelH * 0.12, 12);
+          fill('#091a30');
+          rect(0, panelH * 0.12, panelW * 0.86, panelH * 0.06, 8);
+
+          push();
+          translate(0, py(state.geometry.holeTop) - panelH * 0.08);
+          fill('#0b1629');
+          rect(0, 0, panelW * 0.48, panelH * 0.18, 12);
+          fill('#01070e');
+          rect(0, panelH * 0.02, panelW * 0.36, panelH * 0.12, 10);
+          pop();
+
+          let thickness = panelH * 0.12;
           for (let i = 0; i < state.geometry.beltSegments.length; i++) {
             let segment = state.geometry.beltSegments[i];
             let fromPix = createVector(px(segment.from.x), py(segment.from.y));
@@ -2342,122 +2335,140 @@
             let delta = p5.Vector.sub(toPix, fromPix);
             let angle = Math.atan2(delta.y, delta.x);
             let length = Math.max(8, delta.mag());
-            let baseColor = segment.type === 'drop' ? '#0d1a2c' : '#13233d';
-            let highlight = i === state.geometry.beltSegments.length - 1 ? state.deliveryPulse || 0 : 0;
             push();
             translate(centerPix.x, centerPix.y);
             rotate(angle);
             noStroke();
+            let baseColor = segment.type === 'drop' ? '#0c1627' : '#132b47';
             fill(baseColor);
-            rect(0, 0, length + thickness * 0.4, thickness, thickness * 0.4);
-            let overlayColor = segment.type === 'drop' ? '#1f2a40' : '#1d3f67';
-            fill(withAlpha(overlayColor, segment.type === 'drop' ? 180 : 210));
-            rect(0, 0, length + thickness * 0.16, thickness * 0.56, thickness * 0.3);
-            if (highlight > 0.01) {
-              fill(withAlpha('#38bdf8', 120 + highlight * 120));
-              rect(0, 0, length + thickness * 0.12, thickness * 0.46, thickness * 0.25);
-            }
+            rect(0, 0, length + thickness * 0.4, thickness, thickness * 0.45);
+            let overlay = segment.type === 'drop' ? '#19304c' : '#1f3f66';
+            fill(withAlpha(overlay, 220));
+            rect(0, 0, length, thickness * 0.62, thickness * 0.34);
             if (segment.type === 'drop') {
-              fill(withAlpha('#0b1220', 200));
-              rect(0, 0, thickness * 0.38, length + thickness * 0.16, thickness * 0.2);
-              fill(withAlpha('#22d3ee', 90));
-              rect(0, 0, thickness * 0.16, length + thickness * 0.16, thickness * 0.12);
+              fill(withAlpha('#01070f', 200));
+              rect(0, 0, thickness * 0.34, length + thickness * 0.12, thickness * 0.2);
+              fill(withAlpha('#22d3ee', 90 + (state.deliveryPulse || 0) * 90));
+              rect(0, 0, thickness * 0.18, length + thickness * 0.1, thickness * 0.16);
+            } else if ((state.deliveryPulse || 0) > 0.01 && i === state.geometry.beltSegments.length - 1) {
+              fill(withAlpha('#38bdf8', 140 * (state.deliveryPulse || 0)));
+              rect(0, 0, length, thickness * 0.5, thickness * 0.28);
             }
             pop();
           }
+
           if (state.fallers) {
             for (let faller of state.fallers) {
               let fx = px(faller.x);
               let fy = py(faller.y);
-              let size = Math.max(4, panelW * faller.size * 0.22);
+              let size = Math.max(4, panelW * 0.06);
               push();
               translate(fx, fy);
-              rotate(Math.sin((faller.jitter || 0) + frameCount / 10) * 0.05);
-              fill('#f8e3a2');
-              rect(0, 0, size, size * 0.84, 4);
-              fill('#d9c079');
-              rect(0, -size * 0.18, size * 0.62, size * 0.36, 3);
+              rotate(Math.sin(frameCount * 0.04 + (faller.vx || 0)) * 0.1);
+              fill(faller.color || '#f8e3a2');
+              rect(0, 0, size, size, 3);
+              stroke('#0f172a');
+              strokeWeight(1);
+              noFill();
+              rect(0, 0, size * 1.08, size * 1.08, 3);
               pop();
             }
           }
+
           if (state.modules) {
-            for (let module of state.modules) {
-              let mx = px(module.x || 0);
-              let my = py(module.y || 0);
-              let size = Math.max(6, panelW * 0.08 * (module.size || 1));
+            for (let grain of state.modules) {
+              let gx = px(grain.x || 0);
+              let gy = py(grain.y || 0);
+              let size = Math.max(5, panelW * 0.06);
               push();
-              translate(mx, my);
-              rotate(Math.sin(module.wobble || 0) * 0.08);
-              fill('#f2d28b');
-              rect(0, 0, size, size * 0.72, 4);
-              fill('#c09257');
-              rect(0, -size * 0.18, size * 0.66, size * 0.32, 3);
-              fill('#fde68a');
-              rect(0, size * 0.1, size * 0.54, size * 0.16, 3);
+              translate(gx, gy);
+              rotate(Math.sin(grain.wobble || 0) * 0.08);
+              fill(grain.color || '#f5d18c');
+              rect(0, 0, size, size, 3);
+              noStroke();
+              fill(withAlpha('#f8fafc', 60));
+              rect(0, -size * 0.15, size * 0.65, size * 0.18, 2);
               pop();
             }
           }
-        }
-        if (state) {
-          let housingW = panelW * 0.26;
-          let housingH = panelH * 0.36;
+
+          let packageSpot = state.geometry.packageSpot || { x: 0.4, y: 0.42 };
+          let pkgX = px(packageSpot.x);
+          let pkgY = py(packageSpot.y);
+          let pkgSize = panelW * 0.26;
           push();
-          translate(panelW * 0.28, panelH * 0.18);
-          fill('#0c182a');
-          rect(0, 0, housingW, housingH, 12);
-          fill('#1c2e49');
-          rect(0, -housingH * 0.04, housingW * 0.78, housingH * 0.54, 10);
-          let pulse = 1 + (state.packagePulse || 0) * 0.3;
-          push();
-          translate(0, -housingH * 0.14);
-          rotate(frameCount / 20);
-          fill('#facc15');
-          rect(0, 0, housingW * 0.24 * pulse, housingW * 0.24 * pulse, 6);
-          pop();
-          push();
-          translate(0, -housingH * 0.14);
-          rotate(-frameCount / 26);
-          stroke('#fde68a');
-          strokeWeight(2);
+          translate(pkgX, pkgY);
+          rectMode(CENTER);
+          fill('#0a172a');
+          rect(0, 0, pkgSize * 1.18, pkgSize * 1.18, 12);
+          fill('#122742');
+          rect(0, 0, pkgSize, pkgSize, 10);
+          let progress = constrain(state.packageProgress || 0, 0, 1);
+          if (progress > 0) {
+            fill(withAlpha('#38bdf8', 140));
+            rect(0, pkgSize * (0.5 - progress / 2), pkgSize * 0.82, pkgSize * progress, 8);
+          }
+          stroke('#38bdf8');
+          strokeWeight(2 + (state.packagePulse || 0) * 2.4);
           noFill();
-          rect(0, 0, housingW * 0.38, housingW * 0.38, 9);
+          rect(0, 0, pkgSize, pkgSize, 10);
           pop();
-          noStroke();
-          fill('#f59e0b');
-          let gaugeHeight = housingH * 0.58 * constrain(state.packageProgress || 0, 0, 1);
-          rect(-housingW * 0.34, housingH * 0.1 - gaugeHeight / 2, housingW * 0.16, gaugeHeight, 4);
-          pop();
+
+          let bufferRatio = Math.min(
+            1,
+            (state.packageBuffer ? state.packageBuffer.length : 0) / CHAIN_REQUIREMENT
+          );
           push();
-          translate(-panelW * 0.42, panelH * 0.2);
-          fill('#1f2937');
-          rect(0, panelH * 0.18, panelW * 0.2, panelH * 0.1, 8);
-          fill('#0f172a');
-          rect(0, panelH * 0.04, panelW * 0.18, panelH * 0.32, 10);
+          translate(pkgX + panelW * 0.16, pkgY - panelH * 0.18);
+          fill('#0a1424');
+          rect(0, panelH * 0.08, panelW * 0.08, panelH * 0.3, 8);
           fill('#22d3ee');
-          rect(0, -panelH * 0.02, panelW * 0.12, panelH * 0.24, 8);
-          fill('#f8fafc');
-          rect(0, -panelH * 0.18, panelW * 0.08, panelH * 0.14, 6);
-          fill('#f87171');
-          triangle(
-            -panelW * 0.04,
-            -panelH * 0.1,
-            panelW * 0.04,
-            -panelH * 0.1,
+          rect(
             0,
-            panelH * 0.04
+            panelH * 0.08 + panelH * 0.15 * (1 - bufferRatio),
+            panelW * 0.06,
+            panelH * 0.3 * bufferRatio,
+            6
           );
           pop();
-          let packagesVisible = Math.min(4, Math.floor(powderCounts[1] || 0));
-          for (let i = 0; i < packagesVisible; i++) {
-            let stackX = -panelW * 0.4;
-            let stackY = panelH * 0.12 - i * panelH * 0.08;
-            fill('#f2b066');
-            rect(stackX, stackY, panelW * 0.16, panelH * 0.08, 4);
-            fill('#c08457');
-            rect(stackX, stackY - panelH * 0.02, panelW * 0.1, panelH * 0.04, 3);
+
+          if (state.packages && state.packages.length > 0) {
+            let display = state.packages.slice(-2);
+            for (let i = 0; i < display.length; i++) {
+              let pkg = display[display.length - 1 - i];
+              let x = pkgX - panelW * 0.34;
+              let y = pkgY - i * panelH * 0.22;
+              drawPackageTile(pkg, x, y, panelW * 0.22);
+            }
           }
         }
         pop();
+
+        function drawPackageTile(pkg, x, y, size) {
+          push();
+          translate(x, y);
+          rectMode(CENTER);
+          let pulse = pkg.pulse || 0;
+          let grid = Math.min(10, Math.max(5, Math.round(Math.sqrt(CHAIN_REQUIREMENT))));
+          let cell = size / grid;
+          let colors = pkg.colors && pkg.colors.length > 0 ? pkg.colors : ['#f2d28b'];
+          let totalCells = grid * grid;
+          for (let i = 0; i < totalCells; i++) {
+            let col = i % grid;
+            let row = Math.floor(i / grid);
+            let fillColor = colors[i % colors.length];
+            let cx = -size / 2 + cell / 2 + col * cell;
+            let cy = -size / 2 + cell / 2 + row * cell;
+            fill(fillColor);
+            noStroke();
+            rect(cx, cy, cell * 0.9, cell * 0.9, 2);
+          }
+          stroke('#0f172a');
+          strokeWeight(2 + pulse * 2);
+          noFill();
+          rect(0, 0, size, size, 8);
+          pop();
+        }
       }
 
       function drawRocketModule(context) {
@@ -2884,11 +2895,16 @@
         }
         stroke('#1d4ed8');
         strokeWeight(2);
-        fill(withAlpha('#020617', 180));
+        fill(withAlpha('#030b18', 210));
         rect(center.x, center.y, panelW, panelH, 22);
+        noStroke();
+        fill('#0f1e36');
+        rect(center.x, center.y - panelH * 0.34, panelW * 0.92, panelH * 0.16, 18);
+        fill('#122b4b');
+        rect(center.x, center.y + panelH * 0.12, panelW * 0.96, panelH * 0.18, 18);
         fill('#a5b4fc');
         textSize(scaledFont(12));
-        text('Sandfall Jar', center.x, center.y - panelH / 2 + scaledY(14));
+        text('Powder Intake', center.x, center.y - panelH / 2 + scaledY(14));
         pop();
         drawFullscreenToggle(rectInfo, machine.key, true);
       }
@@ -2901,11 +2917,18 @@
         push();
         rectMode(CENTER);
         noStroke();
-        fill(withAlpha('#081527', 240));
-        rect(centerX, centerY, jarRect.width, jarRect.height, corner);
+        fill('#061225');
+        rect(centerX, centerY, jarRect.width, jarRect.height, corner * 0.75);
+        let innerW = jarRect.width * 0.88;
+        let innerH = jarRect.height * 0.82;
+        let innerY = centerY + jarRect.height * 0.04;
+        fill('#020912');
+        rect(centerX, innerY, innerW, innerH, corner * 0.6);
+        fill(withAlpha('#0f2744', 160));
+        rect(centerX, jarRect.top + innerH * 0.22, innerW * 0.94, innerH * 0.18, corner * 0.5);
         let totalLayers = strataLayers.length;
         if (totalLayers > 0) {
-          let segmentHeight = jarRect.height / totalLayers;
+          let segmentHeight = innerH / totalLayers;
           for (let i = 0; i < totalLayers; i++) {
             let state = layerStates[i];
             let layer = strataLayers[i];
@@ -2915,20 +2938,26 @@
             } else if (state.unlocked) {
               ratio = constrain(state.progress / layer.requirement, 0, 1);
             }
-            let alpha = 80 + ratio * 160;
+            let alpha = 60 + ratio * 160;
             fill(withAlpha(layer.color, alpha));
             let y = jarRect.top + segmentHeight * (i + 0.5);
-            rect(centerX, y, jarRect.width - 8, segmentHeight + 4, corner * 0.6);
+            rect(centerX, y + jarRect.height * 0.08, innerW * 0.86, segmentHeight + 2, corner * 0.5);
           }
         }
-        let nozzleH = Math.max(12, jarRect.height * 0.12);
-        fill('#1e293b');
-        rect(centerX, jarRect.top - nozzleH * 0.45, jarRect.width * 0.6, nozzleH, corner * 0.5);
-        fill('#38bdf8');
-        rect(centerX, jarRect.top - nozzleH * 0.2, jarRect.width * 0.22, nozzleH * 0.6, corner * 0.4);
-        let trayH = Math.max(10, jarRect.height * 0.08);
-        fill('#10203a');
-        rect(centerX, jarRect.top + jarRect.height + trayH * 0.4, jarRect.width * 0.78, trayH, corner * 0.4);
+        fill('#0b1c30');
+        let chuteH = innerH * 0.38;
+        rect(centerX, innerY + innerH * 0.08, innerW * 0.32, chuteH, corner * 0.5);
+        let holeW = innerW * 0.46;
+        let holeH = innerH * 0.16;
+        let holeY = innerY + innerH / 2 + innerH * 0.26;
+        fill('#01060d');
+        ellipse(centerX, holeY, holeW, holeH);
+        fill('#1c3757');
+        ellipse(centerX, holeY - holeH * 0.18, holeW * 0.74, holeH * 0.54);
+        stroke(withAlpha('#38bdf8', 120));
+        strokeWeight(2);
+        noFill();
+        ellipse(centerX, holeY, holeW * 1.04, holeH * 1.1);
         pop();
       }
 
@@ -2943,24 +2972,24 @@
         stroke('#38bdf8');
         strokeWeight(2);
         rect(centerX, centerY, jarRect.width, jarRect.height, corner);
+        let innerW = jarRect.width * 0.88;
+        let innerH = jarRect.height * 0.82;
+        let innerY = centerY + jarRect.height * 0.04;
+        let holeY = innerY + innerH / 2 + innerH * 0.26;
+        let holeW = innerW * 0.46;
         noStroke();
-        fill(withAlpha('#f8fafc', 40));
-        rect(
-          centerX - jarRect.width * 0.18,
-          centerY - jarRect.height * 0.12,
-          jarRect.width * 0.08,
-          jarRect.height * 0.6,
-          corner * 0.6
-        );
+        fill(withAlpha('#38bdf8', 60));
+        ellipse(centerX, holeY, holeW * 1.18, holeW * 0.42);
         fill('#e2e8f0');
         textSize(scaledFont(10));
-        text('Click or press Space/E to drop sand', centerX, jarRect.top - scaledY(20));
-        let jarMachine = machineDefinitions.find((m) => m.key === 'jar');
-        if (jarMachine) {
-          fill('#94a3b8');
-          textSize(scaledFont(10));
-          text(jarMachine.description, centerX, jarRect.top + jarRect.height + scaledY(18));
-        }
+        text('Click or press Space/E to drop powder', centerX, jarRect.top - scaledY(20));
+        fill('#94a3b8');
+        textSize(scaledFont(9));
+        text(
+          'Unlocked conveyors scoop grains straight from the intake.',
+          centerX,
+          jarRect.top + jarRect.height + scaledY(18)
+        );
         pop();
       }
 
@@ -2972,7 +3001,9 @@
         let availableHeight = Math.max(220, SCREEN_H - topPadding - bottomPadding);
         let size = Math.min(availableWidth, availableHeight);
         let rightMargin = Math.max(horizontalPadding, PLAY_AREA_W * 0.08);
-        collageLayout.left = Math.max(horizontalPadding, PLAY_AREA_W - size - rightMargin);
+        let playAreaLeft = MENU_W;
+        let localLeft = Math.max(horizontalPadding, PLAY_AREA_W - size - rightMargin);
+        collageLayout.left = playAreaLeft + localLeft;
         collageLayout.top = topPadding;
         collageLayout.width = size;
         collageLayout.height = size;
@@ -3017,7 +3048,8 @@
           width = Math.min(width, PLAY_AREA_W - scaledX(32));
           let height = Math.max(220, SCREEN_H - scaledY(96));
           height = Math.min(height, SCREEN_H - scaledY(48));
-          let x = Math.max(scaledX(16), (PLAY_AREA_W - width) / 2);
+          let playAreaLeft = MENU_W;
+          let x = playAreaLeft + Math.max(scaledX(16), (PLAY_AREA_W - width) / 2);
           let y = scaledY(24);
           return { x, y, width, height };
         }
@@ -3136,7 +3168,34 @@
         dust += dustGain;
         totalDustEarned += dustGain;
         addLayerProgress(baseValue * powderGain);
+        if (type === 0) {
+          enqueueConveyorGrains(powder, powderGain);
+        }
         powder.collected = true;
+      }
+
+      function enqueueConveyorGrains(powder, amount) {
+        if (!moduleStates || !moduleStates.conveyor) return;
+        if (!isMachineUnlocked('conveyor')) return;
+        if (amount <= 0) return;
+        let state = moduleStates.conveyor;
+        state.queue = state.queue || [];
+        let size = getPowderSize(powder);
+        let centerCol = powder.col + size / 2;
+        let ratio = gridCols > 0 ? constrain(centerCol / gridCols, 0, 1) : 0.5;
+        let spawnCount = Math.max(1, Math.round(amount));
+        for (let i = 0; i < spawnCount; i++) {
+          let spread = spawnCount > 1 ? (i / Math.max(1, spawnCount - 1)) - 0.5 : 0;
+          let source = constrain(ratio + spread * 0.1 + random(-0.04, 0.04), 0, 1);
+          state.queue.push({
+            type: powder.type,
+            color: powderTypes[powder.type].color,
+            source
+          });
+        }
+        while (state.queue.length > 280) {
+          state.queue.shift();
+        }
       }
 
       function tryMovePowder(powder, index) {
@@ -3338,15 +3397,15 @@
       }
 
       function drawMenu() {
-        let panelLeft = PLAY_AREA_W;
-        let panelRight = SCREEN_W;
+        let panelLeft = 0;
+        let panelRight = MENU_W;
         let panelWidth = MENU_W;
         let panelCenter = panelLeft + panelWidth / 2;
         fill('#0f172a');
         rect(panelCenter, SCREEN_H / 2, panelWidth, SCREEN_H);
 
-        menuContentArea.left = panelLeft + scaledX(20);
-        menuContentArea.right = panelRight - scaledX(20);
+        menuContentArea.left = panelLeft + scaledX(16);
+        menuContentArea.right = panelRight - scaledX(16);
         menuContentArea.width = Math.max(
           0,
           menuContentArea.right - menuContentArea.left
@@ -3358,7 +3417,7 @@
         let tabs = getUnlockedMenuTabs();
         if (tabs.length === 0) {
           menuContentArea.bottom = SCREEN_H - scaledY(32);
-          drawDropButton(true);
+          drawDropButton(true, panelCenter);
           return;
         }
         if (!tabs.some((tab) => tab.key === activeMenu)) {
@@ -3366,7 +3425,7 @@
         }
         let tabsBottom = drawMenuTabs(headerBottom + scaledY(8), tabs);
         let contentTop = tabsBottom + scaledY(14);
-        let contentBottom = SCREEN_H - scaledY(90);
+        let contentBottom = SCREEN_H - scaledY(96);
         menuContentArea.top = contentTop;
         menuContentArea.bottom = contentBottom;
         menuContentArea.height = Math.max(0, contentBottom - contentTop);
@@ -3397,7 +3456,7 @@
         menuScrollMax = Math.max(0, contentHeight - visibleHeight);
         menuScroll = constrain(menuScroll, 0, menuScrollMax);
 
-        drawDropButton(activeMenu !== 'jar');
+        drawDropButton(activeMenu !== 'jar', panelCenter);
       }
 
       function drawResourceHeader(panelCenter) {
@@ -3925,7 +3984,14 @@
       }
 
       function drawTierUpgradeRow(y) {
-        let btnW = scaledX(110);
+        let rowWidth = menuContentArea.width || SCREEN_W - scaledX(80);
+        let btnW = Math.min(
+          scaledX(110),
+          Math.max(
+            scaledX(70),
+            rowWidth / Math.max(1, tierUnlockCosts.length) - scaledX(10)
+          )
+        );
         let btnH = scaledY(30);
         let xs = getRowPositions(tierUnlockCosts.length);
         textSize(scaledFont(11));
@@ -4001,7 +4067,11 @@
 
       function drawUpgradeRows(y) {
         let columns = Math.min(3, upgradeConfigs.length);
-        let btnW = scaledX(120);
+        let areaWidth = menuContentArea.width || SCREEN_W - scaledX(80);
+        let btnW = Math.min(
+          scaledX(120),
+          Math.max(scaledX(80), areaWidth / Math.max(1, columns) - scaledX(12))
+        );
         let btnH = scaledY(34);
         let rows = Math.ceil(upgradeConfigs.length / columns);
         textSize(scaledFont(10));
@@ -4048,7 +4118,11 @@
         if (configs.length === 0) {
           return y;
         }
-        let btnW = scaledX(140);
+        let areaWidth = menuContentArea.width || SCREEN_W - scaledX(80);
+        let btnW = Math.min(
+          scaledX(140),
+          Math.max(scaledX(90), areaWidth / Math.max(1, configs.length) - scaledX(12))
+        );
         let btnH = scaledY(34);
         let xs = getRowPositions(configs.length);
         textSize(scaledFont(10));
@@ -4181,7 +4255,8 @@
       }
 
       function drawPrestigeRow(y) {
-        let btnW = scaledX(220);
+        let areaWidth = menuContentArea.width || SCREEN_W - scaledX(80);
+        let btnW = Math.min(scaledX(220), areaWidth);
         let btnH = scaledY(38);
         let gain = getPrestigeGain();
         let canPrestige = gain > 0;
@@ -4208,8 +4283,8 @@
         let center = menuContentArea.center || SCREEN_W / 2;
         fill('#cbd5f5');
         textSize(scaledFont(11));
-        text('Conveyors sweep stray grains into the packager.', center, y);
-        text(`Every ${CHAIN_REQUIREMENT} grains bundles a fresh package.`, center, y + scaledY(16));
+        text('Conveyors catch every grain slipping through the intake.', center, y);
+        text(`Every ${CHAIN_REQUIREMENT} grains bundle into a single package square.`, center, y + scaledY(16));
         text('Click the module to jolt the belt and draw faster.', center, y + scaledY(32));
         textSize(scaledFont(14));
         return y + scaledY(48);
@@ -4281,15 +4356,13 @@
         return y + scaledY(62);
       }
 
-      function drawDropButton(compact = false) {
-        let btnW = scaledX(compact ? 84 : 104);
-        let btnH = scaledY(compact ? 28 : 36);
-        let dropX =
-          (menuContentArea.right || SCREEN_W - scaledX(70)) -
-          scaledX(compact ? 18 : 22);
+      function drawDropButton(compact = false, fallbackCenter = SCREEN_W / 2) {
+        let btnW = scaledX(compact ? 82 : 100);
+        let btnH = scaledY(compact ? 26 : 34);
+        let dropX = menuContentArea.center || fallbackCenter;
         let dropY =
-          (menuContentArea.bottom || SCREEN_H - scaledY(32)) -
-          scaledY(compact ? 14 : 18);
+          (menuContentArea.bottom || SCREEN_H - scaledY(36)) -
+          scaledY(compact ? 12 : 16);
         fill(compact ? '#2dd4bf' : '#1976d2');
         rect(dropX, dropY, btnW, btnH, compact ? 8 : 10);
         fill('#f8fafc');
@@ -4336,8 +4409,7 @@
         if (!gameInitialized) {
           return;
         }
-        let panelLeft = PLAY_AREA_W;
-        if (mouseX >= panelLeft) {
+        if (mouseX <= MENU_W) {
           let delta = event.delta || 0;
           menuScroll = constrain(
             menuScroll + delta * 0.6,
@@ -4435,14 +4507,15 @@
 
       function rushConveyor() {
         let state = moduleStates.conveyor;
-        if (!state) return;
-        state.spawnTimer = Math.min(state.spawnTimer, 0.25);
-        state.grains.push({
-          progress: 0,
-          speed: 0.9 + Math.random() * 0.4,
-          offset: random(-0.12, 0.12),
-          size: 0.12
-        });
+        if (!state || !isMachineUnlocked('conveyor')) return;
+        state.spawnTimer = Math.min(state.spawnTimer || 0, 0.05);
+        for (let faller of state.fallers) {
+          faller.vy = (faller.vy || 0) + 0.6;
+        }
+        for (let grain of state.modules) {
+          grain.progress = Math.min(0.98, (grain.progress || 0) + 0.12);
+        }
+        state.packageProgress = Math.min(1, (state.packageProgress || 0) + 0.18);
       }
 
       function boostRockets() {
