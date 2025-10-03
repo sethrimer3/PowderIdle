@@ -37,13 +37,7 @@
       let totalDustEarned = 0;
       let crystalCores = 0;
       let totalPowderCollected = 0;
-      let upgradesState = {
-        gravity: 0,
-        refinery: 0,
-        compressor: 0,
-        lanterns: 0,
-        harmonics: 0
-      };
+      let upgradesState = {};
       let activeMenu = 'jar';
       let layerStates = [];
       let researchState = {};
@@ -70,6 +64,7 @@
       let buttons = [];
       let fullscreenModule = null;
       let jarVisible = true;
+      let selectedModule = null;
       const moduleInteractionHints = {
         conveyor: 'Click to rush extra cargo.',
         rocket: 'Tap to fuel launches faster.',
@@ -92,15 +87,17 @@
             moldCooldown: 0,
             deliveryPulse: 0,
             packageProgress: 0,
-            packagePulse: 0
+            packagePulse: 0,
+            autoTimer: 0
           },
-          rocket: { pods: [] },
+          rocket: { pods: [], autoTimer: 0, explosions: [], successPulse: 0 },
           asteroid: {
             progress: 0,
             asteroids: [],
             powderBits: [],
             ring: 0,
-            ringPulse: 0
+            ringPulse: 0,
+            autoTimer: 0
           },
           planet: {
             progress: 0,
@@ -108,12 +105,21 @@
             moons: [],
             planetCore: null,
             spin: 0,
-            coreGlow: 0
+            coreGlow: 0,
+            moonPulse: 0,
+            autoTimer: 0
           },
-          forge: { progress: 0, pulses: [], corona: 0 },
-          galaxy: { progress: 0, angle: 0, particles: [], vortices: [], bursts: [] },
-          universe: { progress: 0, angle: 0, nodes: [] },
-          singularity: { progress: 0, shards: [], orbit: 0, halo: 0 }
+          forge: { progress: 0, pulses: [], corona: 0, autoTimer: 0 },
+          galaxy: {
+            progress: 0,
+            angle: 0,
+            particles: [],
+            vortices: [],
+            bursts: [],
+            autoTimer: 0
+          },
+          universe: { progress: 0, angle: 0, nodes: [], autoTimer: 0 },
+          singularity: { progress: 0, shards: [], orbit: 0, halo: 0, autoTimer: 0 }
         };
       }
       let grid = [];
@@ -166,6 +172,7 @@
         let upgradeData = upgradesDataRaw || {};
         upgradeConfigs = upgradeData.upgrades || [];
         researchProjects = upgradeData.research || [];
+        upgradesState = createUpgradeState(upgradesState);
 
         let progressionData = progressionDataRaw || {};
         strataLayers = progressionData.strataLayers || [];
@@ -174,6 +181,17 @@
           acc[milestone.key] = index;
           return acc;
         }, {});
+      }
+
+      function createUpgradeState(source) {
+        let state = {};
+        for (let config of upgradeConfigs) {
+          let value = source && typeof source[config.key] === 'number'
+            ? source[config.key]
+            : 0;
+          state[config.key] = value;
+        }
+        return state;
       }
 
       function initializeGameState() {
@@ -186,11 +204,7 @@
         dust = 0;
         totalDustEarned = 0;
         totalPowderCollected = 0;
-        upgradesState.gravity = 0;
-        upgradesState.refinery = 0;
-        upgradesState.compressor = 0;
-        upgradesState.lanterns = 0;
-        upgradesState.harmonics = 0;
+        upgradesState = createUpgradeState();
         layerStates = strataLayers.map((layer, index) => ({
           unlocked: index === 0,
           completed: false,
@@ -219,6 +233,7 @@
         milestoneMessageTimer = 0;
         activeMenu = menuTabs.length > 0 ? menuTabs[0].key : 'jar';
         codexUnlocked = false;
+        selectedModule = activeMenu === 'jar' ? 'jar' : null;
         moduleStates = createDefaultModuleStates();
       }
 
@@ -535,6 +550,12 @@
         let panelH = rectInfo.height * 0.78;
         push();
         rectMode(CENTER);
+        if (selectedModule === machine.key) {
+          stroke('#facc15');
+          strokeWeight(4);
+          noFill();
+          rect(center.x, center.y, panelW + scaledX(18), panelH + scaledY(18), 24);
+        }
         stroke(unlocked ? '#1e3a8a' : '#1e293b');
         strokeWeight(2);
         fill(unlocked ? '#0b1220' : '#040810');
@@ -705,11 +726,31 @@
         }
       }
 
+      function runModuleAutomation(state, moduleKey, dt, baseInterval, action) {
+        if (!state) return;
+        let autoLevel = getUpgradeLevel(`${moduleKey}Automation`);
+        if (autoLevel <= 0) return;
+        let speedLevel = getUpgradeLevel(`${moduleKey}AutomationSpeed`);
+        state.autoTimer = (state.autoTimer || 0) + dt;
+        let interval = baseInterval / (1 + (autoLevel - 1) * 0.35 + speedLevel * 0.65);
+        interval = Math.max(0.45, interval);
+        while (state.autoTimer >= interval) {
+          state.autoTimer -= interval;
+          action();
+        }
+      }
+
+      function getRocketSuccessRate() {
+        let base = 0.1;
+        let bonus = getUpgradeLevel('rocketSuccessRate') * 0.18;
+        return Math.min(0.95, base + bonus);
+      }
+
       function updateConveyorState(dt) {
         let state = moduleStates.conveyor;
         if (!state) return;
         setupConveyorGeometry(state);
-        let speedBoost = 1 + upgradesState.gravity * 0.12 + getLayerGravityBonus() * 0.6;
+        let speedBoost = 1 + getUpgradeLevel('gravity') * 0.12 + getLayerGravityBonus() * 0.6;
         let spawnRate = state.geometry.spawnRate / Math.max(0.2, speedBoost);
         state.spawnTimer -= dt;
         if (state.spawnTimer <= 0) {
@@ -729,12 +770,25 @@
             powderCounts[0] -= CHAIN_REQUIREMENT;
             powderCounts[1] += 1;
             state.packagePulse = 1;
+            let overfillLevel = getUpgradeLevel('conveyorOverfill');
+            if (overfillLevel > 0) {
+              let extraChance = Math.min(0.6, 0.18 * overfillLevel);
+              if (Math.random() < extraChance) {
+                powderCounts[1] += 1;
+                dust += Math.max(
+                  1,
+                  Math.round((2 + overfillLevel) * getDustMultiplier())
+                );
+                state.deliveryPulse = 1;
+              }
+            }
           }
         } else {
           state.packageProgress = Math.max(0, (state.packageProgress || 0) - dt * 0.4);
         }
         state.packagePulse = Math.max(0, (state.packagePulse || 0) - dt * 2.2);
         state.deliveryPulse = Math.max(0, (state.deliveryPulse || 0) - dt * 1.6);
+        runModuleAutomation(state, 'conveyor', dt, 5.5, rushConveyor);
       }
 
       function setupConveyorGeometry(state) {
@@ -943,8 +997,12 @@
             .fill(0)
             .map(() => ({ progress: 0, launch: 0, fueling: false }));
         }
-        let fuelSpeed = 0.32 + upgradesState.refinery * 0.08 + getGravityMultiplier() * 0.03;
-        for (let pod of state.pods) {
+        state.explosions = state.explosions || [];
+        state.successPulse = Math.max(0, (state.successPulse || 0) - dt * 1.1);
+        let fuelSpeed = 0.32 + getUpgradeLevel('refinery') * 0.08 + getGravityMultiplier() * 0.03;
+        let successRate = getRocketSuccessRate();
+        for (let i = 0; i < state.pods.length; i++) {
+          let pod = state.pods[i];
           if (pod.launch > 0) {
             pod.launch += dt;
             if (pod.launch >= 0.6) {
@@ -964,13 +1022,31 @@
               pod.progress = 1;
               pod.launch = 0.01;
               pod.fueling = false;
-              powderCounts[2] += 1;
-              dust += Math.max(2, Math.round(6 * getDustMultiplier()));
+              if (Math.random() < successRate) {
+                powderCounts[2] += 1;
+                dust += Math.max(2, Math.round(6 * getDustMultiplier()));
+                state.successPulse = 1;
+              } else {
+                let salvage = Math.floor(
+                  CHAIN_REQUIREMENT * (0.05 + getUpgradeLevel('rocketSuccessRate') * 0.05)
+                );
+                if (salvage > 0) {
+                  powderCounts[1] += salvage;
+                }
+                state.explosions.push({ life: 1, index: i });
+              }
             }
           } else {
             pod.progress = Math.max(0, pod.progress - dt * 0.3);
           }
         }
+        for (let i = state.explosions.length - 1; i >= 0; i--) {
+          state.explosions[i].life -= dt * 1.5;
+          if (state.explosions[i].life <= 0) {
+            state.explosions.splice(i, 1);
+          }
+        }
+        runModuleAutomation(state, 'rocket', dt, 7, boostRockets);
       }
 
       function updateAsteroidState(dt) {
@@ -985,11 +1061,15 @@
           0.26 + (researchState.lens || 0) * 0.03,
           dt,
           8,
-          () => spawnAsteroidPowder(state)
+          () => {
+            spawnAsteroidPowder(state);
+            applyAsteroidFissionBonus(state);
+          }
         );
         updateAsteroidPowder(state, dt);
         updateAsteroidBodies(state, dt);
         state.ringPulse = Math.max(0, (state.ringPulse || 0) - dt * 1.4);
+        runModuleAutomation(state, 'asteroid', dt, 6.5, crackAsteroidCrucible);
       }
 
       function initializeAsteroidField(state) {
@@ -1036,6 +1116,17 @@
           state.powderBits.shift();
         }
         state.ringPulse = 1;
+      }
+
+      function applyAsteroidFissionBonus(state) {
+        let level = getUpgradeLevel('asteroidFissionBoost');
+        if (level <= 0) return;
+        let bonusChance = Math.min(0.65, 0.2 + level * 0.12);
+        if (Math.random() < bonusChance) {
+          powderCounts[3] += 1;
+          state.ringPulse = 1;
+        }
+        dust += Math.max(1, Math.round((3 + level * 2) * getDustMultiplier()));
       }
 
       function updateAsteroidPowder(state, dt) {
@@ -1185,6 +1276,8 @@
         updatePlanetesimals(state, dt);
         updatePlanetMoons(state, dt);
         state.coreGlow = Math.max(0, (state.coreGlow || 0) - dt * 1.2);
+        state.moonPulse = Math.max(0, (state.moonPulse || 0) - dt * 1.1);
+        runModuleAutomation(state, 'planet', dt, 7.5, tunePlanetarium);
       }
 
       function initializePlanetField(state) {
@@ -1315,6 +1408,7 @@
             state.moons = state.moons || [];
             state.moons.push(createPlanetMoon(core.radius, body.mass));
             state.coreGlow = 1;
+            applyPlanetMoonNurseryBonus(state);
             bodies.splice(i, 1);
           }
         }
@@ -1331,6 +1425,15 @@
           wobble: random(TAU),
           size: 0.05 + mass * 0.02
         };
+      }
+
+      function applyPlanetMoonNurseryBonus(state) {
+        let level = getUpgradeLevel('planetMoonNursery');
+        if (level <= 0) return;
+        let bonusPlanets = Math.max(1, level);
+        powderCounts[4] += bonusPlanets;
+        dust += Math.max(1, Math.round((6 + level * 2) * getDustMultiplier()));
+        state.moonPulse = 1;
       }
 
       function updatePlanetMoons(state, dt) {
@@ -1360,17 +1463,34 @@
           state,
           4,
           5,
-          0.22 + upgradesState.compressor * 0.05,
+          0.22 + getUpgradeLevel('compressor') * 0.05,
           dt,
           12,
           () => {
             state.pulses.push({ life: 1, angle: Math.random() * TAU });
+            applyForgeSupernovaBonus(state);
           }
         );
         for (let i = state.pulses.length - 1; i >= 0; i--) {
           state.pulses[i].life -= dt * 1.6;
           if (state.pulses[i].life <= 0) {
             state.pulses.splice(i, 1);
+          }
+        }
+        runModuleAutomation(state, 'forge', dt, 9, hammerForge);
+      }
+
+      function applyForgeSupernovaBonus(state) {
+        let level = getUpgradeLevel('forgeSupernova');
+        if (level <= 0) return;
+        if (Math.random() < Math.min(0.55, 0.2 * level)) {
+          powderCounts[5] += 1;
+        }
+        dust += Math.max(1, Math.round((8 + level * 5) * getDustMultiplier()));
+        if (state && state.pulses) {
+          state.pulses.push({ life: 0.6 + level * 0.08, angle: Math.random() * TAU });
+          while (state.pulses.length > 12) {
+            state.pulses.shift();
           }
         }
       }
@@ -1411,11 +1531,15 @@
           state,
           5,
           6,
-          0.18 + (researchState.lens || 0) * 0.03 + upgradesState.lanterns * 0.02,
+          0.18 + (researchState.lens || 0) * 0.03 + getUpgradeLevel('lanterns') * 0.02,
           dt,
           15,
-          () => spawnGalaxyBurst(state)
+          () => {
+            spawnGalaxyBurst(state);
+            applyGalaxyClusterBonus(state);
+          }
         );
+        runModuleAutomation(state, 'galaxy', dt, 10.5, swirlGalaxy);
       }
 
       function initializeGalaxyField(state) {
@@ -1457,6 +1581,27 @@
         }
       }
 
+      function applyGalaxyClusterBonus(state) {
+        let level = getUpgradeLevel('galaxyCluster');
+        if (level <= 0) return;
+        let extra = 0;
+        for (let i = 0; i < level; i++) {
+          if (Math.random() < 0.35) {
+            extra++;
+          }
+        }
+        if (extra > 0) {
+          powderCounts[6] += extra;
+        }
+        dust += Math.max(1, Math.round((10 + level * 6) * getDustMultiplier()));
+        if (state && state.bursts) {
+          state.bursts.push({ radius: random(0.18, 0.42), angle: random(TAU), life: 0.9 });
+          while (state.bursts.length > 8) {
+            state.bursts.shift();
+          }
+        }
+      }
+
       function angleWrap(value) {
         while (value > Math.PI) value -= TAU;
         while (value < -Math.PI) value += TAU;
@@ -1481,10 +1626,25 @@
           state,
           6,
           7,
-          0.16 + (researchState.overclock || 0) * 0.02 + upgradesState.harmonics * 0.02,
+          0.16 + (researchState.overclock || 0) * 0.02 + getUpgradeLevel('harmonics') * 0.02,
           dt,
-          18
+          18,
+          () => applyUniverseContinuumBonus(state)
         );
+        runModuleAutomation(state, 'universe', dt, 12, syncUniverse);
+      }
+
+      function applyUniverseContinuumBonus(state) {
+        let level = getUpgradeLevel('universeContinuum');
+        if (level <= 0) return;
+        if (Math.random() < Math.min(0.5, 0.18 * level)) {
+          powderCounts[7] += 1;
+        }
+        dust += Math.max(1, Math.round((12 + level * 6) * getDustMultiplier()));
+        let singularity = moduleStates.singularity;
+        if (singularity) {
+          singularity.progress = (singularity.progress || 0) + level * 0.12;
+        }
       }
 
       function updateSingularityState(dt) {
@@ -1508,6 +1668,7 @@
             }
             dust += Math.max(5, Math.round(22 * getDustMultiplier()));
             state.shards.push({ life: 1, angle: Math.random() * TAU });
+            applySingularityEchoBonus();
           }
         } else {
           state.progress = Math.max(0, state.progress - dt * 0.25);
@@ -1518,6 +1679,16 @@
             state.shards.splice(i, 1);
           }
         }
+        runModuleAutomation(state, 'singularity', dt, 14, focusSingularity);
+      }
+
+      function applySingularityEchoBonus() {
+        let level = getUpgradeLevel('singularityEcho');
+        if (level <= 0) return;
+        if (Math.random() < Math.min(0.7, 0.2 * level)) {
+          crystalCores += 1;
+        }
+        dust += Math.max(1, Math.round((14 + level * 7) * getDustMultiplier()));
       }
 
       function drawConveyorModule(context) {
@@ -1688,6 +1859,10 @@
         translate(center.x, center.y);
         fill('#0d1628');
         rect(0, panelH * 0.28, panelW * 0.9, panelH * 0.18, 8);
+        if (state.successPulse > 0) {
+          fill(withAlpha('#22c55e', 60 + state.successPulse * 120));
+          rect(0, -panelH * 0.12, panelW * 0.96, panelH * 0.36, 12);
+        }
         let spacing = panelW * 0.3;
         for (let i = 0; i < state.pods.length; i++) {
           let pod = state.pods[i];
@@ -1724,6 +1899,19 @@
             rect(0, bodyH * 0.38, bodyW * 0.46, bodyH * 0.14, 3);
           }
           pop();
+        }
+        if (state.explosions) {
+          noStroke();
+          for (let blast of state.explosions) {
+            let index = blast.index || 0;
+            let life = Math.max(0, Math.min(1, blast.life || 0));
+            let x = -spacing + spacing * index;
+            let radius = panelW * 0.3 * (1.2 - life * 0.6);
+            fill(withAlpha('#f87171', 180 * life));
+            ellipse(x, panelH * 0.1, radius, radius * 0.7);
+            fill(withAlpha('#fde68a', 200 * life));
+            ellipse(x, panelH * 0.12, radius * 0.6, radius * 0.4);
+          }
         }
         let queue = Math.min(6, Math.floor((powderCounts[1] || 0) / 5));
         for (let i = 0; i < queue; i++) {
@@ -1815,6 +2003,10 @@
         let scaleX = panelW * 0.38;
         let scaleY = panelH * 0.32;
         let spin = state.spin || 0;
+        if (state.moonPulse > 0) {
+          fill(withAlpha('#fde68a', 80 + state.moonPulse * 90));
+          ellipse(0, 0, panelW * 0.82, panelH * 0.58);
+        }
         stroke(withAlpha('#12304c', 220));
         strokeWeight(2);
         noFill();
@@ -2075,6 +2267,12 @@
         let panelH = rectInfo.height * 0.86;
         push();
         rectMode(CENTER);
+        if (selectedModule === machine.key) {
+          stroke('#facc15');
+          strokeWeight(4);
+          noFill();
+          rect(center.x, center.y, panelW + scaledX(18), panelH + scaledY(18), 28);
+        }
         stroke('#1d4ed8');
         strokeWeight(2);
         fill(withAlpha('#020617', 180));
@@ -2403,10 +2601,16 @@
         }
       }
 
+      function getUpgradeLevel(key) {
+        return upgradesState && typeof upgradesState[key] === 'number'
+          ? upgradesState[key]
+          : 0;
+      }
+
       function getGravityMultiplier() {
         return (
           1 +
-          upgradesState.gravity * 0.2 +
+          getUpgradeLevel('gravity') * 0.2 +
           crystalCores * 0.1 +
           getLayerGravityBonus() +
           milestoneBonuses.gravity * getMilestoneBonusScale()
@@ -2416,7 +2620,7 @@
       function getDustMultiplier() {
         return (
           1 +
-          upgradesState.refinery * 0.35 +
+          getUpgradeLevel('refinery') * 0.35 +
           crystalCores * 0.25 +
           getLayerDustBonus() +
           (researchState.lens || 0) * 0.2 +
@@ -2425,9 +2629,9 @@
       }
 
       function getCompressorEfficiency() {
-        return upgradesState.compressor <= 0
+        return getUpgradeLevel('compressor') <= 0
           ? 0
-          : 1 + upgradesState.compressor * 0.35;
+          : 1 + getUpgradeLevel('compressor') * 0.35;
       }
 
       function updateAutoDroppers() {
@@ -2464,7 +2668,7 @@
         if (
           automationSettings.autoCompress &&
           automationUnlocks.autoCompress &&
-          upgradesState.compressor > 0
+          getUpgradeLevel('compressor') > 0
         ) {
           let interval = Math.max(
             380,
@@ -2695,7 +2899,9 @@
       }
 
       function drawConveyorMenu(y) {
-        y = drawSectionHeader('Auto Feeders', y);
+        y = drawSectionHeader('Module Upgrades', y);
+        y = drawModuleUpgradeList('conveyor', y + scaledY(10));
+        y = drawSectionHeader('Auto Feeders', y + scaledY(12));
         y = drawAutoDropperRow(y + scaledY(8));
         y = drawSectionHeader('Belt Diagnostics', y + scaledY(12));
         y = drawConveyorNotes(y + scaledY(10));
@@ -2703,7 +2909,9 @@
       }
 
       function drawRocketMenu(y) {
-        y = drawSectionHeader('Refinery Upgrades', y);
+        y = drawSectionHeader('Module Upgrades', y);
+        y = drawModuleUpgradeList('rocket', y + scaledY(10));
+        y = drawSectionHeader('Refinery Upgrades', y + scaledY(12));
         y = drawSpecificUpgradeRow(['refinery'], y + scaledY(10));
         y = drawSectionHeader('Launch Status', y + scaledY(12));
         y = drawRocketStatus(y + scaledY(12));
@@ -2711,19 +2919,25 @@
       }
 
       function drawAsteroidMenu(y) {
-        y = drawSectionHeader('Crucible Report', y);
+        y = drawSectionHeader('Module Upgrades', y);
+        y = drawModuleUpgradeList('asteroid', y + scaledY(10));
+        y = drawSectionHeader('Crucible Report', y + scaledY(12));
         y = drawAsteroidStatus(y + scaledY(12));
         return y;
       }
 
       function drawPlanetMenu(y) {
-        y = drawSectionHeader('Planetary Ledger', y);
+        y = drawSectionHeader('Module Upgrades', y);
+        y = drawModuleUpgradeList('planet', y + scaledY(10));
+        y = drawSectionHeader('Planetary Ledger', y + scaledY(12));
         y = drawPlanetStatus(y + scaledY(12));
         return y;
       }
 
       function drawForgeMenu(y) {
-        y = drawSectionHeader('Compression Engine', y);
+        y = drawSectionHeader('Module Upgrades', y);
+        y = drawModuleUpgradeList('forge', y + scaledY(10));
+        y = drawSectionHeader('Compression Engine', y + scaledY(12));
         y = drawSpecificUpgradeRow(['compressor'], y + scaledY(10));
         y = drawSectionHeader('Transmutation Matrix', y + scaledY(12));
         y = drawCompressionRow(y + scaledY(16));
@@ -2731,7 +2945,9 @@
       }
 
       function drawGalaxyMenu(y) {
-        y = drawSectionHeader('Luminous Upgrades', y);
+        y = drawSectionHeader('Module Upgrades', y);
+        y = drawModuleUpgradeList('galaxy', y + scaledY(10));
+        y = drawSectionHeader('Luminous Upgrades', y + scaledY(12));
         y = drawSpecificUpgradeRow(['lanterns'], y + scaledY(10));
         y = drawSectionHeader('Arcane Research', y + scaledY(12));
         y = drawResearchRows(y + scaledY(10));
@@ -2739,7 +2955,9 @@
       }
 
       function drawUniverseMenu(y) {
-        y = drawSectionHeader('Resonance Upgrades', y);
+        y = drawSectionHeader('Module Upgrades', y);
+        y = drawModuleUpgradeList('universe', y + scaledY(10));
+        y = drawSectionHeader('Resonance Upgrades', y + scaledY(12));
         y = drawSpecificUpgradeRow(['harmonics'], y + scaledY(10));
         y = drawSectionHeader('Automation Scripts', y + scaledY(12));
         y = drawAutomationControls(y + scaledY(10));
@@ -2747,7 +2965,9 @@
       }
 
       function drawSingularityMenu(y) {
-        y = drawSectionHeader('Crystal Ledger', y);
+        y = drawSectionHeader('Module Upgrades', y);
+        y = drawModuleUpgradeList('singularity', y + scaledY(10));
+        y = drawSectionHeader('Crystal Ledger', y + scaledY(12));
         y = drawSingularityStats(y + scaledY(10));
         y = drawSectionHeader('Crystallization', y + scaledY(12));
         y = drawPrestigeRow(y + scaledY(18));
@@ -3097,8 +3317,8 @@
           let count = end - start;
           let xs = getRowPositions(count);
           for (let c = 0; c < count; c++) {
-            let config = upgradeConfigs[start + c];
-            let level = upgradesState[config.key];
+          let config = upgradeConfigs[start + c];
+          let level = getUpgradeLevel(config.key);
             let cost = getUpgradeCost(config);
             let canBuy = dust >= cost;
             let x = xs[c];
@@ -3137,7 +3357,7 @@
         textSize(scaledFont(10));
         for (let i = 0; i < configs.length; i++) {
           let config = configs[i];
-          let level = upgradesState[config.key];
+          let level = getUpgradeLevel(config.key);
           let cost = getUpgradeCost(config);
           let canBuy = dust >= cost;
           let x = xs[i];
@@ -3159,8 +3379,56 @@
         return y + scaledY(36);
       }
 
+      function drawModuleUpgradeList(moduleKey, y) {
+        let configs = upgradeConfigs.filter((config) => config.module === moduleKey);
+        if (configs.length === 0) {
+          return y;
+        }
+        let maxWidth = menuContentArea.width || SCREEN_W - scaledX(80);
+        let columns = configs.length >= 3 ? 3 : Math.min(2, configs.length);
+        let btnW = Math.min(
+          scaledX(180),
+          Math.max(scaledX(130), maxWidth / Math.max(1, columns) - scaledX(16))
+        );
+        let btnH = scaledY(60);
+        let rows = Math.ceil(configs.length / columns);
+        for (let r = 0; r < rows; r++) {
+          let rowConfigs = configs.slice(r * columns, r * columns + columns);
+          let xs = getRowPositions(rowConfigs.length);
+          for (let i = 0; i < rowConfigs.length; i++) {
+            let config = rowConfigs[i];
+            let level = getUpgradeLevel(config.key);
+            let cost = getUpgradeCost(config);
+            let canBuy = dust >= cost;
+            let rowY = y + scaledY(r * 68);
+            let x = xs[i];
+            fill(canBuy ? '#facc15' : '#854d0e');
+            rect(x, rowY, btnW, btnH, 12);
+            fill(canBuy ? '#0f172a' : '#f8fafc');
+            textSize(scaledFont(11));
+            text(`${config.name} Lv.${level}`, x, rowY - scaledY(16));
+            textSize(scaledFont(10));
+            fill('#f8fafc');
+            text(`Cost: ${cost} dust`, x, rowY - scaledY(2));
+            textSize(scaledFont(9));
+            fill('#e2e8f0');
+            text(config.description, x, rowY + scaledY(14));
+            buttons.push({
+              action: 'buyUpgrade',
+              key: config.key,
+              x,
+              y: rowY,
+              w: btnW,
+              h: btnH
+            });
+          }
+        }
+        textSize(scaledFont(14));
+        return y + scaledY(rows * 68);
+      }
+
       function drawCompressionRow(y) {
-        if (upgradesState.compressor <= 0) {
+        if (getUpgradeLevel('compressor') <= 0) {
           textSize(scaledFont(11));
           fill('#b0bec5');
           text(
@@ -3251,9 +3519,18 @@
         let ready = state.pods.filter((pod) => pod.progress >= 1 && pod.launch === 0).length;
         text(`Pads fueled: ${ready}/${state.pods.length}`, center, y);
         text(`Packages on hand: ${powderCounts[1] || 0}`, center, y + scaledY(16));
-        text(`Tap the bay to hasten the ${CHAIN_REQUIREMENT}-to-1 fueling cycle.`, center, y + scaledY(32));
+        text(
+          `Launch success chance: ${Math.round(getRocketSuccessRate() * 100)}%`,
+          center,
+          y + scaledY(32)
+        );
+        text(
+          `Tap the bay to hasten the ${CHAIN_REQUIREMENT}-to-1 fueling cycle.`,
+          center,
+          y + scaledY(48)
+        );
         textSize(scaledFont(14));
-        return y + scaledY(48);
+        return y + scaledY(64);
       }
 
       function drawAsteroidStatus(y) {
@@ -3361,16 +3638,25 @@
           case 'switchMenu':
             if (isMenuTabUnlocked(btn.key)) {
               activeMenu = btn.key;
+              let tab = menuTabs.find((t) => t.key === btn.key);
+              if (tab && tab.machine) {
+                selectedModule = tab.machine;
+              }
             }
             break;
           case 'toggleAutomation':
             toggleAutomation(btn.key);
             break;
           case 'moduleInteract':
+            selectedModule = btn.key;
+            if (isMenuTabUnlocked(btn.key)) {
+              activeMenu = btn.key;
+            }
             handleModuleInteraction(btn.key);
             break;
           case 'toggleFullscreen':
             toggleModuleFullscreen(btn.key);
+            selectedModule = btn.key;
             break;
         }
       }
@@ -3574,7 +3860,7 @@
       }
 
       function getUpgradeCost(config) {
-        let level = upgradesState[config.key];
+        let level = getUpgradeLevel(config.key);
         return Math.floor(config.baseCost * Math.pow(config.costMult, level));
       }
 
@@ -3614,7 +3900,7 @@
       }
 
       function compressPowder(recipe) {
-        if (upgradesState.compressor <= 0) return;
+        if (getUpgradeLevel('compressor') <= 0) return;
         if (!(recipe.to === 0 || tierUpgrades[recipe.to - 1])) return;
         let efficiency = getCompressorEfficiency();
         if (efficiency <= 0) return;
@@ -3639,13 +3925,11 @@
         tierUpgrades = new Array(powderTypes.length - 1).fill(false);
         autoDroppers = new Array(powderTypes.length).fill(0);
         dropperTimers = new Array(powderTypes.length).fill(0);
-        upgradesState.gravity = 0;
-        upgradesState.refinery = 0;
-        if (upgradesState.compressor > 0) {
-          upgradesState.compressor = 1; // retain basic access to compression if purchased
+        let hadCompressor = getUpgradeLevel('compressor') > 0;
+        upgradesState = createUpgradeState();
+        if (hadCompressor && typeof upgradesState.compressor === 'number') {
+          upgradesState.compressor = Math.max(1, upgradesState.compressor);
         }
-        upgradesState.lanterns = 0;
-        upgradesState.harmonics = 0;
         selectedPowder = 0;
         automationSettings.autoDrop = false;
         automationSettings.autoCompress = false;
@@ -3653,6 +3937,7 @@
         autoCompressTimer = 0;
         activeMenu = menuTabs[0].key;
         fullscreenModule = null;
+        selectedModule = activeMenu === 'jar' ? 'jar' : null;
         moduleStates = createDefaultModuleStates();
         updateLayoutDimensions(true);
         refreshPowderGrid(true);
@@ -3715,8 +4000,8 @@
       function getAutoDropperSpeedMultiplier() {
         return (
           1 +
-          upgradesState.gravity * 0.15 +
-          upgradesState.harmonics * 0.2 +
+          getUpgradeLevel('gravity') * 0.15 +
+          getUpgradeLevel('harmonics') * 0.2 +
           crystalCores * 0.1 +
           (researchState.overclock || 0) * 0.15 +
           getLayerGravityBonus() * 0.5 +
@@ -3727,7 +4012,7 @@
       function getAutomationIntervalMultiplier() {
         return (
           1 +
-          upgradesState.harmonics * 0.2 +
+          getUpgradeLevel('harmonics') * 0.2 +
           crystalCores * 0.1 +
           (researchState.overclock || 0) * 0.15 +
           getLayerGravityBonus() * 0.4 +
@@ -3737,7 +4022,7 @@
 
       function addLayerProgress(amount) {
         if (amount <= 0) return;
-        let amplified = amount * (1 + upgradesState.lanterns * 0.25);
+        let amplified = amount * (1 + getUpgradeLevel('lanterns') * 0.25);
         let target = layerStates.findIndex((state) => state.unlocked && !state.completed);
         if (target === -1) {
           let next = layerStates.findIndex((state) => !state.unlocked);

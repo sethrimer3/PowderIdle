@@ -34,6 +34,198 @@
       "description": "Automation cadence +20% per level.",
       "baseCost": 200,
       "costMult": 2.8
+    },
+    {
+      "key": "conveyorAutomation",
+      "module": "conveyor",
+      "name": "Self-Jolting Belt",
+      "description": "Automatically jolts the conveyor every few seconds.",
+      "baseCost": 90,
+      "costMult": 2.4
+    },
+    {
+      "key": "conveyorAutomationSpeed",
+      "module": "conveyor",
+      "name": "Flux Gearbox",
+      "description": "Speeds up automated conveyor jolts.",
+      "baseCost": 120,
+      "costMult": 2.6
+    },
+    {
+      "key": "conveyorOverfill",
+      "module": "conveyor",
+      "name": "Overflow Catchers",
+      "description": "Overflowing hoppers sometimes double packaged output and dust.",
+      "baseCost": 150,
+      "costMult": 2.7
+    },
+    {
+      "key": "rocketAutomation",
+      "module": "rocket",
+      "name": "Launch Scripts",
+      "description": "Automates launch bay boosts at a steady cadence.",
+      "baseCost": 160,
+      "costMult": 2.5
+    },
+    {
+      "key": "rocketAutomationSpeed",
+      "module": "rocket",
+      "name": "Cryo Pumps",
+      "description": "Cuts the delay between automated launch bay boosts.",
+      "baseCost": 190,
+      "costMult": 2.6
+    },
+    {
+      "key": "rocketSuccessRate",
+      "module": "rocket",
+      "name": "Telemetry Drones",
+      "description": "Raises launch success chance by +18% per level.",
+      "baseCost": 140,
+      "costMult": 2.4
+    },
+    {
+      "key": "asteroidAutomation",
+      "module": "asteroid",
+      "name": "Crucible Sequencer",
+      "description": "Automates cracking the crucible for asteroid gains.",
+      "baseCost": 230,
+      "costMult": 2.6
+    },
+    {
+      "key": "asteroidAutomationSpeed",
+      "module": "asteroid",
+      "name": "Geode Shifters",
+      "description": "Accelerates automated crucible strikes.",
+      "baseCost": 270,
+      "costMult": 2.7
+    },
+    {
+      "key": "asteroidFissionBoost",
+      "module": "asteroid",
+      "name": "Fission Catalyst",
+      "description": "Asteroid crafts sometimes fracture into extra rubble and dust.",
+      "baseCost": 300,
+      "costMult": 2.8
+    },
+    {
+      "key": "planetAutomation",
+      "module": "planet",
+      "name": "Orbital Metronome",
+      "description": "Automates tuning of the planetarium.",
+      "baseCost": 320,
+      "costMult": 2.6
+    },
+    {
+      "key": "planetAutomationSpeed",
+      "module": "planet",
+      "name": "Gravimetric Drives",
+      "description": "Spins automated tuning cycles faster.",
+      "baseCost": 360,
+      "costMult": 2.7
+    },
+    {
+      "key": "planetMoonNursery",
+      "module": "planet",
+      "name": "Moon Nurseries",
+      "description": "Every new moon grants bonus planets and dust.",
+      "baseCost": 380,
+      "costMult": 2.9
+    },
+    {
+      "key": "forgeAutomation",
+      "module": "forge",
+      "name": "Hammer Servitors",
+      "description": "Automates striking the forge.",
+      "baseCost": 430,
+      "costMult": 2.7
+    },
+    {
+      "key": "forgeAutomationSpeed",
+      "module": "forge",
+      "name": "Solar Flywheels",
+      "description": "Reduces the wait between automated forge strikes.",
+      "baseCost": 470,
+      "costMult": 2.8
+    },
+    {
+      "key": "forgeSupernova",
+      "module": "forge",
+      "name": "Supernova Crucibles",
+      "description": "Forged stars erupt for bonus dust and occasional extra stars.",
+      "baseCost": 520,
+      "costMult": 2.9
+    },
+    {
+      "key": "galaxyAutomation",
+      "module": "galaxy",
+      "name": "Autonomous Loom",
+      "description": "Spins the celestial loom on its own.",
+      "baseCost": 560,
+      "costMult": 2.8
+    },
+    {
+      "key": "galaxyAutomationSpeed",
+      "module": "galaxy",
+      "name": "Stellar Relays",
+      "description": "Quickens the cadence of automated galaxy weaving.",
+      "baseCost": 600,
+      "costMult": 3.0
+    },
+    {
+      "key": "galaxyCluster",
+      "module": "galaxy",
+      "name": "Cluster Architects",
+      "description": "Galaxy weaves may cluster into extra galaxies and light bursts.",
+      "baseCost": 640,
+      "costMult": 3.1
+    },
+    {
+      "key": "universeAutomation",
+      "module": "universe",
+      "name": "Continuum Orchestrator",
+      "description": "Synchronizes universes automatically.",
+      "baseCost": 700,
+      "costMult": 3.0
+    },
+    {
+      "key": "universeAutomationSpeed",
+      "module": "universe",
+      "name": "Quantum Gyres",
+      "description": "Accelerates automated universe syncing.",
+      "baseCost": 760,
+      "costMult": 3.1
+    },
+    {
+      "key": "universeContinuum",
+      "module": "universe",
+      "name": "Continuum Inflectors",
+      "description": "Universes grant extra dust, singularity progress, and sometimes duplicate.",
+      "baseCost": 800,
+      "costMult": 3.2
+    },
+    {
+      "key": "singularityAutomation",
+      "module": "singularity",
+      "name": "Echoing Focus",
+      "description": "Automatically channels the singularity crucible.",
+      "baseCost": 860,
+      "costMult": 3.2
+    },
+    {
+      "key": "singularityAutomationSpeed",
+      "module": "singularity",
+      "name": "Collapser Lattices",
+      "description": "Tightens the cadence of automated singularity focus.",
+      "baseCost": 920,
+      "costMult": 3.3
+    },
+    {
+      "key": "singularityEcho",
+      "module": "singularity",
+      "name": "Echoed Crystallization",
+      "description": "Crystallization echoes with a chance to mint bonus cores.",
+      "baseCost": 980,
+      "costMult": 3.4
     }
   ],
   "research": [
