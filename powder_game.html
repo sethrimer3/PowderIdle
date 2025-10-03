@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Powder Fall Game</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+    <style>
+      body { margin: 0; padding: 0; }
+      canvas { display: block; margin: auto; }
+    </style>
+  </head>
+  <body>
+    <script>
+      // Game constants
+      const SCREEN_W = 360;
+      const SCREEN_H = 640;
+      const MENU_H = SCREEN_H / 3;
+      const POWDER_AREA_H = SCREEN_H - MENU_H;
+      const POWDER_SIZE = 6;
+
+      // Powder tiers
+      const powderTypes = [
+        { name: "Sand", color: "#e7c97a" },
+        { name: "Stone", color: "#888888" },
+        { name: "Diamond", color: "#3de6e1" }
+      ];
+
+      let powders = []; // {x, y, type}
+      let powderCounts = [0, 0, 0];
+      let selectedPowder = 0;
+      let upgrades = [false, false]; // unlock higher tiers
+
+      function setup() {
+        createCanvas(SCREEN_W, SCREEN_H);
+        rectMode(CENTER);
+        textAlign(CENTER, CENTER);
+      }
+
+      function draw() {
+        background(30);
+
+        // Draw powder area
+        fill(0);
+        rect(SCREEN_W / 2, POWDER_AREA_H / 2, SCREEN_W, POWDER_AREA_H);
+
+        // Draw powders
+        for (let p of powders) {
+          fill(powderTypes[p.type].color);
+          rect(p.x, p.y, POWDER_SIZE, POWDER_SIZE, 2);
+        }
+
+        // Powder physics
+        for (let p of powders) {
+          if (p.y + POWDER_SIZE / 2 < POWDER_AREA_H) {
+            p.y += 2;
+          }
+        }
+
+        // Draw menu
+        drawMenu();
+
+        // Draw counters
+        drawPowderCounters();
+
+        // Check for combining
+        checkCombine();
+      }
+
+      function drawMenu() {
+        fill(38, 50, 56);
+        rect(SCREEN_W / 2, POWDER_AREA_H + MENU_H / 2, SCREEN_W, MENU_H);
+
+        // Powder select buttons
+        let btnW = 80, btnH = 40;
+        for (let i = 0; i < powderTypes.length; i++) {
+          // Only show tiers that are unlocked
+          if (i === 0 || upgrades[i - 1]) {
+            let bx = 60 + i * (btnW + 20);
+            let by = POWDER_AREA_H + 50;
+            fill(i === selectedPowder ? '#fff' : powderTypes[i].color);
+            rect(bx, by, btnW, btnH, 10);
+            fill(i === selectedPowder ? powderTypes[i].color : '#222');
+            text(powderTypes[i].name, bx, by);
+          }
+        }
+
+        // Upgrade buttons
+        let upgY = POWDER_AREA_H + 120;
+        for (let i = 1; i < powderTypes.length; i++) {
+          let canUpgrade = powderCounts[i - 1] >= 10 && !upgrades[i - 1];
+          fill(canUpgrade ? '#4caf50' : '#888');
+          rect(60 + (i - 1) * (btnW + 20), upgY, btnW, btnH, 10);
+          fill('#fff');
+          text(
+            "Upgrade: " + powderTypes[i - 1].name + " → " + powderTypes[i].name,
+            60 + (i - 1) * (btnW + 20), upgY
+          );
+        }
+
+        // Drop button
+        fill('#1976d2');
+        rect(SCREEN_W - 60, POWDER_AREA_H + MENU_H - 50, btnW, btnH, 10);
+        fill('#fff');
+        text("Drop", SCREEN_W - 60, POWDER_AREA_H + MENU_H - 50);
+      }
+
+      function drawPowderCounters() {
+        let y = POWDER_AREA_H + MENU_H / 2;
+        fill('#fff');
+        textSize(16);
+        for (let i = 0; i < powderTypes.length; i++) {
+          if (i === 0 || upgrades[i - 1]) {
+            text(
+              powderTypes[i].name + ": " + powderCounts[i],
+              70 + i * 110, y
+            );
+          }
+        }
+      }
+
+      function mousePressed() {
+        // Powder select
+        let btnW = 80, btnH = 40;
+        for (let i = 0; i < powderTypes.length; i++) {
+          if (i === 0 || upgrades[i - 1]) {
+            let bx = 60 + i * (btnW + 20);
+            let by = POWDER_AREA_H + 50;
+            if (
+              mouseX > bx - btnW / 2 && mouseX < bx + btnW / 2 &&
+              mouseY > by - btnH / 2 && mouseY < by + btnH / 2
+            ) {
+              selectedPowder = i;
+              return;
+            }
+          }
+        }
+
+        // Upgrade buttons
+        let upgY = POWDER_AREA_H + 120;
+        for (let i = 1; i < powderTypes.length; i++) {
+          let bx = 60 + (i - 1) * (btnW + 20);
+          let canUpgrade = powderCounts[i - 1] >= 10 && !upgrades[i - 1];
+          if (
+            mouseX > bx - btnW / 2 && mouseX < bx + btnW / 2 &&
+            mouseY > upgY - btnH / 2 && mouseY < upgY + btnH / 2
+          ) {
+            if (canUpgrade) {
+              powderCounts[i - 1] -= 10;
+              upgrades[i - 1] = true;
+            }
+            return;
+          }
+        }
+
+        // Drop powder button
+        let bx = SCREEN_W - 60, by = POWDER_AREA_H + MENU_H - 50;
+        let btnW = 80, btnH = 40;
+        if (
+          mouseX > bx - btnW / 2 && mouseX < bx + btnW / 2 &&
+          mouseY > by - btnH / 2 && mouseY < by + btnH / 2
+        ) {
+          dropPowder(selectedPowder);
+        }
+      }
+
+      function dropPowder(type) {
+        powders.push({
+          x: random(POWDER_SIZE, SCREEN_W - POWDER_SIZE),
+          y: POWDER_SIZE,
+          type: type
+        });
+      }
+
+      function checkCombine() {
+        // Count powders at rest (bottom of powder area)
+        let combined = false;
+        for (let i = 0; i < powders.length; i++) {
+          let p = powders[i];
+          if (p.y + POWDER_SIZE / 2 >= POWDER_AREA_H) {
+            powderCounts[p.type]++;
+            powders.splice(i, 1);
+            i--;
+            combined = true;
+          }
+        }
+      }
+    </script>
+  </body>
+</html>
