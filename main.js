@@ -64,6 +64,13 @@
       let buttons = [];
       let menuScroll = 0;
       let menuScrollMax = 0;
+      let menuDragState = {
+        active: false,
+        startY: 0,
+        startScroll: 0,
+        dragging: false
+      };
+      let activeButton = null;
       let fullscreenModule = null;
       let jarVisible = true;
       let selectedModule = null;
@@ -3124,13 +3131,13 @@
       }
 
       function updateCollageLayout() {
-        let horizontalPadding = Math.max(24, PLAY_AREA_W * 0.04);
-        let topPadding = Math.max(32, SCREEN_H * 0.08);
-        let bottomPadding = Math.max(32, SCREEN_H * 0.08);
-        let availableWidth = Math.max(220, PLAY_AREA_W - horizontalPadding * 2);
-        let availableHeight = Math.max(220, SCREEN_H - topPadding - bottomPadding);
+        let horizontalPadding = Math.max(scaledX(18), PLAY_AREA_W * 0.02);
+        let topPadding = Math.max(scaledY(28), SCREEN_H * 0.06);
+        let bottomPadding = Math.max(scaledY(24), SCREEN_H * 0.06);
+        let availableWidth = Math.max(260, PLAY_AREA_W - horizontalPadding * 2);
+        let availableHeight = Math.max(260, SCREEN_H - topPadding - bottomPadding);
         let size = Math.min(availableWidth, availableHeight);
-        let rightMargin = Math.max(horizontalPadding, PLAY_AREA_W * 0.08);
+        let rightMargin = Math.max(scaledX(16), PLAY_AREA_W * 0.03);
         let playAreaLeft = MENU_W;
         let localLeft = Math.max(horizontalPadding, PLAY_AREA_W - size - rightMargin);
         collageLayout.left = playAreaLeft + localLeft;
@@ -3702,7 +3709,7 @@
         }
         let tabsBottom = drawMenuTabs(headerBottom + scaledY(8), tabs);
         let contentTop = tabsBottom + scaledY(14);
-        let contentBottom = SCREEN_H - scaledY(96);
+        let contentBottom = SCREEN_H - scaledY(48);
         menuContentArea.top = contentTop;
         menuContentArea.bottom = contentBottom;
         menuContentArea.height = Math.max(0, contentBottom - contentTop);
@@ -3723,17 +3730,27 @@
           drawingContext.clip();
           menuContentArea.scrollOffset = menuScroll;
           contentEnd = drawActiveMenuContent(contentStart);
+          let dropCenterY = contentEnd + scaledY(40);
+          let dropBottom = drawDropButton(activeMenu !== 'jar', panelCenter, {
+            y: dropCenterY,
+            scrollAware: true
+          });
+          contentEnd = Math.max(contentEnd, dropBottom + scaledY(20));
           drawingContext.restore();
         } else {
           menuContentArea.scrollOffset = menuScroll;
           contentEnd = drawActiveMenuContent(contentStart);
+          let dropCenterY = contentEnd + scaledY(40);
+          let dropBottom = drawDropButton(activeMenu !== 'jar', panelCenter, {
+            y: dropCenterY,
+            scrollAware: true
+          });
+          contentEnd = Math.max(contentEnd, dropBottom + scaledY(20));
         }
         menuContentArea.scrollOffset = 0;
         let contentHeight = contentEnd - contentStart;
         menuScrollMax = Math.max(0, contentHeight - visibleHeight);
         menuScroll = constrain(menuScroll, 0, menuScrollMax);
-
-        drawDropButton(activeMenu !== 'jar', panelCenter);
       }
 
       function drawResourceHeader(panelCenter) {
@@ -4763,13 +4780,25 @@
         return y + scaledY(62);
       }
 
-      function drawDropButton(compact = false, fallbackCenter = SCREEN_W / 2) {
+      function drawDropButton(
+        compact = false,
+        fallbackCenter = SCREEN_W / 2,
+        options = {}
+      ) {
         let btnW = scaledX(compact ? 82 : 100);
         let btnH = scaledY(compact ? 26 : 34);
-        let dropX = menuContentArea.center || fallbackCenter;
-        let dropY =
-          (menuContentArea.bottom || SCREEN_H - scaledY(36)) -
-          scaledY(compact ? 12 : 16);
+        let dropX =
+          options.x !== undefined
+            ? options.x
+            : menuContentArea.center || fallbackCenter;
+        let dropY;
+        if (options.y !== undefined) {
+          dropY = options.y;
+        } else {
+          dropY =
+            (menuContentArea.bottom || SCREEN_H - scaledY(36)) -
+            scaledY(compact ? 12 : 16);
+        }
         drawNeonButton(dropX, dropY, btnW, btnH, {
           active: true,
           accentColor: compact ? '#2dd4bf' : '#38bdf8',
@@ -4780,7 +4809,15 @@
         textSize(scaledFont(compact ? 11 : 12));
         text(compact ? 'Quick Drop' : 'Drop', dropX, dropY);
         textSize(scaledFont(14));
-        addButton({ action: 'drop', x: dropX, y: dropY, w: btnW, h: btnH });
+        if (options.scrollAware) {
+          addButton(
+            { action: 'drop', x: dropX, y: dropY, w: btnW, h: btnH },
+            { scrollAware: true }
+          );
+        } else {
+          addButton({ action: 'drop', x: dropX, y: dropY, w: btnW, h: btnH });
+        }
+        return dropY + btnH / 2;
       }
 
       function addButton(btn, options = {}) {
@@ -4798,7 +4835,15 @@
         if (!gameInitialized) {
           return;
         }
-        let handled = false;
+        activeButton = null;
+        menuDragState.dragging = false;
+        if (mouseX <= MENU_W) {
+          menuDragState.active = true;
+          menuDragState.startY = mouseY;
+          menuDragState.startScroll = menuScroll;
+        } else {
+          menuDragState.active = false;
+        }
         for (let btn of buttons) {
           if (
             mouseX > btn.x - btn.w / 2 &&
@@ -4806,12 +4851,11 @@
             mouseY > btn.y - btn.h / 2 &&
             mouseY < btn.y + btn.h / 2
           ) {
-            handleAction(btn);
-            handled = true;
+            activeButton = btn;
             break;
           }
         }
-        if (!handled && jarVisible && isInsideJar(mouseX, mouseY)) {
+        if (!activeButton && jarVisible && isInsideJar(mouseX, mouseY)) {
           dropPowder(selectedPowder, mouseX);
         }
       }
@@ -4827,8 +4871,63 @@
             0,
             menuScrollMax
           );
+          menuDragState.active = false;
+          menuDragState.dragging = false;
           return false;
         }
+      }
+
+      function mouseDragged() {
+        if (!gameInitialized || !menuDragState.active) {
+          return;
+        }
+        let delta = mouseY - menuDragState.startY;
+        if (!menuDragState.dragging && Math.abs(delta) > 4) {
+          menuDragState.dragging = true;
+          activeButton = null;
+        }
+        if (menuDragState.dragging) {
+          menuScroll = constrain(
+            menuDragState.startScroll - delta,
+            0,
+            menuScrollMax
+          );
+          return false;
+        }
+      }
+
+      function mouseReleased() {
+        if (!gameInitialized) {
+          return;
+        }
+        if (menuDragState.dragging) {
+          menuDragState.active = false;
+          menuDragState.dragging = false;
+          return;
+        }
+        if (activeButton) {
+          if (
+            mouseX > activeButton.x - activeButton.w / 2 &&
+            mouseX < activeButton.x + activeButton.w / 2 &&
+            mouseY > activeButton.y - activeButton.h / 2 &&
+            mouseY < activeButton.y + activeButton.h / 2
+          ) {
+            handleAction(activeButton);
+          }
+          activeButton = null;
+        }
+        menuDragState.active = false;
+        menuDragState.dragging = false;
+      }
+
+      function touchMoved(event) {
+        if (mouseDragged() === false) {
+          return false;
+        }
+      }
+
+      function touchEnded() {
+        mouseReleased();
       }
 
       function handleAction(btn) {
@@ -5321,21 +5420,24 @@
       }
 
       function updateLayoutDimensions(resize = false) {
-        let margin = 40;
+        let margin = 24;
         let availableWidth = Math.max(windowWidth - margin, BASE_SCREEN_W);
         let availableHeight = Math.max(windowHeight - margin, BASE_SCREEN_H);
-        SCREEN_W = Math.round(
-          Math.min(Math.max(availableWidth, BASE_SCREEN_W), 1280)
-        );
-        SCREEN_H = Math.round(
-          Math.min(Math.max(availableHeight, BASE_SCREEN_H), 960)
-        );
-        let desiredMenuW = Math.max(160, Math.round(SCREEN_W * 0.32));
-        if (SCREEN_W - desiredMenuW < 240) {
-          desiredMenuW = Math.max(120, SCREEN_W - 240);
+        SCREEN_W = Math.round(Math.max(availableWidth, BASE_SCREEN_W));
+        SCREEN_H = Math.round(Math.max(availableHeight, BASE_SCREEN_H));
+        let desiredMenuW = Math.max(220, Math.round(SCREEN_W * 0.62));
+        let minPlayArea = Math.max(260, Math.round(SCREEN_W * 0.24));
+        let maxMenuW = SCREEN_W - minPlayArea;
+        if (maxMenuW <= 0) {
+          MENU_W = Math.max(200, Math.round(SCREEN_W * 0.5));
+        } else {
+          MENU_W = Math.max(200, Math.min(desiredMenuW, maxMenuW));
         }
-        MENU_W = Math.max(120, Math.min(desiredMenuW, SCREEN_W - 160));
         PLAY_AREA_W = SCREEN_W - MENU_W;
+        if (PLAY_AREA_W < 220) {
+          PLAY_AREA_W = 220;
+          MENU_W = SCREEN_W - PLAY_AREA_W;
+        }
         layoutScaleX = SCREEN_W / BASE_SCREEN_W;
         layoutScaleY = SCREEN_H / BASE_SCREEN_H;
         cellPixelSize = 1;
