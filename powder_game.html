@@ -5,20 +5,26 @@
     <title>Powder Fall Game</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
     <style>
+      @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
       body {
         margin: 0;
         padding: 0;
-        background: #111827;
+        background: #050a16;
         display: flex;
         align-items: center;
         justify-content: center;
         min-height: 100vh;
+        font-family: 'Press Start 2P', monospace;
+        color: #e2e8f0;
+        letter-spacing: 0.04em;
       }
       canvas {
         display: block;
         margin: auto;
-        box-shadow: 0 12px 40px rgba(15, 23, 42, 0.45);
-        border-radius: 18px;
+        box-shadow: 0 12px 48px rgba(8, 13, 26, 0.6);
+        border-radius: 8px;
+        image-rendering: pixelated;
       }
     </style>
   </head>
@@ -37,20 +43,28 @@
       let canvas;
       const BASE_FALL_SPEED = 2;
       const BASE_DROPPER_INTERVAL = 2000; // ms
+      const AUTO_DROP_INTERVAL = 1200;
+      const AUTO_COMPRESS_INTERVAL = 1800;
 
-      // Powder tiers
+      // Powder tiers and recipes
       const powderTypes = [
         { name: "Sand", color: "#e7c97a", dustValue: 1 },
         { name: "Stone", color: "#888888", dustValue: 6 },
         { name: "Diamond", color: "#3de6e1", dustValue: 30 },
-        { name: "Void Crystal", color: "#c084fc", dustValue: 120 }
+        { name: "Void Crystal", color: "#c084fc", dustValue: 120 },
+        { name: "Mythril", color: "#6bb6ff", dustValue: 420 },
+        { name: "Sunforge Ember", color: "#ff8a4c", dustValue: 1500 },
+        { name: "Singularity Core", color: "#f8f99c", dustValue: 5200 }
       ];
 
-      const tierUnlockCosts = [10, 25, 80];
+      const tierUnlockCosts = [10, 25, 80, 220, 650, 1800];
       const compressionRecipes = [
         { from: 0, to: 1, baseCost: 15, output: 1 },
         { from: 1, to: 2, baseCost: 10, output: 1 },
-        { from: 2, to: 3, baseCost: 6, output: 1 }
+        { from: 2, to: 3, baseCost: 6, output: 1 },
+        { from: 3, to: 4, baseCost: 5, output: 1 },
+        { from: 4, to: 5, baseCost: 4, output: 1 },
+        { from: 5, to: 6, baseCost: 3, output: 1 }
       ];
 
       const upgradeConfigs = [
@@ -74,6 +88,87 @@
           description: "Unlocks compression recipes and improves efficiency.",
           baseCost: 120,
           costMult: 2.6
+        },
+        {
+          key: "lanterns",
+          name: "Aether Lanterns",
+          description: "Layer stabilization +25% per level.",
+          baseCost: 140,
+          costMult: 2.4
+        },
+        {
+          key: "harmonics",
+          name: "Harmonic Resonator",
+          description: "Automation cadence +20% per level.",
+          baseCost: 200,
+          costMult: 2.8
+        }
+      ];
+
+      const menuTabs = [
+        { key: "overview", label: "Overview" },
+        { key: "layers", label: "Strata" },
+        { key: "upgrades", label: "Upgrades" },
+        { key: "automation", label: "Automation" },
+        { key: "alchemy", label: "Alchemy" }
+      ];
+
+      const strataLayers = [
+        {
+          name: "Surface Crust",
+          requirement: 160,
+          dustBonus: 0.06,
+          gravityBonus: 0.05,
+          color: "#1f2937",
+          description: "Stabilize the loose crust to focus the fall."
+        },
+        {
+          name: "Basalt Vein",
+          requirement: 420,
+          dustBonus: 0.08,
+          gravityBonus: 0.08,
+          color: "#111c2d",
+          description: "Dense basalt channels powders into tighter streams."
+        },
+        {
+          name: "Shimmer Cavern",
+          requirement: 900,
+          dustBonus: 0.14,
+          gravityBonus: 0.12,
+          color: "#2c1b47",
+          description: "Glittering caverns hum with resonant dust currents."
+        },
+        {
+          name: "Aether Mantle",
+          requirement: 1600,
+          dustBonus: 0.22,
+          gravityBonus: 0.18,
+          color: "#3b185f",
+          description: "Liquid aether bends gravity toward your funnels."
+        }
+      ];
+
+      const researchProjects = [
+        {
+          key: "lens",
+          name: "Crystal Lens",
+          description: "Dust multiplier +20% per rank.",
+          baseCost: 250,
+          costMult: 3
+        },
+        {
+          key: "overclock",
+          name: "Overclocked Funnels",
+          description: "Auto-droppers work +15% faster per rank.",
+          baseCost: 320,
+          costMult: 2.8
+        },
+        {
+          key: "quantum",
+          name: "Quantum Silos",
+          description: "Collect +1 of gathered powder per rank.",
+          baseCost: 480,
+          costMult: 3.2
         }
       ];
 
@@ -90,8 +185,26 @@
       let upgradesState = {
         gravity: 0,
         refinery: 0,
-        compressor: 0
+        compressor: 0,
+        lanterns: 0,
+        harmonics: 0
       };
+      let activeMenu = menuTabs[0].key;
+      let layerStates = strataLayers.map((layer, index) => ({
+        unlocked: index === 0,
+        completed: false,
+        progress: 0
+      }));
+      let researchState = researchProjects.reduce((acc, project) => {
+        acc[project.key] = 0;
+        return acc;
+      }, {});
+      let automationSettings = {
+        autoDrop: false,
+        autoCompress: false
+      };
+      let autoDropTimer = 0;
+      let autoCompressTimer = 0;
       let buttons = [];
       const EDGE_HOLE_WIDTH = 2;
       let grid = [];
@@ -103,6 +216,8 @@
         canvas = createCanvas(SCREEN_W, SCREEN_H);
         rectMode(CENTER);
         textAlign(CENTER, CENTER);
+        textFont('Press Start 2P');
+        noStroke();
         frameRate(60);
         refreshPowderGrid();
       }
@@ -113,16 +228,37 @@
       }
 
       function draw() {
-        background(30);
+        background('#050a16');
 
-        // Draw powder area
-        fill(0);
-        rect(SCREEN_W / 2, POWDER_AREA_H / 2, SCREEN_W, POWDER_AREA_H);
+        drawPowderField();
 
         updateAutoDroppers();
+        updateAutomationControllers();
         updatePowders();
         renderPowders();
         drawMenu();
+      }
+
+      function drawPowderField() {
+        fill('#0b1220');
+        rect(SCREEN_W / 2, POWDER_AREA_H / 2, SCREEN_W, POWDER_AREA_H);
+        let totalLayers = strataLayers.length;
+        if (totalLayers <= 0) return;
+        let segmentHeight = POWDER_AREA_H / totalLayers;
+        for (let i = 0; i < totalLayers; i++) {
+          let state = layerStates[i];
+          let layer = strataLayers[i];
+          let ratio = 0;
+          if (state.completed) {
+            ratio = 1;
+          } else if (state.unlocked) {
+            ratio = constrain(state.progress / layer.requirement, 0, 1);
+          }
+          let alpha = 60 + ratio * 150;
+          fill(withAlpha(layer.color, alpha));
+          let centerY = POWDER_AREA_H - segmentHeight * (i + 0.5);
+          rect(SCREEN_W / 2, centerY, SCREEN_W, segmentHeight + 4);
+        }
       }
 
       function updatePowders() {
@@ -182,13 +318,16 @@
 
       function collectPowder(powder) {
         if (powder.collected) return;
-        powderCounts[powder.type]++;
-        totalPowderCollected++;
-        let dustGain = Math.round(
-          powderTypes[powder.type].dustValue * getDustMultiplier()
-        );
+        let type = powder.type;
+        let bonusPowder = researchState.quantum || 0;
+        let powderGain = 1 + bonusPowder;
+        powderCounts[type] += powderGain;
+        totalPowderCollected += powderGain;
+        let baseValue = powderTypes[type].dustValue;
+        let dustGain = Math.round(baseValue * getDustMultiplier());
         dust += dustGain;
         totalDustEarned += dustGain;
+        addLayerProgress(baseValue * powderGain);
         powder.collected = true;
       }
 
@@ -287,11 +426,22 @@
       }
 
       function getGravityMultiplier() {
-        return 1 + upgradesState.gravity * 0.2 + crystalCores * 0.1;
+        return (
+          1 +
+          upgradesState.gravity * 0.2 +
+          crystalCores * 0.1 +
+          getLayerGravityBonus()
+        );
       }
 
       function getDustMultiplier() {
-        return 1 + upgradesState.refinery * 0.35 + crystalCores * 0.25;
+        return (
+          1 +
+          upgradesState.refinery * 0.35 +
+          crystalCores * 0.25 +
+          getLayerDustBonus() +
+          (researchState.lens || 0) * 0.2
+        );
       }
 
       function getCompressorEfficiency() {
@@ -305,51 +455,324 @@
           if (autoDroppers[i] <= 0) continue;
           if (!(i === 0 || tierUpgrades[i - 1])) continue;
           let baseInterval = BASE_DROPPER_INTERVAL / (1 + (autoDroppers[i] - 1) * 0.4);
-          baseInterval /= 1 + upgradesState.gravity * 0.15 + crystalCores * 0.1;
+          baseInterval /= getAutoDropperSpeedMultiplier();
           dropperTimers[i] -= deltaTime;
           if (dropperTimers[i] <= 0) {
             for (let d = 0; d < autoDroppers[i]; d++) {
               dropPowder(i);
             }
-            dropperTimers[i] += Math.max(400, baseInterval);
+            dropperTimers[i] += Math.max(320, baseInterval);
+          }
+        }
+      }
+
+      function updateAutomationControllers() {
+        if (automationSettings.autoDrop) {
+          let interval = Math.max(
+            260,
+            AUTO_DROP_INTERVAL / getAutomationIntervalMultiplier()
+          );
+          autoDropTimer -= deltaTime;
+          if (autoDropTimer <= 0) {
+            dropPowder(selectedPowder);
+            autoDropTimer += interval;
+          }
+        } else {
+          autoDropTimer = 0;
+        }
+
+        if (automationSettings.autoCompress && upgradesState.compressor > 0) {
+          let interval = Math.max(
+            380,
+            AUTO_COMPRESS_INTERVAL / getAutomationIntervalMultiplier()
+          );
+          autoCompressTimer -= deltaTime;
+          if (autoCompressTimer <= 0) {
+            attemptAutoCompression();
+            autoCompressTimer += interval;
+          }
+        } else {
+          autoCompressTimer = 0;
+        }
+      }
+
+      function attemptAutoCompression() {
+        let efficiency = getCompressorEfficiency();
+        if (efficiency <= 0) return;
+        let availableRecipes = compressionRecipes
+          .filter((recipe) =>
+            recipe.to === 0 ? true : tierUpgrades[recipe.to - 1]
+          )
+          .sort((a, b) => b.to - a.to);
+        for (let recipe of availableRecipes) {
+          let cost = Math.max(2, Math.round(recipe.baseCost / efficiency));
+          if (powderCounts[recipe.from] >= cost) {
+            powderCounts[recipe.from] -= cost;
+            powderCounts[recipe.to] += recipe.output;
+            break;
           }
         }
       }
 
       function drawMenu() {
-        fill(38, 50, 56);
+        fill('#0f172a');
         rect(SCREEN_W / 2, POWDER_AREA_H + MENU_H / 2, SCREEN_W, MENU_H);
 
         buttons = [];
 
-        fill('#fff');
-        textSize(scaledFont(14));
-        text(
-          `Dust: ${Math.floor(dust)} | Crystal Cores: ${crystalCores} | Total Powder: ${totalPowderCollected}`,
-          SCREEN_W / 2,
-          POWDER_AREA_H + scaledY(22)
-        );
+        let headerBottom = drawResourceHeader();
+        let tabsBottom = drawMenuTabs(headerBottom + scaledY(6));
+        let contentStart = tabsBottom + scaledY(18);
 
-        drawPowderCounters();
+        switch (activeMenu) {
+          case 'overview':
+            drawOverviewContent(contentStart);
+            break;
+          case 'layers':
+            drawLayersContent(contentStart);
+            break;
+          case 'upgrades':
+            drawUpgradesContent(contentStart);
+            break;
+          case 'automation':
+            drawAutomationContent(contentStart);
+            break;
+          case 'alchemy':
+            drawAlchemyContent(contentStart);
+            break;
+        }
 
-        let rowY = POWDER_AREA_H + scaledY(68);
-        rowY = drawPowderSelectRow(rowY);
-        rowY = drawTierUpgradeRow(rowY);
-        rowY = drawAutoDropperRow(rowY);
-        rowY = drawUpgradeRows(rowY);
-        rowY = drawCompressionRow(rowY);
-        drawPrestigeRow(rowY + scaledY(6));
-        drawDropButton();
+        drawDropButton(activeMenu !== 'overview');
       }
 
-      function drawPowderCounters() {
+      function drawResourceHeader() {
+        fill('#f8fafc');
+        textSize(scaledFont(13));
+        text(
+          `Dust: ${Math.floor(dust)} | Cores: ${crystalCores} | Powder: ${totalPowderCollected}`,
+          SCREEN_W / 2,
+          POWDER_AREA_H + scaledY(24)
+        );
+        let nextY = drawPowderCounters(POWDER_AREA_H + scaledY(46));
+        textSize(scaledFont(14));
+        return nextY;
+      }
+
+      function drawPowderCounters(y) {
         fill('#cfd8dc');
         textSize(scaledFont(12));
         let unlocked = getUnlockedIndices();
-        let pieces = unlocked.map(
-          (i) => `${powderTypes[i].name}: ${powderCounts[i]}`
+        if (unlocked.length === 0) {
+          text('No powders unlocked yet.', SCREEN_W / 2, y);
+          return y + scaledY(20);
+        }
+        let split = Math.ceil(unlocked.length / 2);
+        let firstLine = unlocked
+          .slice(0, split)
+          .map((i) => `${powderTypes[i].name}: ${powderCounts[i]}`)
+          .join('   ');
+        let secondLine = unlocked
+          .slice(split)
+          .map((i) => `${powderTypes[i].name}: ${powderCounts[i]}`)
+          .join('   ');
+        text(firstLine, SCREEN_W / 2, y);
+        if (secondLine.length > 0) {
+          text(secondLine, SCREEN_W / 2, y + scaledY(16));
+          return y + scaledY(32);
+        }
+        return y + scaledY(20);
+      }
+
+      function drawMenuTabs(y) {
+        let tabW = scaledX(68);
+        let tabH = scaledY(30);
+        let xs = getRowPositions(menuTabs.length);
+        textSize(scaledFont(12));
+        for (let i = 0; i < menuTabs.length; i++) {
+          let tab = menuTabs[i];
+          let active = tab.key === activeMenu;
+          fill(active ? '#22d3ee' : '#1b2640');
+          rect(xs[i], y, tabW, tabH, 10);
+          fill(active ? '#071426' : '#f0f4f8');
+          text(tab.label, xs[i], y);
+          buttons.push({
+            action: 'switchMenu',
+            key: tab.key,
+            x: xs[i],
+            y,
+            w: tabW,
+            h: tabH
+          });
+        }
+        textSize(scaledFont(14));
+        return y + scaledY(30);
+      }
+
+      function drawOverviewContent(y) {
+        y = drawPowderSelectRow(y);
+        y = drawTierUpgradeRow(y);
+        drawPrestigeRow(y + scaledY(8));
+      }
+
+      function drawLayersContent(y) {
+        textSize(scaledFont(13));
+        fill('#fef3c7');
+        text('Geologic Layers', SCREEN_W / 2, y);
+        y += scaledY(26);
+        for (let i = 0; i < strataLayers.length; i++) {
+          y = drawLayerCard(strataLayers[i], layerStates[i], y);
+        }
+      }
+
+      function drawUpgradesContent(y) {
+        y = drawUpgradeRows(y);
+        drawResearchRows(y + scaledY(10));
+      }
+
+      function drawAutomationContent(y) {
+        y = drawAutoDropperRow(y);
+        drawAutomationControls(y + scaledY(10));
+      }
+
+      function drawAlchemyContent(y) {
+        textSize(scaledFont(12));
+        fill('#ffd7a8');
+        text('Transmutation Matrix', SCREEN_W / 2, y);
+        drawCompressionRow(y + scaledY(22));
+      }
+
+      function drawLayerCard(layer, state, y) {
+        let cardW = SCREEN_W - scaledX(60);
+        let cardH = scaledY(70);
+        let x = SCREEN_W / 2;
+        let ratio = state.completed
+          ? 1
+          : state.unlocked
+          ? constrain(state.progress / layer.requirement, 0, 1)
+          : 0;
+        fill(withAlpha(layer.color, state.unlocked ? 200 : 90));
+        rect(x, y, cardW, cardH, 12);
+        fill('#f8fafc');
+        textSize(scaledFont(12));
+        text(layer.name, x, y - scaledY(18));
+        fill('#e0e7ff');
+        textSize(scaledFont(11));
+        text(layer.description, x, y - scaledY(2));
+        let remaining = Math.max(
+          0,
+          Math.ceil(layer.requirement - state.progress)
         );
-        text(pieces.join(' | '), SCREEN_W / 2, POWDER_AREA_H + scaledY(44));
+        let statusText = state.completed
+          ? 'Stabilized'
+          : state.unlocked
+          ? `${Math.floor(ratio * 100)}% - ${remaining} flow`
+          : 'Locked';
+        drawProgressBar(
+          x,
+          y + scaledY(16),
+          cardW - scaledX(80),
+          scaledY(12),
+          ratio,
+          layer.color
+        );
+        textSize(scaledFont(11));
+        fill('#f8fafc');
+        text(statusText, x, y + scaledY(24));
+        return y + scaledY(80);
+      }
+
+      function drawProgressBar(x, y, width, height, progress, fillColor) {
+        push();
+        let bg = withAlpha('#0f172a', 200);
+        fill(bg);
+        rect(x, y, width, height, height / 2);
+        if (progress > 0) {
+          let barWidth = Math.max(4, width * constrain(progress, 0, 1));
+          let center = x - width / 2 + barWidth / 2;
+          fill(withAlpha(fillColor, 220));
+          rect(center, y, barWidth, height, height / 2);
+        }
+        pop();
+      }
+
+      function drawResearchRows(y) {
+        if (researchProjects.length === 0) {
+          return;
+        }
+        textSize(scaledFont(12));
+        fill('#f1e4ff');
+        text('Arcane Research', SCREEN_W / 2, y);
+        y += scaledY(24);
+        let btnW = scaledX(200);
+        let btnH = scaledY(46);
+        let xs = getRowPositions(researchProjects.length);
+        for (let i = 0; i < researchProjects.length; i++) {
+          let project = researchProjects[i];
+          let level = researchState[project.key];
+          let cost = Math.floor(project.baseCost * Math.pow(project.costMult, level));
+          let canBuy = dust >= cost;
+          let x = xs[i];
+          fill(canBuy ? '#9575cd' : '#4a3f6b');
+          rect(x, y, btnW, btnH, 12);
+          fill('#f8f9ff');
+          textSize(scaledFont(12));
+          text(`${project.name} R${level}`, x, y - scaledY(12));
+          textSize(scaledFont(11));
+          text(project.description, x, y + scaledY(2));
+          textSize(scaledFont(11));
+          text(`Cost: ${cost}`, x, y + scaledY(16));
+          buttons.push({
+            action: 'buyResearch',
+            key: project.key,
+            x,
+            y,
+            w: btnW,
+            h: btnH
+          });
+        }
+        textSize(scaledFont(14));
+      }
+
+      function drawAutomationControls(y) {
+        let controls = [
+          {
+            key: 'autoDrop',
+            label: 'Auto Drop',
+            description: 'Continuously drop selected powder.'
+          },
+          {
+            key: 'autoCompress',
+            label: 'Auto Compress',
+            description: 'Convert powders whenever possible.'
+          }
+        ];
+        let btnW = scaledX(200);
+        let btnH = scaledY(52);
+        let xs = getRowPositions(controls.length);
+        textSize(scaledFont(12));
+        fill('#c8e6c9');
+        text('Automation Scripts', SCREEN_W / 2, y - scaledY(20));
+        for (let i = 0; i < controls.length; i++) {
+          let control = controls[i];
+          let enabled = automationSettings[control.key];
+          let x = xs[i];
+          fill(enabled ? '#66bb6a' : '#455a64');
+          rect(x, y, btnW, btnH, 12);
+          fill(enabled ? '#0b1120' : '#f8fafc');
+          textSize(scaledFont(12));
+          text(`${control.label}: ${enabled ? 'ON' : 'OFF'}`, x, y - scaledY(12));
+          textSize(scaledFont(11));
+          text(control.description, x, y + scaledY(6));
+          buttons.push({
+            action: 'toggleAutomation',
+            key: control.key,
+            x,
+            y,
+            w: btnW,
+            h: btnH
+          });
+        }
+        textSize(scaledFont(14));
       }
 
       function drawPowderSelectRow(y) {
@@ -362,9 +785,11 @@
         for (let idx = 0; idx < indices.length; idx++) {
           let i = indices[idx];
           let x = xs[idx];
-          fill(i === selectedPowder ? '#ffffff' : powderTypes[i].color);
+          let isSelected = i === selectedPowder;
+          let baseColor = powderTypes[i].color;
+          fill(isSelected ? '#22d3ee' : withAlpha(baseColor, 200));
           rect(x, y, btnW, btnH, 10);
-          fill(i === selectedPowder ? powderTypes[i].color : '#222');
+          fill(isSelected ? '#0b1120' : '#f8fafc');
           text(powderTypes[i].name, x, y);
           buttons.push({
             action: 'selectPowder',
@@ -547,15 +972,17 @@
         buttons.push({ action: 'prestige', x: SCREEN_W / 2, y, w: btnW, h: btnH });
       }
 
-      function drawDropButton() {
-        let btnW = scaledX(90);
-        let btnH = scaledY(34);
-        let dropX = SCREEN_W - scaledX(70);
-        let dropY = POWDER_AREA_H + MENU_H - scaledY(40);
-        fill('#1976d2');
-        rect(dropX, dropY, btnW, btnH, 10);
-        fill('#fff');
-        text('Drop', dropX, dropY);
+      function drawDropButton(compact = false) {
+        let btnW = scaledX(compact ? 84 : 104);
+        let btnH = scaledY(compact ? 28 : 36);
+        let dropX = SCREEN_W - scaledX(compact ? 62 : 70);
+        let dropY = POWDER_AREA_H + MENU_H - scaledY(compact ? 32 : 40);
+        fill(compact ? '#2dd4bf' : '#1976d2');
+        rect(dropX, dropY, btnW, btnH, compact ? 8 : 10);
+        fill('#f8fafc');
+        textSize(scaledFont(compact ? 11 : 12));
+        text(compact ? 'Quick Drop' : 'Drop', dropX, dropY);
+        textSize(scaledFont(14));
         buttons.push({ action: 'drop', x: dropX, y: dropY, w: btnW, h: btnH });
       }
 
@@ -601,11 +1028,20 @@
           case 'buyUpgrade':
             buyUpgrade(btn.key);
             break;
+          case 'buyResearch':
+            buyResearch(btn.key);
+            break;
           case 'compress':
             compressPowder(btn.recipe);
             break;
           case 'prestige':
             performPrestige();
+            break;
+          case 'switchMenu':
+            activeMenu = btn.key;
+            break;
+          case 'toggleAutomation':
+            toggleAutomation(btn.key);
             break;
         }
       }
@@ -678,6 +1114,30 @@
         }
       }
 
+      function buyResearch(key) {
+        let project = researchProjects.find((p) => p.key === key);
+        if (!project) return;
+        let level = researchState[key];
+        let cost = Math.floor(project.baseCost * Math.pow(project.costMult, level));
+        if (dust >= cost) {
+          dust -= cost;
+          researchState[key]++;
+        }
+      }
+
+      function toggleAutomation(key) {
+        if (!(key in automationSettings)) return;
+        automationSettings[key] = !automationSettings[key];
+        if (!automationSettings[key]) {
+          if (key === 'autoDrop') {
+            autoDropTimer = 0;
+          }
+          if (key === 'autoCompress') {
+            autoCompressTimer = 0;
+          }
+        }
+      }
+
       function compressPowder(recipe) {
         if (upgradesState.compressor <= 0) return;
         if (!(recipe.to === 0 || tierUpgrades[recipe.to - 1])) return;
@@ -709,7 +1169,14 @@
         if (upgradesState.compressor > 0) {
           upgradesState.compressor = 1; // retain basic access to compression if purchased
         }
+        upgradesState.lanterns = 0;
+        upgradesState.harmonics = 0;
         selectedPowder = 0;
+        automationSettings.autoDrop = false;
+        automationSettings.autoCompress = false;
+        autoDropTimer = 0;
+        autoCompressTimer = 0;
+        activeMenu = menuTabs[0].key;
         refreshPowderGrid();
       }
 
@@ -736,6 +1203,79 @@
           xs.push(padding + step * i);
         }
         return xs;
+      }
+
+      function withAlpha(hex, alpha) {
+        let c = color(hex);
+        return color(red(c), green(c), blue(c), alpha);
+      }
+
+      function getLayerDustBonus() {
+        return layerStates.reduce((bonus, state, index) => {
+          if (!state.unlocked) return bonus;
+          let ratio = state.completed
+            ? 1
+            : constrain(state.progress / strataLayers[index].requirement, 0, 1);
+          return bonus + strataLayers[index].dustBonus * ratio;
+        }, 0);
+      }
+
+      function getLayerGravityBonus() {
+        return layerStates.reduce((bonus, state, index) => {
+          if (!state.unlocked) return bonus;
+          let ratio = state.completed
+            ? 1
+            : constrain(state.progress / strataLayers[index].requirement, 0, 1);
+          return bonus + strataLayers[index].gravityBonus * ratio;
+        }, 0);
+      }
+
+      function getAutoDropperSpeedMultiplier() {
+        return (
+          1 +
+          upgradesState.gravity * 0.15 +
+          upgradesState.harmonics * 0.2 +
+          crystalCores * 0.1 +
+          (researchState.overclock || 0) * 0.15 +
+          getLayerGravityBonus() * 0.5
+        );
+      }
+
+      function getAutomationIntervalMultiplier() {
+        return (
+          1 +
+          upgradesState.harmonics * 0.2 +
+          crystalCores * 0.1 +
+          (researchState.overclock || 0) * 0.15 +
+          getLayerGravityBonus() * 0.4
+        );
+      }
+
+      function addLayerProgress(amount) {
+        if (amount <= 0) return;
+        let amplified = amount * (1 + upgradesState.lanterns * 0.25);
+        let target = layerStates.findIndex((state) => state.unlocked && !state.completed);
+        if (target === -1) {
+          let next = layerStates.findIndex((state) => !state.unlocked);
+          if (next >= 0) {
+            layerStates[next].unlocked = true;
+            target = next;
+          }
+        }
+        if (target === -1) {
+          return;
+        }
+        let state = layerStates[target];
+        state.progress = Math.min(
+          strataLayers[target].requirement,
+          state.progress + amplified
+        );
+        if (state.progress >= strataLayers[target].requirement) {
+          state.completed = true;
+          if (target + 1 < layerStates.length) {
+            layerStates[target + 1].unlocked = true;
+          }
+        }
       }
 
       function scaledFont(value) {
