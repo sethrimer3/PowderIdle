@@ -170,11 +170,13 @@
       ];
 
       const menuTabs = [
-        { key: "overview", label: "Overview" },
-        { key: "layers", label: "Strata" },
-        { key: "upgrades", label: "Upgrades" },
-        { key: "automation", label: "Automation" },
-        { key: "alchemy", label: "Alchemy" }
+        { key: "jar", label: "Sandfall", machine: "jar" },
+        { key: "conveyor", label: "Conveyor", machine: "conveyor" },
+        { key: "rocket", label: "Launch Bay", machine: "rocket" },
+        { key: "forge", label: "Forge", machine: "forge" },
+        { key: "galaxy", label: "Galaxies", machine: "galaxy" },
+        { key: "universe", label: "Universe", machine: "universe" },
+        { key: "singularity", label: "Singularity", machine: "singularity" }
       ];
 
       const strataLayers = [
@@ -270,6 +272,24 @@
       let autoDropTimer = 0;
       let autoCompressTimer = 0;
       let buttons = [];
+      let fullscreenModule = null;
+      let jarVisible = true;
+      const moduleInteractionHints = {
+        conveyor: 'Click to rush extra cargo.',
+        rocket: 'Tap to fuel launches faster.',
+        forge: 'Strike the forge to shape alloys.',
+        galaxy: 'Stir the loom to weave galaxies.',
+        universe: 'Nudge worlds to sync their orbit.',
+        singularity: 'Channel diamonds into cores.'
+      };
+      let moduleStates = {
+        conveyor: { grains: [], spawnTimer: 0 },
+        rocket: { pods: [] },
+        forge: { progress: 0, pulses: [] },
+        galaxy: { progress: 0, angle: 0, pixels: [] },
+        universe: { progress: 0, angle: 0, nodes: [] },
+        singularity: { progress: 0, shards: [], orbit: 0 }
+      };
       let grid = [];
       let gridCols = 0;
       let gridRows = 0;
@@ -399,7 +419,8 @@
         textFont('Press Start 2P');
         noStroke();
         frameRate(60);
-        refreshPowderGrid();
+        updateLayoutDimensions(true);
+        refreshPowderGrid(true);
       }
 
       function windowResized() {
@@ -410,18 +431,41 @@
       function draw() {
         background('#050a16');
 
+        buttons = [];
+        jarVisible = false;
+
         drawPowderField();
 
         updateAutoDroppers();
         updateAutomationControllers();
         updatePowders();
-        renderPowders();
-        drawJarOverlay();
+        if (jarVisible) {
+          renderPowders();
+          drawJarOverlay();
+        }
         drawMenu();
       }
 
       function drawPowderField() {
         drawCollageBackdrop();
+        if (fullscreenModule) {
+          let machine = machineDefinitions.find(
+            (m) => m.key === fullscreenModule
+          );
+          if (!machine) {
+            fullscreenModule = null;
+          } else if (machine.key === 'jar') {
+            jarVisible = true;
+            drawJarFrame(machine);
+            drawJarInterior();
+            return;
+          } else {
+            jarVisible = false;
+            drawMachinePanel(machine);
+            return;
+          }
+        }
+        jarVisible = true;
         drawMachineConnections();
         for (let machine of machineDefinitions) {
           if (machine.key === 'jar') {
@@ -489,129 +533,524 @@
         rectMode(CENTER);
         stroke(unlocked ? '#1e3a8a' : '#1e293b');
         strokeWeight(2);
-        fill(unlocked ? '#0f1a30' : '#040810');
+        fill(unlocked ? '#0b1220' : '#040810');
         rect(center.x, center.y, panelW, panelH, 18);
         noStroke();
+        let interactButton = null;
         if (!unlocked) {
           fill(withAlpha('#020617', 220));
           rect(center.x, center.y, panelW - 8, panelH - 8, 16);
           fill('#334155');
           textSize(scaledFont(10));
-          text('Locked', center.x, center.y + panelH * 0.18);
+          text('Locked', center.x, center.y);
+          fill('#64748b');
+          textSize(scaledFont(9));
+          text(machine.description, center.x, center.y + scaledY(20));
         } else {
-          drawMachineIcon(machine.key, center.x, center.y, panelW, panelH);
+          drawPanelPixelBackdrop(center, panelW, panelH);
+          updateModuleState(machine.key, {
+            center,
+            panelW,
+            panelH,
+            rect: rectInfo
+          });
+          drawModuleScene(machine.key, {
+            center,
+            panelW,
+            panelH,
+            rect: rectInfo
+          });
+          let hint = moduleInteractionHints[machine.key];
+          if (hint) {
+            fill('#cbd5f5');
+            textSize(scaledFont(9));
+            text(hint, center.x, center.y + panelH / 2 - scaledY(22));
+          }
+          fill('#94a3b8');
+          textSize(scaledFont(9));
+          text(machine.description, center.x, center.y + panelH / 2 - scaledY(10));
+          let interactW = Math.max(0, panelW - scaledX(24));
+          let interactH = Math.max(0, panelH - scaledY(56));
+          if (interactW > 0 && interactH > 0) {
+            interactButton = {
+              action: 'moduleInteract',
+              key: machine.key,
+              x: center.x,
+              y: center.y + scaledY(6),
+              w: interactW,
+              h: interactH
+            };
+          }
         }
         fill('#a5b4fc');
         textSize(scaledFont(11));
         text(machine.name, center.x, center.y - panelH / 2 + scaledY(14));
-        if (unlocked) {
-          fill('#94a3b8');
-          textSize(scaledFont(10));
-          text(machine.description, center.x, center.y + panelH / 2 - scaledY(12));
+        pop();
+        drawFullscreenToggle(rectInfo, machine.key, unlocked);
+        if (interactButton) {
+          buttons.push(interactButton);
+        }
+      }
+
+      function drawModuleScene(key, context) {
+        switch (key) {
+          case 'conveyor':
+            drawConveyorModule(context);
+            break;
+          case 'rocket':
+            drawRocketModule(context);
+            break;
+          case 'forge':
+            drawForgeModule(context);
+            break;
+          case 'galaxy':
+            drawGalaxyModule(context);
+            break;
+          case 'universe':
+            drawUniverseModule(context);
+            break;
+          case 'singularity':
+            drawSingularityModule(context);
+            break;
+        }
+      }
+
+      function drawPanelPixelBackdrop(center, panelW, panelH) {
+        let left = center.x - panelW / 2 + scaledX(14);
+        let right = center.x + panelW / 2 - scaledX(14);
+        let top = center.y - panelH / 2 + scaledY(30);
+        let bottom = center.y + panelH / 2 - scaledY(30);
+        let usableW = Math.max(0, right - left);
+        let usableH = Math.max(0, bottom - top);
+        if (usableW <= 0 || usableH <= 0) {
+          return;
+        }
+        let blockSize = Math.max(6, Math.min(usableW, usableH) / 14);
+        let cols = Math.max(4, Math.min(18, Math.floor(usableW / blockSize)));
+        let rows = Math.max(3, Math.min(12, Math.floor(usableH / blockSize)));
+        blockSize = Math.min(usableW / cols, usableH / rows);
+        push();
+        rectMode(CENTER);
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            let x = left + blockSize * c + blockSize / 2;
+            let y = top + blockSize * r + blockSize / 2;
+            let shade = (r + c) % 2 === 0 ? '#111c2d' : '#0f172a';
+            fill(withAlpha(shade, 210));
+            rect(x, y, blockSize, blockSize, 3);
+          }
         }
         pop();
       }
 
-      function drawMachineIcon(key, centerX, centerY, panelW, panelH) {
-        push();
-        translate(centerX, centerY);
+      function updateModuleState(key, context) {
+        let dt = deltaTime / 1000;
         switch (key) {
           case 'conveyor':
-            fill('#0b1220');
-            rect(0, panelH * 0.1, panelW * 0.82, panelH * 0.22, 10);
-            fill('#1e40af');
-            rect(0, panelH * 0.08, panelW * 0.8, panelH * 0.14, 8);
-            fill('#38bdf8');
-            let segments = 4;
-            for (let i = 0; i < segments; i++) {
-              let segX = -panelW * 0.36 + (panelW * 0.24 * i);
-              rect(segX, panelH * 0.08, panelW * 0.14, panelH * 0.08, 6);
-            }
-            fill('#f97316');
-            triangle(
-              -panelW * 0.48,
-              panelH * 0.08,
-              -panelW * 0.48,
-              -panelH * 0.04,
-              -panelW * 0.62,
-              panelH * 0.02
-            );
-            fill('#0f172a');
-            circle(-panelW * 0.36, panelH * 0.18, panelH * 0.18);
-            circle(panelW * 0.36, panelH * 0.18, panelH * 0.18);
+            updateConveyorState(dt);
             break;
           case 'rocket':
-            let rocketCount = 3;
-            for (let i = 0; i < rocketCount; i++) {
-              let offset = -panelW * 0.32 + (panelW * 0.32 * i);
-              fill('#e2e8f0');
-              rect(offset, 0, panelW * 0.16, panelH * 0.28, 6);
-              fill('#94a3b8');
-              triangle(
-                offset - panelW * 0.08,
-                -panelH * 0.14,
-                offset + panelW * 0.08,
-                -panelH * 0.14,
-                offset,
-                -panelH * 0.32
-              );
-              fill('#f97316');
-              triangle(
-                offset - panelW * 0.06,
-                panelH * 0.14,
-                offset + panelW * 0.06,
-                panelH * 0.14,
-                offset,
-                panelH * 0.28
-              );
-            }
+            updateRocketState(dt);
             break;
           case 'forge':
-            fill('#fbbf24');
-            circle(0, -panelH * 0.08, panelW * 0.32);
-            fill('#fb7185');
-            circle(-panelW * 0.18, panelH * 0.08, panelW * 0.18);
-            fill('#c084fc');
-            circle(panelW * 0.16, panelH * 0.1, panelW * 0.22);
+            updateForgeState(dt);
             break;
           case 'galaxy':
-            stroke('#22d3ee');
-            strokeWeight(2);
-            noFill();
-            ellipse(0, 0, panelW * 0.6, panelH * 0.4);
-            ellipse(0, 0, panelW * 0.36, panelH * 0.22);
-            noStroke();
-            fill('#f8fafc');
-            circle(0, 0, panelW * 0.12);
+            updateGalaxyState(dt);
             break;
           case 'universe':
-            fill('#1f2937');
-            circle(0, 0, panelW * 0.6);
-            noFill();
-            stroke('#c084fc');
-            strokeWeight(2);
-            circle(0, 0, panelW * 0.72);
-            stroke('#38bdf8');
-            circle(0, 0, panelW * 0.48);
-            noStroke();
-            fill('#fde68a');
-            circle(0, 0, panelW * 0.18);
+            updateUniverseState(dt);
             break;
           case 'singularity':
-            fill('#0f172a');
-            circle(0, 0, panelW * 0.4);
-            stroke('#fb7185');
-            strokeWeight(3);
-            noFill();
-            circle(0, 0, panelW * 0.52);
-            stroke('#38bdf8');
-            circle(0, 0, panelW * 0.7);
-            noStroke();
-            fill('#f8fafc');
-            circle(0, 0, panelW * 0.12);
+            updateSingularityState(dt);
             break;
         }
+      }
+
+      function updateConveyorState(dt) {
+        let state = moduleStates.conveyor;
+        if (!state) return;
+        let speedBoost = 1 + upgradesState.gravity * 0.12 + getLayerGravityBonus() * 0.6;
+        state.spawnTimer -= dt;
+        if (state.spawnTimer <= 0) {
+          state.spawnTimer = Math.max(0.35, 1.1 / speedBoost + random(-0.3, 0.3));
+          state.grains.push({
+            progress: 0,
+            speed: 0.4 + Math.random() * 0.3,
+            offset: random(-0.2, 0.2),
+            size: 0.08 + Math.random() * 0.05
+          });
+        }
+        for (let i = state.grains.length - 1; i >= 0; i--) {
+          let grain = state.grains[i];
+          grain.progress += dt * grain.speed * speedBoost;
+          if (grain.progress >= 1) {
+            powderCounts[0] += 1;
+            dust += Math.max(1, Math.round(getDustMultiplier()));
+            state.grains.splice(i, 1);
+          }
+        }
+        while (state.grains.length > 14) {
+          state.grains.shift();
+        }
+      }
+
+      function updateRocketState(dt) {
+        let state = moduleStates.rocket;
+        if (!state) return;
+        if (!state.pods || state.pods.length === 0) {
+          state.pods = new Array(3).fill(0).map(() => ({ progress: 0, launch: 0 }));
+        }
+        let speed = 0.08 + upgradesState.refinery * 0.04 + getGravityMultiplier() * 0.02;
+        for (let pod of state.pods) {
+          if (pod.launch > 0) {
+            pod.launch += dt;
+            if (pod.launch >= 0.6) {
+              pod.launch = 0;
+              pod.progress = 0;
+            }
+            continue;
+          }
+          pod.progress += dt * speed;
+          if (pod.progress >= 1) {
+            pod.progress = 1;
+            pod.launch = 0.01;
+            let yieldAmount = 1 + Math.floor(upgradesState.refinery * 0.4);
+            powderCounts[2] += yieldAmount;
+            dust += Math.max(2, Math.round(3 * getDustMultiplier()));
+          }
+        }
+      }
+
+      function updateForgeState(dt) {
+        let state = moduleStates.forge;
+        if (!state) return;
+        let speed = 0.06 + upgradesState.compressor * 0.04;
+        if (powderCounts[2] > 0) {
+          state.progress += dt * speed;
+          while (state.progress >= 1 && powderCounts[2] > 0) {
+            state.progress -= 1;
+            powderCounts[2] -= 1;
+            powderCounts[3] += 1;
+            dust += Math.max(2, Math.round(4 * getDustMultiplier()));
+            state.pulses.push({ life: 1, angle: Math.random() * TAU });
+          }
+        } else {
+          state.progress = 0;
+        }
+        for (let i = state.pulses.length - 1; i >= 0; i--) {
+          state.pulses[i].life -= dt * 1.6;
+          if (state.pulses[i].life <= 0) {
+            state.pulses.splice(i, 1);
+          }
+        }
+      }
+
+      function updateGalaxyState(dt) {
+        let state = moduleStates.galaxy;
+        if (!state) return;
+        state.angle += dt * 0.6;
+        if (!state.pixels || state.pixels.length === 0) {
+          state.pixels = [];
+          for (let i = 0; i < 24; i++) {
+            state.pixels.push({
+              radius: random(0.12, 0.48),
+              size: random(0.02, 0.06),
+              offset: random(TAU)
+            });
+          }
+        }
+        let speed = 0.05 + (researchState.lens || 0) * 0.02 + upgradesState.lanterns * 0.03;
+        if (powderCounts[3] > 0) {
+          state.progress += dt * speed;
+          while (state.progress >= 1 && powderCounts[3] > 0) {
+            state.progress -= 1;
+            powderCounts[3] -= 1;
+            powderCounts[4] += 1;
+            dust += Math.max(3, Math.round(5 * getDustMultiplier()));
+          }
+        } else {
+          state.progress = 0;
+        }
+      }
+
+      function updateUniverseState(dt) {
+        let state = moduleStates.universe;
+        if (!state) return;
+        state.angle += dt * 0.4;
+        if (!state.nodes || state.nodes.length === 0) {
+          state.nodes = [];
+          for (let i = 0; i < 8; i++) {
+            state.nodes.push({
+              radius: random(0.2, 0.46),
+              size: random(0.03, 0.07),
+              offset: random(TAU)
+            });
+          }
+        }
+        let speed = 0.04 + (researchState.overclock || 0) * 0.02 + upgradesState.harmonics * 0.03;
+        if (powderCounts[4] > 0) {
+          state.progress += dt * speed;
+          while (state.progress >= 1 && powderCounts[4] > 0) {
+            state.progress -= 1;
+            powderCounts[4] -= 1;
+            powderCounts[5] += 1;
+            dust += Math.max(4, Math.round(6 * getDustMultiplier()));
+          }
+        } else {
+          state.progress = 0;
+        }
+      }
+
+      function updateSingularityState(dt) {
+        let state = moduleStates.singularity;
+        if (!state) return;
+        state.orbit += dt * 0.5;
+        let speed = 0.035 + crystalCores * 0.01;
+        if (powderCounts[5] > 0) {
+          state.progress += dt * speed;
+          while (state.progress >= 1 && powderCounts[5] > 0) {
+            state.progress -= 1;
+            powderCounts[5] -= 1;
+            crystalCores += 1;
+            dust += Math.max(5, Math.round(8 * getDustMultiplier()));
+            state.shards.push({ life: 1, angle: Math.random() * TAU });
+          }
+        } else {
+          state.progress = 0;
+        }
+        for (let i = state.shards.length - 1; i >= 0; i--) {
+          state.shards[i].life -= dt * 1.2;
+          if (state.shards[i].life <= 0) {
+            state.shards.splice(i, 1);
+          }
+        }
+      }
+
+      function drawConveyorModule(context) {
+        let { center, panelW, panelH } = context;
+        let state = moduleStates.conveyor;
+        push();
+        translate(center.x, center.y);
+        fill('#0b182c');
+        rect(0, panelH * 0.12, panelW * 0.86, panelH * 0.22, 8);
+        fill('#162a4a');
+        rect(0, panelH * 0.1, panelW * 0.8, panelH * 0.16, 6);
+        let wheelRadius = Math.max(10, panelH * 0.1);
+        fill('#243453');
+        circle(-panelW * 0.36, panelH * 0.2, wheelRadius);
+        circle(panelW * 0.36, panelH * 0.2, wheelRadius);
+        if (state) {
+          let start = -panelW * 0.38;
+          let end = panelW * 0.38;
+          for (let grain of state.grains) {
+            let x = lerp(start, end, constrain(grain.progress, 0, 1));
+            let y = -panelH * 0.05 + grain.offset * panelH * 0.06;
+            let size = Math.max(6, panelW * grain.size * 0.25);
+            fill('#e7c97a');
+            rect(x, y, size, size, 3);
+            fill('#bfa568');
+            rect(x - size * 0.28, y - size * 0.24, size * 0.6, size * 0.4, 2);
+          }
+        }
         pop();
+      }
+
+      function drawRocketModule(context) {
+        let { center, panelW, panelH } = context;
+        let state = moduleStates.rocket;
+        if (!state || !state.pods) return;
+        push();
+        translate(center.x, center.y);
+        fill('#0d1628');
+        rect(0, panelH * 0.28, panelW * 0.9, panelH * 0.18, 8);
+        let spacing = panelW * 0.3;
+        for (let i = 0; i < state.pods.length; i++) {
+          let pod = state.pods[i];
+          push();
+          translate(-spacing + spacing * i, 0);
+          let bodyW = panelW * 0.18;
+          let bodyH = panelH * 0.42;
+          fill('#1f2a40');
+          rect(0, 0, bodyW, bodyH, 6);
+          fill('#334c7a');
+          rect(0, -bodyH * 0.2, bodyW * 0.78, bodyH * 0.48, 4);
+          let fuelHeight = constrain(pod.progress, 0, 1) * bodyH * 0.6;
+          fill('#f59e0b');
+          rect(0, bodyH * 0.12 - fuelHeight / 2, bodyW * 0.6, fuelHeight, 2);
+          fill('#9ca3af');
+          rect(0, -bodyH * 0.55, bodyW * 0.52, bodyH * 0.26, 4);
+          if (pod.launch > 0) {
+            let flame = (Math.sin(frameCount / 3 + i) * 0.2 + 1) * bodyH * 0.22;
+            fill('#fb923c');
+            rect(0, bodyH * 0.38 + flame / 2, bodyW * 0.46, flame, 3);
+          } else {
+            fill('#1f2937');
+            rect(0, bodyH * 0.38, bodyW * 0.46, bodyH * 0.14, 3);
+          }
+          pop();
+        }
+        pop();
+      }
+
+      function drawForgeModule(context) {
+        let { center, panelW, panelH } = context;
+        let state = moduleStates.forge;
+        push();
+        translate(center.x, center.y);
+        fill('#1a0f25');
+        rect(0, panelH * 0.24, panelW * 0.82, panelH * 0.26, 10);
+        fill('#c084fc');
+        rect(0, -panelH * 0.02, panelW * 0.32, panelH * 0.2, 8);
+        let glow = panelW * 0.2 + Math.sin(frameCount / 12) * panelW * 0.02;
+        fill('#f97316');
+        rect(0, 0, glow, glow, 6);
+        if (state) {
+          for (let pulse of state.pulses) {
+            let radius = panelW * 0.16 + (1 - pulse.life) * panelW * 0.24;
+            let size = Math.max(6, panelW * 0.08 * pulse.life);
+            let x = Math.cos(pulse.angle) * radius;
+            let y = Math.sin(pulse.angle) * radius * 0.6;
+            fill(withAlpha('#fbbf24', pulse.life * 220));
+            rect(x, y, size, size, 4);
+          }
+          drawModuleProgressBar(0, panelH * 0.3, panelW * 0.6, state.progress, '#f97316');
+        }
+        pop();
+      }
+
+      function drawGalaxyModule(context) {
+        let { center, panelW, panelH } = context;
+        let state = moduleStates.galaxy;
+        if (!state) return;
+        push();
+        translate(center.x, center.y);
+        fill('#0f172a');
+        rect(0, 0, panelW * 0.88, panelH * 0.7, 12);
+        if (!state.pixels) {
+          state.pixels = [];
+        }
+        for (let pix of state.pixels) {
+          let angle = state.angle + pix.offset;
+          let radiusX = panelW * pix.radius;
+          let radiusY = panelH * pix.radius * 0.6;
+          let x = Math.cos(angle) * radiusX;
+          let y = Math.sin(angle) * radiusY;
+          let size = Math.max(4, panelW * pix.size * 0.5);
+          let alpha = 160 + Math.sin(angle * 2) * 50;
+          fill(withAlpha('#c084fc', alpha));
+          rect(x, y, size, size, 3);
+        }
+        fill('#f8fafc');
+        rect(0, 0, panelW * 0.12, panelW * 0.12, 4);
+        drawModuleProgressBar(0, panelH * 0.32, panelW * 0.6, state.progress, '#38bdf8');
+        pop();
+      }
+
+      function drawUniverseModule(context) {
+        let { center, panelW, panelH } = context;
+        let state = moduleStates.universe;
+        if (!state) return;
+        push();
+        translate(center.x, center.y);
+        fill('#0b1220');
+        rect(0, 0, panelW * 0.9, panelH * 0.72, 14);
+        stroke('#1d4ed8');
+        strokeWeight(2);
+        noFill();
+        ellipse(0, 0, panelW * 0.74, panelH * 0.52);
+        ellipse(0, 0, panelW * 0.52, panelH * 0.36);
+        noStroke();
+        for (let node of state.nodes || []) {
+          let angle = state.angle + node.offset;
+          let x = Math.cos(angle) * panelW * node.radius;
+          let y = Math.sin(angle) * panelH * node.radius * 0.6;
+          let size = Math.max(4, panelW * node.size * 0.4);
+          fill(withAlpha('#38bdf8', 210));
+          rect(x, y, size, size, 3);
+        }
+        fill('#fde68a');
+        rect(0, 0, panelW * 0.14, panelW * 0.14, 4);
+        drawModuleProgressBar(0, panelH * 0.34, panelW * 0.6, state.progress, '#22d3ee');
+        pop();
+      }
+
+      function drawSingularityModule(context) {
+        let { center, panelW, panelH } = context;
+        let state = moduleStates.singularity;
+        if (!state) return;
+        push();
+        translate(center.x, center.y);
+        fill('#050910');
+        rect(0, 0, panelW * 0.86, panelH * 0.7, 14);
+        stroke('#fb7185');
+        strokeWeight(2);
+        noFill();
+        ellipse(0, 0, panelW * 0.64, panelH * 0.46);
+        stroke('#38bdf8');
+        ellipse(0, 0, panelW * 0.5, panelH * 0.36);
+        noStroke();
+        fill('#0f172a');
+        rect(0, 0, panelW * 0.24, panelW * 0.24, 6);
+        fill('#f8fafc');
+        rect(0, 0, panelW * 0.08, panelW * 0.08, 4);
+        for (let shard of state.shards) {
+          let radius = panelW * 0.32 + (1 - shard.life) * panelW * 0.16;
+          let size = Math.max(4, panelW * 0.08 * shard.life);
+          let angle = shard.angle + state.orbit;
+          let x = Math.cos(angle) * radius;
+          let y = Math.sin(angle) * radius * 0.6;
+          fill(withAlpha('#fde68a', shard.life * 220));
+          rect(x, y, size, size, 3);
+        }
+        drawModuleProgressBar(0, panelH * 0.34, panelW * 0.6, state.progress, '#fb7185');
+        pop();
+      }
+
+      function drawModuleProgressBar(offsetX, offsetY, width, progress, colorHex) {
+        push();
+        translate(offsetX, offsetY);
+        let h = scaledY(10);
+        fill(withAlpha('#020617', 200));
+        rect(0, 0, width, h, h / 2);
+        if (progress > 0) {
+          let clamped = constrain(progress, 0, 1);
+          let barWidth = Math.max(4, width * clamped);
+          fill(withAlpha(colorHex, 230));
+          rect(-width / 2 + barWidth / 2, 0, barWidth, h, h / 2);
+        }
+        pop();
+      }
+
+      function drawFullscreenToggle(rectInfo, key, enabled) {
+        let size = Math.max(16, scaledX(16));
+        let x = rectInfo.x + rectInfo.width - size / 2 - scaledX(12);
+        let y = rectInfo.y + size / 2 + scaledY(12);
+        let active = fullscreenModule === key;
+        push();
+        rectMode(CENTER);
+        stroke('#0f172a');
+        strokeWeight(1);
+        let baseColor = enabled
+          ? active
+            ? '#22d3ee'
+            : '#1e3a8a'
+          : '#111c2d';
+        fill(baseColor);
+        rect(x, y, size, size, 4);
+        noStroke();
+        fill(active ? '#0b1120' : '#cbd5f5');
+        let inset = size * 0.35;
+        if (active) {
+          rect(x, y, size - inset, size - inset, 2);
+        } else {
+          rect(x - inset / 2, y - inset / 2, size / 2, size / 2, 2);
+          rect(x + inset / 2, y + inset / 2, size / 2, size / 2, 2);
+        }
+        pop();
+        if (enabled) {
+          buttons.push({ action: 'toggleFullscreen', key, x, y, w: size, h: size });
+        }
       }
 
       function drawJarFrame(machine) {
@@ -629,6 +1068,7 @@
         textSize(scaledFont(12));
         text('Sandfall Jar', center.x, center.y - panelH / 2 + scaledY(14));
         pop();
+        drawFullscreenToggle(rectInfo, machine.key, true);
       }
 
       function drawJarInterior() {
@@ -717,12 +1157,25 @@
         let jarMachine = machineDefinitions.find((m) => m.key === 'jar');
         if (jarMachine) {
           let rect = getMachineRect(jarMachine);
-          let targetWidth = SCREEN_W * 0.2;
-          let maxWidth = rect.width * 0.82;
-          let jarWidth = Math.max(MAX_POWDER_SIZE + 6, Math.min(targetWidth, maxWidth));
-          let maxHeight = rect.height * 0.92;
-          let targetHeight = POWDER_AREA_H * 0.5;
-          let jarHeight = Math.max(MAX_POWDER_SIZE + 32, Math.min(targetHeight, maxHeight));
+          let jarWidth;
+          let jarHeight;
+          if (fullscreenModule === 'jar') {
+            jarWidth = Math.round(rect.width * 0.92);
+            jarHeight = Math.round(rect.height * 0.9);
+          } else {
+            let targetWidth = SCREEN_W * 0.2;
+            let maxWidth = rect.width * 0.82;
+            jarWidth = Math.max(
+              MAX_POWDER_SIZE + 6,
+              Math.min(targetWidth, maxWidth)
+            );
+            let maxHeight = rect.height * 0.92;
+            let targetHeight = POWDER_AREA_H * 0.5;
+            jarHeight = Math.max(
+              MAX_POWDER_SIZE + 32,
+              Math.min(targetHeight, maxHeight)
+            );
+          }
           jarRect.width = Math.round(jarWidth);
           jarRect.height = Math.round(jarHeight);
           jarRect.left = Math.round(rect.x + (rect.width - jarRect.width) / 2);
@@ -733,6 +1186,15 @@
       function getMachineRect(machine) {
         if (!machine) {
           return { x: collageLayout.left, y: collageLayout.top, width: 0, height: 0 };
+        }
+        if (fullscreenModule === machine.key) {
+          let paddingX = scaledX(24);
+          let width = Math.max(220, SCREEN_W - paddingX * 2);
+          let height = Math.max(220, POWDER_AREA_H - scaledY(48));
+          height = Math.max(160, Math.min(height, POWDER_AREA_H - scaledY(16)));
+          let x = (SCREEN_W - width) / 2;
+          let y = scaledY(24);
+          return { x, y, width, height };
         }
         let width = collageLayout.cellWidth * (machine.grid.width || 1);
         let height = collageLayout.cellHeight * (machine.grid.height || 1);
@@ -813,6 +1275,7 @@
       }
 
       function renderPowders() {
+        if (!jarVisible) return;
         if (jarRect.width <= 0 || jarRect.height <= 0) return;
         push();
         noStroke();
@@ -1014,10 +1477,15 @@
         fill('#0f172a');
         rect(SCREEN_W / 2, POWDER_AREA_H + MENU_H / 2, SCREEN_W, MENU_H);
 
-        buttons = [];
-
         let headerBottom = drawResourceHeader();
-        let tabsBottom = drawMenuTabs(headerBottom + scaledY(6));
+        let tabs = getUnlockedMenuTabs();
+        if (tabs.length === 0) {
+          return;
+        }
+        if (!tabs.some((tab) => tab.key === activeMenu)) {
+          activeMenu = tabs[tabs.length - 1].key;
+        }
+        let tabsBottom = drawMenuTabs(headerBottom + scaledY(6), tabs);
         let contentStart = tabsBottom + scaledY(18);
         let panelBottom = POWDER_AREA_H + MENU_H - scaledY(24);
         let panelHeight = Math.max(scaledY(120), panelBottom - contentStart);
@@ -1035,24 +1503,30 @@
         let contentY = menuContentArea.top;
 
         switch (activeMenu) {
-          case 'overview':
-            drawOverviewContent(contentY);
+          case 'jar':
+            drawJarMenu(contentY);
             break;
-          case 'layers':
-            drawLayersContent(contentY);
+          case 'conveyor':
+            drawConveyorMenu(contentY);
             break;
-          case 'upgrades':
-            drawUpgradesContent(contentY);
+          case 'rocket':
+            drawRocketMenu(contentY);
             break;
-          case 'automation':
-            drawAutomationContent(contentY);
+          case 'forge':
+            drawForgeMenu(contentY);
             break;
-          case 'alchemy':
-            drawAlchemyContent(contentY);
+          case 'galaxy':
+            drawGalaxyMenu(contentY);
+            break;
+          case 'universe':
+            drawUniverseMenu(contentY);
+            break;
+          case 'singularity':
+            drawSingularityMenu(contentY);
             break;
         }
 
-        drawDropButton(activeMenu !== 'overview');
+        drawDropButton(activeMenu !== 'jar');
       }
 
       function drawResourceHeader() {
@@ -1093,13 +1567,34 @@
         return y + scaledY(20);
       }
 
-      function drawMenuTabs(y) {
+      function isMenuTabUnlocked(key) {
+        let tab = menuTabs.find((t) => t.key === key);
+        if (!tab) return false;
+        if (!tab.machine || tab.machine === 'jar') return true;
+        return isMachineUnlocked(tab.machine);
+      }
+
+      function getUnlockedMenuTabs() {
+        let available = [];
+        for (let tab of menuTabs) {
+          if (!isMenuTabUnlocked(tab.key)) {
+            break;
+          }
+          available.push(tab);
+        }
+        return available;
+      }
+
+      function drawMenuTabs(y, tabs) {
+        if (!tabs || tabs.length === 0) {
+          return y;
+        }
         let tabW = scaledX(68);
         let tabH = scaledY(30);
-        let xs = getRowPositions(menuTabs.length);
+        let xs = getRowPositions(tabs.length);
         textSize(scaledFont(12));
-        for (let i = 0; i < menuTabs.length; i++) {
-          let tab = menuTabs[i];
+        for (let i = 0; i < tabs.length; i++) {
+          let tab = tabs[i];
           let active = tab.key === activeMenu;
           fill(active ? '#22d3ee' : '#1b2640');
           rect(xs[i], y, tabW, tabH, 10);
@@ -1139,39 +1634,66 @@
         return y + scaledY(28);
       }
 
-      function drawOverviewContent(y) {
+      function drawJarMenu(y) {
         y = drawSectionHeader('Powder Selection', y);
         y = drawPowderSelectRow(y + scaledY(8));
         y = drawSectionHeader('Tier Unlocks', y + scaledY(10));
         y = drawTierUpgradeRow(y + scaledY(8));
-        y = drawSectionHeader('Crystallization', y + scaledY(12));
-        drawPrestigeRow(y + scaledY(20));
-      }
-
-      function drawLayersContent(y) {
-        y = drawSectionHeader('Geologic Layers', y);
+        y = drawSectionHeader('Gravity Upgrades', y + scaledY(12));
+        y = drawSpecificUpgradeRow(['gravity'], y + scaledY(10));
+        y = drawSectionHeader('Geologic Layers', y + scaledY(12));
         for (let i = 0; i < strataLayers.length; i++) {
           y = drawLayerCard(strataLayers[i], layerStates[i], y);
         }
+        return y;
       }
 
-      function drawUpgradesContent(y) {
-        y = drawSectionHeader('Structural Upgrades', y);
-        y = drawUpgradeRows(y + scaledY(8));
-        y = drawSectionHeader('Arcane Research', y + scaledY(12));
-        drawResearchRows(y + scaledY(10));
-      }
-
-      function drawAutomationContent(y) {
-        y = drawSectionHeader('Auto Droppers', y);
+      function drawConveyorMenu(y) {
+        y = drawSectionHeader('Auto Feeders', y);
         y = drawAutoDropperRow(y + scaledY(8));
-        y = drawSectionHeader('Automation Scripts', y + scaledY(12));
-        drawAutomationControls(y + scaledY(10));
+        y = drawSectionHeader('Belt Diagnostics', y + scaledY(12));
+        y = drawConveyorNotes(y + scaledY(10));
+        return y;
       }
 
-      function drawAlchemyContent(y) {
-        y = drawSectionHeader('Transmutation Matrix', y);
-        drawCompressionRow(y + scaledY(16));
+      function drawRocketMenu(y) {
+        y = drawSectionHeader('Refinery Upgrades', y);
+        y = drawSpecificUpgradeRow(['refinery'], y + scaledY(10));
+        y = drawSectionHeader('Launch Status', y + scaledY(12));
+        y = drawRocketStatus(y + scaledY(12));
+        return y;
+      }
+
+      function drawForgeMenu(y) {
+        y = drawSectionHeader('Compression Engine', y);
+        y = drawSpecificUpgradeRow(['compressor'], y + scaledY(10));
+        y = drawSectionHeader('Transmutation Matrix', y + scaledY(12));
+        y = drawCompressionRow(y + scaledY(16));
+        return y;
+      }
+
+      function drawGalaxyMenu(y) {
+        y = drawSectionHeader('Luminous Upgrades', y);
+        y = drawSpecificUpgradeRow(['lanterns'], y + scaledY(10));
+        y = drawSectionHeader('Arcane Research', y + scaledY(12));
+        y = drawResearchRows(y + scaledY(10));
+        return y;
+      }
+
+      function drawUniverseMenu(y) {
+        y = drawSectionHeader('Resonance Upgrades', y);
+        y = drawSpecificUpgradeRow(['harmonics'], y + scaledY(10));
+        y = drawSectionHeader('Automation Scripts', y + scaledY(12));
+        y = drawAutomationControls(y + scaledY(10));
+        return y;
+      }
+
+      function drawSingularityMenu(y) {
+        y = drawSectionHeader('Crystal Ledger', y);
+        y = drawSingularityStats(y + scaledY(10));
+        y = drawSectionHeader('Crystallization', y + scaledY(12));
+        y = drawPrestigeRow(y + scaledY(18));
+        return y;
       }
 
       function drawLayerCard(layer, state, y) {
@@ -1230,7 +1752,7 @@
 
       function drawResearchRows(y) {
         if (researchProjects.length === 0) {
-          return;
+          return y;
         }
         let btnW = Math.min(scaledX(200), (menuContentArea.width || SCREEN_W) / 2);
         let btnH = scaledY(46);
@@ -1260,6 +1782,7 @@
           });
         }
         textSize(scaledFont(14));
+        return y + btnH + scaledY(18);
       }
 
       function drawAutomationControls(y) {
@@ -1299,6 +1822,7 @@
           });
         }
         textSize(scaledFont(14));
+        return y + btnH + scaledY(18);
       }
 
       function drawPowderSelectRow(y) {
@@ -1444,6 +1968,39 @@
         return y + scaledY(rows * 36);
       }
 
+      function drawSpecificUpgradeRow(keys, y) {
+        let configs = upgradeConfigs.filter((config) => keys.includes(config.key));
+        if (configs.length === 0) {
+          return y;
+        }
+        let btnW = scaledX(140);
+        let btnH = scaledY(34);
+        let xs = getRowPositions(configs.length);
+        textSize(scaledFont(10));
+        for (let i = 0; i < configs.length; i++) {
+          let config = configs[i];
+          let level = upgradesState[config.key];
+          let cost = getUpgradeCost(config);
+          let canBuy = dust >= cost;
+          let x = xs[i];
+          fill(canBuy ? '#8e24aa' : '#4a148c');
+          rect(x, y, btnW, btnH, 8);
+          fill('#fff');
+          text(`${config.name} Lv.${level} (\u2212${cost})`, x, y - scaledY(8));
+          text(config.description, x, y + scaledY(6));
+          buttons.push({
+            action: 'buyUpgrade',
+            key: config.key,
+            x,
+            y,
+            w: btnW,
+            h: btnH
+          });
+        }
+        textSize(scaledFont(14));
+        return y + scaledY(36);
+      }
+
       function drawCompressionRow(y) {
         if (upgradesState.compressor <= 0) {
           textSize(scaledFont(11));
@@ -1509,6 +2066,47 @@
         );
         textSize(scaledFont(14));
         buttons.push({ action: 'prestige', x: center, y, w: btnW, h: btnH });
+        return y + btnH + scaledY(12);
+      }
+
+      function drawConveyorNotes(y) {
+        let center = menuContentArea.center || SCREEN_W / 2;
+        fill('#cbd5f5');
+        textSize(scaledFont(11));
+        text('Conveyors deliver new sand blocks on their own cadence.', center, y);
+        text('Click the module to rush an extra shipment.', center, y + scaledY(16));
+        text('Gravity Well upgrades increase belt speed.', center, y + scaledY(32));
+        textSize(scaledFont(14));
+        return y + scaledY(48);
+      }
+
+      function drawRocketStatus(y) {
+        let state = moduleStates.rocket;
+        let center = menuContentArea.center || SCREEN_W / 2;
+        fill('#cbd5f5');
+        textSize(scaledFont(11));
+        if (!state || !state.pods) {
+          text('Launch pads are still assembling crews.', center, y);
+          textSize(scaledFont(14));
+          return y + scaledY(20);
+        }
+        let ready = state.pods.filter((pod) => pod.progress >= 1 && pod.launch === 0).length;
+        text(`Pads fueled: ${ready}/${state.pods.length}`, center, y);
+        text('Tap the bay to fuel faster launches.', center, y + scaledY(16));
+        text('Refinery upgrades amplify cargo yield.', center, y + scaledY(32));
+        textSize(scaledFont(14));
+        return y + scaledY(48);
+      }
+
+      function drawSingularityStats(y) {
+        let center = menuContentArea.center || SCREEN_W / 2;
+        fill('#cbd5f5');
+        textSize(scaledFont(11));
+        text(`Diamonds awaiting collapse: ${powderCounts[5] || 0}`, center, y);
+        text(`Crystallized cores: ${crystalCores}`, center, y + scaledY(16));
+        text('Strike the crucible to channel fresh cores.', center, y + scaledY(32));
+        textSize(scaledFont(14));
+        return y + scaledY(46);
       }
 
       function drawDropButton(compact = false) {
@@ -1543,7 +2141,7 @@
             break;
           }
         }
-        if (!handled && isInsideJar(mouseX, mouseY)) {
+        if (!handled && jarVisible && isInsideJar(mouseX, mouseY)) {
           dropPowder(selectedPowder, mouseX);
         }
       }
@@ -1575,12 +2173,103 @@
             performPrestige();
             break;
           case 'switchMenu':
-            activeMenu = btn.key;
+            if (isMenuTabUnlocked(btn.key)) {
+              activeMenu = btn.key;
+            }
             break;
           case 'toggleAutomation':
             toggleAutomation(btn.key);
             break;
+          case 'moduleInteract':
+            handleModuleInteraction(btn.key);
+            break;
+          case 'toggleFullscreen':
+            toggleModuleFullscreen(btn.key);
+            break;
         }
+      }
+
+      function handleModuleInteraction(key) {
+        switch (key) {
+          case 'conveyor':
+            rushConveyor();
+            break;
+          case 'rocket':
+            boostRockets();
+            break;
+          case 'forge':
+            hammerForge();
+            break;
+          case 'galaxy':
+            swirlGalaxy();
+            break;
+          case 'universe':
+            syncUniverse();
+            break;
+          case 'singularity':
+            focusSingularity();
+            break;
+        }
+      }
+
+      function rushConveyor() {
+        let state = moduleStates.conveyor;
+        if (!state) return;
+        state.spawnTimer = Math.min(state.spawnTimer, 0.25);
+        state.grains.push({
+          progress: 0,
+          speed: 0.9 + Math.random() * 0.4,
+          offset: random(-0.12, 0.12),
+          size: 0.12
+        });
+      }
+
+      function boostRockets() {
+        let state = moduleStates.rocket;
+        if (!state || !state.pods) return;
+        for (let pod of state.pods) {
+          if (pod.launch > 0) continue;
+          pod.progress = Math.min(1, pod.progress + 0.28);
+        }
+      }
+
+      function hammerForge() {
+        let state = moduleStates.forge;
+        if (!state) return;
+        state.progress = Math.min(1, state.progress + 0.5);
+        if (state.pulses) {
+          state.pulses.push({ life: 1, angle: Math.random() * TAU });
+        }
+      }
+
+      function swirlGalaxy() {
+        let state = moduleStates.galaxy;
+        if (!state) return;
+        state.progress = Math.min(1, state.progress + 0.45);
+        state.angle += 0.4;
+      }
+
+      function syncUniverse() {
+        let state = moduleStates.universe;
+        if (!state) return;
+        state.progress = Math.min(1, state.progress + 0.35);
+        state.angle += 0.3;
+      }
+
+      function focusSingularity() {
+        let state = moduleStates.singularity;
+        if (!state) return;
+        state.progress = Math.min(1, state.progress + 0.3);
+        state.shards.push({ life: 1, angle: Math.random() * TAU });
+      }
+
+      function toggleModuleFullscreen(key) {
+        if (key !== 'jar' && !isMachineUnlocked(key)) {
+          return;
+        }
+        fullscreenModule = fullscreenModule === key ? null : key;
+        updateLayoutDimensions(true);
+        refreshPowderGrid(true);
       }
 
       function dropPowder(type, spawnX) {
@@ -1734,7 +2423,17 @@
         autoDropTimer = 0;
         autoCompressTimer = 0;
         activeMenu = menuTabs[0].key;
-        refreshPowderGrid();
+        fullscreenModule = null;
+        moduleStates = {
+          conveyor: { grains: [], spawnTimer: 0 },
+          rocket: { pods: [] },
+          forge: { progress: 0, pulses: [] },
+          galaxy: { progress: 0, angle: 0, pixels: [] },
+          universe: { progress: 0, angle: 0, nodes: [] },
+          singularity: { progress: 0, shards: [], orbit: 0 }
+        };
+        updateLayoutDimensions(true);
+        refreshPowderGrid(true);
       }
 
       function getUnlockedIndices() {
