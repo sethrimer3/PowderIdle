@@ -84,12 +84,34 @@
 
       function createDefaultModuleStates() {
         return {
-          conveyor: { grains: [], spawnTimer: 0, packageProgress: 0, packagePulse: 0 },
+          conveyor: {
+            fallers: [],
+            modules: [],
+            spawnTimer: 0,
+            nextHole: 0,
+            moldCooldown: 0,
+            deliveryPulse: 0,
+            packageProgress: 0,
+            packagePulse: 0
+          },
           rocket: { pods: [] },
-          asteroid: { progress: 0, fragments: [], ring: 0 },
-          planet: { progress: 0, orbiters: [], spin: 0 },
+          asteroid: {
+            progress: 0,
+            asteroids: [],
+            powderBits: [],
+            ring: 0,
+            ringPulse: 0
+          },
+          planet: {
+            progress: 0,
+            planetesimals: [],
+            moons: [],
+            planetCore: null,
+            spin: 0,
+            coreGlow: 0
+          },
           forge: { progress: 0, pulses: [], corona: 0 },
-          galaxy: { progress: 0, angle: 0, pixels: [] },
+          galaxy: { progress: 0, angle: 0, particles: [], vortices: [], bursts: [] },
           universe: { progress: 0, angle: 0, nodes: [] },
           singularity: { progress: 0, shards: [], orbit: 0, halo: 0 }
         };
@@ -686,29 +708,16 @@
       function updateConveyorState(dt) {
         let state = moduleStates.conveyor;
         if (!state) return;
+        setupConveyorGeometry(state);
         let speedBoost = 1 + upgradesState.gravity * 0.12 + getLayerGravityBonus() * 0.6;
+        let spawnRate = state.geometry.spawnRate / Math.max(0.2, speedBoost);
         state.spawnTimer -= dt;
         if (state.spawnTimer <= 0) {
-          state.spawnTimer = Math.max(0.35, 1.1 / speedBoost + random(-0.3, 0.3));
-          state.grains.push({
-            progress: 0,
-            speed: 0.4 + Math.random() * 0.3,
-            offset: random(-0.2, 0.2),
-            size: 0.08 + Math.random() * 0.05
-          });
+          spawnConveyorBatch(state);
+          state.spawnTimer = spawnRate + random(-0.2, 0.2);
         }
-        for (let i = state.grains.length - 1; i >= 0; i--) {
-          let grain = state.grains[i];
-          grain.progress += dt * grain.speed * speedBoost;
-          if (grain.progress >= 1) {
-            powderCounts[0] += 1;
-            dust += Math.max(1, Math.round(getDustMultiplier()));
-            state.grains.splice(i, 1);
-          }
-        }
-        while (state.grains.length > 14) {
-          state.grains.shift();
-        }
+        updateConveyorFallers(state, dt, speedBoost);
+        updateConveyorModules(state, dt, speedBoost);
         if (powderCounts[0] >= CHAIN_REQUIREMENT) {
           let packagingSpeed = 0.45 + speedBoost * 0.08;
           state.packageProgress = (state.packageProgress || 0) + dt * packagingSpeed;
@@ -725,6 +734,205 @@
           state.packageProgress = Math.max(0, (state.packageProgress || 0) - dt * 0.4);
         }
         state.packagePulse = Math.max(0, (state.packagePulse || 0) - dt * 2.2);
+        state.deliveryPulse = Math.max(0, (state.deliveryPulse || 0) - dt * 1.6);
+      }
+
+      function setupConveyorGeometry(state) {
+        if (state.initialized) return;
+        state.initialized = true;
+        state.fallers = state.fallers || [];
+        state.modules = state.modules || [];
+        state.geometry = {
+          moldTop: -0.78,
+          moldSettle: -0.46,
+          releaseY: -0.3,
+          beltY: -0.22,
+          dropThreshold: -0.18,
+          holes: [-0.58, -0.18, 0.28],
+          spawnRate: 1.05,
+          beltSegments: [
+            {
+              from: { x: 0.74, y: -0.22 },
+              to: { x: -0.82, y: -0.22 },
+              speed: 0.34,
+              type: 'belt'
+            },
+            {
+              from: { x: -0.82, y: -0.22 },
+              to: { x: -0.82, y: 0.08 },
+              speed: 0.62,
+              type: 'drop'
+            },
+            {
+              from: { x: -0.82, y: 0.08 },
+              to: { x: 0.66, y: 0.08 },
+              speed: 0.3,
+              type: 'belt'
+            },
+            {
+              from: { x: 0.66, y: 0.08 },
+              to: { x: 0.66, y: 0.34 },
+              speed: 0.68,
+              type: 'drop'
+            },
+            {
+              from: { x: 0.66, y: 0.34 },
+              to: { x: -0.86, y: 0.34 },
+              speed: 0.32,
+              type: 'belt'
+            }
+          ]
+        };
+      }
+
+      function spawnConveyorBatch(state) {
+        if (!state.geometry) return;
+        let patterns = [
+          [
+            { x: -0.24, y: 0 },
+            { x: 0, y: 0 },
+            { x: 0.24, y: 0 }
+          ],
+          [
+            { x: -0.3, y: 0 },
+            { x: -0.1, y: -0.08 },
+            { x: 0.12, y: 0.06 },
+            { x: 0.32, y: -0.04 }
+          ],
+          [
+            { x: -0.2, y: 0.04 },
+            { x: 0, y: -0.04 },
+            { x: 0.2, y: 0.04 },
+            { x: 0.4, y: -0.04 }
+          ]
+        ];
+        let pattern = random(patterns);
+        for (let offset of pattern) {
+          state.fallers.push({
+            x: offset.x,
+            y: state.geometry.moldTop + random(-0.04, 0.04),
+            vx: 0,
+            vy: 0,
+            phase: 'mold',
+            timer: 0.25 + Math.random() * 0.25,
+            jitter: Math.random() * TAU,
+            size: 0.06 + Math.random() * 0.04,
+            targetHole: null,
+            drop: false
+          });
+        }
+        while (state.fallers.length > 18) {
+          state.fallers.shift();
+        }
+      }
+
+      function updateConveyorFallers(state, dt, speedBoost) {
+        if (!state.geometry) return;
+        let gravity = 1.4 * speedBoost;
+        let moldSettle = state.geometry.moldSettle;
+        let releaseY = state.geometry.releaseY;
+        let beltY = state.geometry.beltY;
+        let dropThreshold = state.geometry.dropThreshold;
+        for (let i = state.fallers.length - 1; i >= 0; i--) {
+          let faller = state.fallers[i];
+          if (faller.phase === 'mold') {
+            faller.y = Math.min(moldSettle, faller.y + dt * 0.55 * speedBoost);
+            faller.timer -= dt * speedBoost;
+            if (faller.y >= moldSettle - 0.01 && faller.timer <= 0) {
+              faller.phase = 'settled';
+              faller.timer = 0.25 + Math.random() * 0.35;
+            }
+          } else if (faller.phase === 'settled') {
+            faller.timer -= dt * speedBoost;
+            faller.jitter += dt * 3;
+            faller.y = moldSettle + Math.sin(faller.jitter) * 0.01;
+            if (faller.timer <= 0) {
+              faller.phase = 'release';
+              faller.targetHole = state.geometry.holes[state.nextHole % state.geometry.holes.length];
+              state.nextHole += 1;
+              faller.vx = 0;
+              faller.vy = 0.2;
+            }
+          } else if (faller.phase === 'release') {
+            if (!faller.drop) {
+              let dx = (faller.targetHole || 0) - faller.x;
+              faller.vx += dx * dt * 2.2 * speedBoost;
+              faller.vx = constrain(faller.vx, -0.9, 0.9);
+              faller.x += faller.vx * dt;
+              faller.vx *= 0.94;
+              faller.y = Math.min(releaseY, faller.y + faller.vy * dt);
+              if (Math.abs(dx) < 0.04) {
+                faller.drop = true;
+                faller.vy = 0;
+              }
+            } else {
+              faller.vy += gravity * dt;
+              faller.y += faller.vy * dt;
+              faller.x += faller.vx * dt * 0.4;
+            }
+          } else {
+            faller.vy += gravity * dt;
+            faller.y += faller.vy * dt;
+          }
+          if (faller.y >= dropThreshold) {
+            state.modules.push({
+              segment: 0,
+              progress: 0,
+              wobble: Math.random() * TAU,
+              size: 0.9 + Math.random() * 0.4,
+              x: faller.x,
+              y: beltY,
+              vy: 0
+            });
+            if (state.modules.length > 18) {
+              state.modules.shift();
+            }
+            state.fallers.splice(i, 1);
+            continue;
+          }
+          if (faller.y > 1.2 || Math.abs(faller.x) > 1.2) {
+            state.fallers.splice(i, 1);
+          }
+        }
+      }
+
+      function updateConveyorModules(state, dt, speedBoost) {
+        if (!state.geometry) return;
+        let segments = state.geometry.beltSegments;
+        for (let i = state.modules.length - 1; i >= 0; i--) {
+          let module = state.modules[i];
+          let segment = segments[module.segment];
+          if (!segment) {
+            powderCounts[0] += 1;
+            dust += Math.max(1, Math.round(getDustMultiplier()));
+            state.modules.splice(i, 1);
+            state.deliveryPulse = 1;
+            continue;
+          }
+          let speed = segment.speed * (segment.type === 'drop' ? Math.max(1, speedBoost * 1.2) : speedBoost);
+          module.progress += dt * speed;
+          if (module.progress >= 1) {
+            module.progress -= 1;
+            module.segment += 1;
+            segment = segments[module.segment];
+            if (!segment) {
+              powderCounts[0] += 1;
+              dust += Math.max(1, Math.round(getDustMultiplier()));
+              state.modules.splice(i, 1);
+              state.deliveryPulse = 1;
+              continue;
+            }
+          }
+          let eased = segment.type === 'drop' ? module.progress * module.progress : smoothStep(module.progress);
+          module.x = lerp(segment.from.x, segment.to.x, eased);
+          module.y = lerp(segment.from.y, segment.to.y, eased);
+          module.wobble += dt * 6;
+        }
+      }
+
+      function smoothStep(t) {
+        let clamped = constrain(t, 0, 1);
+        return clamped * clamped * (3 - 2 * clamped);
       }
 
       function updateRocketState(dt) {
@@ -768,10 +976,8 @@
       function updateAsteroidState(dt) {
         let state = moduleStates.asteroid;
         if (!state) return;
-        state.ring = (state.ring || 0) + dt * 0.8;
-        if (!state.fragments) {
-          state.fragments = [];
-        }
+        initializeAsteroidField(state);
+        state.ring = (state.ring || 0) + dt * 0.6;
         craftNextTier(
           state,
           2,
@@ -779,32 +985,194 @@
           0.26 + (researchState.lens || 0) * 0.03,
           dt,
           8,
-          () => {
-            state.fragments.push({
-              life: 1,
-              angle: Math.random() * TAU,
-              drift: random(0.4, 1.1),
-              radius: random(0.12, 0.28)
+          () => spawnAsteroidPowder(state)
+        );
+        updateAsteroidPowder(state, dt);
+        updateAsteroidBodies(state, dt);
+        state.ringPulse = Math.max(0, (state.ringPulse || 0) - dt * 1.4);
+      }
+
+      function initializeAsteroidField(state) {
+        if (state.initialized) return;
+        state.initialized = true;
+        state.asteroids = state.asteroids || [];
+        state.powderBits = state.powderBits || [];
+        if (state.asteroids.length === 0) {
+          for (let i = 0; i < 3; i++) {
+            let angle = (i / 3) * TAU;
+            state.asteroids.push({
+              x: Math.cos(angle) * 0.4,
+              y: Math.sin(angle) * 0.32,
+              vx: -Math.sin(angle) * 0.18,
+              vy: Math.cos(angle) * 0.14,
+              mass: 2.8,
+              radius: asteroidRadius(2.8),
+              hue: random(0.15, 0.32),
+              mergeGlow: 0
             });
           }
-        );
-        for (let i = state.fragments.length - 1; i >= 0; i--) {
-          let fragment = state.fragments[i];
-          fragment.life -= dt * 0.9;
-          fragment.angle += dt * fragment.drift;
-          if (fragment.life <= 0) {
-            state.fragments.splice(i, 1);
+        }
+      }
+
+      function spawnAsteroidPowder(state) {
+        if (!state.powderBits) {
+          state.powderBits = [];
+        }
+        for (let i = 0; i < 4; i++) {
+          let angle = random(TAU);
+          let radius = random(0.48, 0.7);
+          let tangential = 0.25 + Math.random() * 0.18;
+          state.powderBits.push({
+            x: Math.cos(angle) * radius,
+            y: Math.sin(angle) * radius,
+            vx: -Math.sin(angle) * tangential,
+            vy: Math.cos(angle) * tangential,
+            mass: 0.4 + Math.random() * 0.25,
+            size: 0.04 + Math.random() * 0.02,
+            life: 1
+          });
+        }
+        while (state.powderBits.length > 80) {
+          state.powderBits.shift();
+        }
+        state.ringPulse = 1;
+      }
+
+      function updateAsteroidPowder(state, dt) {
+        if (!state.powderBits) return;
+        let asteroids = state.asteroids || [];
+        for (let i = state.powderBits.length - 1; i >= 0; i--) {
+          let bit = state.powderBits[i];
+          bit.life -= dt * 0.18;
+          let nearest = null;
+          let nearestDist = Infinity;
+          for (let asteroid of asteroids) {
+            let dx = asteroid.x - bit.x;
+            let dy = asteroid.y - bit.y;
+            let distSq = dx * dx + dy * dy;
+            if (distSq < nearestDist) {
+              nearestDist = distSq;
+              nearest = asteroid;
+            }
+          }
+          let targetX = nearest ? nearest.x : 0;
+          let targetY = nearest ? nearest.y : 0;
+          let dx = targetX - bit.x;
+          let dy = targetY - bit.y;
+          let distSq = dx * dx + dy * dy + 0.01;
+          let dist = Math.sqrt(distSq);
+          let pull = nearest ? 1.6 : 1;
+          let accel = (pull * (nearest ? nearest.mass : 4)) / (1 + distSq * 4);
+          bit.vx += (dx / dist) * accel * dt;
+          bit.vy += (dy / dist) * accel * dt;
+          bit.x += bit.vx * dt;
+          bit.y += bit.vy * dt;
+          bit.vx *= 0.985;
+          bit.vy *= 0.985;
+          if (nearest && dist < nearest.radius + bit.size * 0.5) {
+            nearest.mass += bit.mass;
+            nearest.radius = asteroidRadius(nearest.mass);
+            nearest.mergeGlow = 1;
+            state.powderBits.splice(i, 1);
+            state.ringPulse = 1;
+            continue;
+          }
+          if (!nearest && dist < 0.08) {
+            state.asteroids.push({
+              x: bit.x,
+              y: bit.y,
+              vx: bit.vx * 0.4,
+              vy: bit.vy * 0.4,
+              mass: 1.2,
+              radius: asteroidRadius(1.2),
+              hue: random(0.12, 0.4),
+              mergeGlow: 0
+            });
+            state.powderBits.splice(i, 1);
+            continue;
+          }
+          if (bit.life <= 0 || Math.abs(bit.x) > 1.4 || Math.abs(bit.y) > 1.4) {
+            state.powderBits.splice(i, 1);
           }
         }
+      }
+
+      function updateAsteroidBodies(state, dt) {
+        if (!state.asteroids) return;
+        let asteroids = state.asteroids;
+        let gravityConstant = 0.22;
+        for (let i = 0; i < asteroids.length; i++) {
+          let asteroid = asteroids[i];
+          asteroid.vx += -asteroid.x * 0.12 * dt;
+          asteroid.vy += -asteroid.y * 0.12 * dt;
+          asteroid.mergeGlow = Math.max(0, asteroid.mergeGlow - dt * 1.6);
+        }
+        for (let i = 0; i < asteroids.length; i++) {
+          let a = asteroids[i];
+          for (let j = i + 1; j < asteroids.length; j++) {
+            let b = asteroids[j];
+            let dx = b.x - a.x;
+            let dy = b.y - a.y;
+            let distSq = dx * dx + dy * dy + 0.02;
+            let dist = Math.sqrt(distSq);
+            let force = (gravityConstant * a.mass * b.mass) / distSq;
+            let ax = (force / a.mass) * (dx / dist);
+            let ay = (force / a.mass) * (dy / dist);
+            a.vx += ax * dt;
+            a.vy += ay * dt;
+            b.vx -= (force / b.mass) * (dx / dist) * dt;
+            b.vy -= (force / b.mass) * (dy / dist) * dt;
+          }
+        }
+        for (let asteroid of asteroids) {
+          asteroid.x += asteroid.vx * dt;
+          asteroid.y += asteroid.vy * dt;
+          asteroid.vx *= 0.996;
+          asteroid.vy *= 0.996;
+        }
+        for (let i = 0; i < asteroids.length; i++) {
+          let a = asteroids[i];
+          for (let j = i + 1; j < asteroids.length; j++) {
+            let b = asteroids[j];
+            let dx = b.x - a.x;
+            let dy = b.y - a.y;
+            let dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < (a.radius + b.radius) * 0.7) {
+              let totalMass = a.mass + b.mass;
+              let newX = (a.x * a.mass + b.x * b.mass) / totalMass;
+              let newY = (a.y * a.mass + b.y * b.mass) / totalMass;
+              let newVx = (a.vx * a.mass + b.vx * b.mass) / totalMass;
+              let newVy = (a.vy * a.mass + b.vy * b.mass) / totalMass;
+              let newHue = (a.hue * a.mass + b.hue * b.mass) / totalMass;
+              a.x = newX;
+              a.y = newY;
+              a.vx = newVx;
+              a.vy = newVy;
+              a.mass = totalMass;
+              a.radius = asteroidRadius(totalMass);
+              a.hue = newHue;
+              a.mergeGlow = 1;
+              asteroids.splice(j, 1);
+              j--;
+              state.ringPulse = 1;
+            }
+          }
+        }
+        state.coreMass = asteroids.reduce((max, asteroid) => Math.max(max, asteroid.mass), 0);
+        while (asteroids.length > 10) {
+          asteroids.shift();
+        }
+      }
+
+      function asteroidRadius(mass) {
+        return 0.08 + Math.sqrt(Math.max(0, mass)) * 0.028;
       }
 
       function updatePlanetState(dt) {
         let state = moduleStates.planet;
         if (!state) return;
-        state.spin = (state.spin || 0) + dt * 0.6;
-        if (!state.orbiters) {
-          state.orbiters = [];
-        }
+        initializePlanetField(state);
+        state.spin = (state.spin || 0) + dt * 0.5;
         craftNextTier(
           state,
           3,
@@ -812,23 +1180,173 @@
           0.24 + (researchState.overclock || 0) * 0.02,
           dt,
           10,
-          () => {
-            state.orbiters.push({
-              life: 1,
-              angle: Math.random() * TAU,
-              radius: random(0.18, 0.32),
-              speed: random(0.5, 1.3)
-            });
-          }
+          () => spawnPlanetesimals(state)
         );
-        for (let i = state.orbiters.length - 1; i >= 0; i--) {
-          let orbiter = state.orbiters[i];
-          orbiter.life -= dt * 0.6;
-          orbiter.angle += dt * orbiter.speed;
-          if (orbiter.life <= 0) {
-            state.orbiters.splice(i, 1);
+        updatePlanetesimals(state, dt);
+        updatePlanetMoons(state, dt);
+        state.coreGlow = Math.max(0, (state.coreGlow || 0) - dt * 1.2);
+      }
+
+      function initializePlanetField(state) {
+        if (state.initialized) return;
+        state.initialized = true;
+        state.planetesimals = state.planetesimals || [];
+        state.moons = state.moons || [];
+        state.planetCore = state.planetCore || {
+          mass: 6,
+          radius: planetRadius(6),
+          angle: 0
+        };
+        for (let i = 0; i < 4; i++) {
+          let angle = random(TAU);
+          let radius = random(0.28, 0.48);
+          state.planetesimals.push(createPlanetesimal(angle, radius));
+        }
+      }
+
+      function spawnPlanetesimals(state) {
+        if (!state.planetesimals) {
+          state.planetesimals = [];
+        }
+        for (let i = 0; i < 3; i++) {
+          let angle = random(TAU);
+          let radius = random(0.26, 0.58);
+          state.planetesimals.push(createPlanetesimal(angle, radius));
+        }
+        while (state.planetesimals.length > 40) {
+          state.planetesimals.shift();
+        }
+        state.coreGlow = 1;
+      }
+
+      function createPlanetesimal(angle, radius) {
+        let tangential = 0.32 + Math.random() * 0.18;
+        let mass = 1 + Math.random() * 0.9;
+        return {
+          x: Math.cos(angle) * radius,
+          y: Math.sin(angle) * radius * 0.72,
+          vx: -Math.sin(angle) * tangential,
+          vy: Math.cos(angle) * tangential * 0.72,
+          mass,
+          radius: planetesimalRadius(mass),
+          colorPhase: Math.random(),
+          spin: random(0.8, 1.6),
+          phase: random(TAU)
+        };
+      }
+
+      function updatePlanetesimals(state, dt) {
+        let bodies = state.planetesimals || [];
+        let core = state.planetCore;
+        if (!core) {
+          core = { mass: 6, radius: planetRadius(6), angle: 0 };
+          state.planetCore = core;
+        }
+        core.angle = (core.angle || 0) + dt * 0.3;
+        let centralGravity = 0.32 + core.mass * 0.01;
+        for (let body of bodies) {
+          let dx = -body.x;
+          let dy = -body.y;
+          let distSq = dx * dx + dy * dy + 0.04;
+          let dist = Math.sqrt(distSq);
+          let accel = (centralGravity * core.mass) / distSq;
+          body.vx += (dx / dist) * accel * dt;
+          body.vy += (dy / dist) * accel * dt;
+          body.vx += -body.x * 0.05 * dt;
+          body.vy += -body.y * 0.05 * dt;
+          body.phase += dt * body.spin;
+        }
+        let gravityConstant = 0.16;
+        for (let i = 0; i < bodies.length; i++) {
+          let a = bodies[i];
+          for (let j = i + 1; j < bodies.length; j++) {
+            let b = bodies[j];
+            let dx = b.x - a.x;
+            let dy = b.y - a.y;
+            let distSq = dx * dx + dy * dy + 0.01;
+            let dist = Math.sqrt(distSq);
+            let force = (gravityConstant * a.mass * b.mass) / distSq;
+            let ax = (force / a.mass) * (dx / dist);
+            let ay = (force / a.mass) * (dy / dist);
+            a.vx += ax * dt;
+            a.vy += ay * dt;
+            b.vx -= (force / b.mass) * (dx / dist) * dt;
+            b.vy -= (force / b.mass) * (dy / dist) * dt;
           }
         }
+        for (let body of bodies) {
+          body.x += body.vx * dt;
+          body.y += body.vy * dt;
+          body.vx *= 0.996;
+          body.vy *= 0.996;
+        }
+        for (let i = 0; i < bodies.length; i++) {
+          let a = bodies[i];
+          for (let j = i + 1; j < bodies.length; j++) {
+            let b = bodies[j];
+            let dx = b.x - a.x;
+            let dy = b.y - a.y;
+            let dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < (a.radius + b.radius) * 0.65) {
+              let totalMass = a.mass + b.mass;
+              let newX = (a.x * a.mass + b.x * b.mass) / totalMass;
+              let newY = (a.y * a.mass + b.y * b.mass) / totalMass;
+              let newVx = (a.vx * a.mass + b.vx * b.mass) / totalMass;
+              let newVy = (a.vy * a.mass + b.vy * b.mass) / totalMass;
+              a.x = newX;
+              a.y = newY;
+              a.vx = newVx;
+              a.vy = newVy;
+              a.mass = totalMass;
+              a.radius = planetesimalRadius(totalMass);
+              a.colorPhase = (a.colorPhase * a.mass + b.colorPhase * b.mass) / totalMass;
+              bodies.splice(j, 1);
+              j--;
+              state.coreGlow = 1;
+            }
+          }
+        }
+        for (let i = bodies.length - 1; i >= 0; i--) {
+          let body = bodies[i];
+          let dist = Math.sqrt(body.x * body.x + body.y * body.y);
+          if (dist < core.radius * 0.6) {
+            core.mass += body.mass;
+            core.radius = planetRadius(core.mass);
+            state.moons = state.moons || [];
+            state.moons.push(createPlanetMoon(core.radius, body.mass));
+            state.coreGlow = 1;
+            bodies.splice(i, 1);
+          }
+        }
+        while (state.moons && state.moons.length > 7) {
+          state.moons.shift();
+        }
+      }
+
+      function createPlanetMoon(radius, mass) {
+        return {
+          angle: random(TAU),
+          radius: radius * 0.9 + random(0.24, 0.42),
+          speed: random(0.4, 0.9),
+          wobble: random(TAU),
+          size: 0.05 + mass * 0.02
+        };
+      }
+
+      function updatePlanetMoons(state, dt) {
+        if (!state.moons) return;
+        for (let moon of state.moons) {
+          moon.angle += dt * moon.speed;
+          moon.wobble += dt * 2;
+        }
+      }
+
+      function planetRadius(mass) {
+        return 0.18 + Math.sqrt(Math.max(0, mass)) * 0.025;
+      }
+
+      function planetesimalRadius(mass) {
+        return 0.05 + Math.pow(Math.max(0.2, mass), 0.58) * 0.04;
       }
 
       function updateForgeState(dt) {
@@ -860,15 +1378,33 @@
       function updateGalaxyState(dt) {
         let state = moduleStates.galaxy;
         if (!state) return;
-        state.angle += dt * 0.6;
-        if (!state.pixels || state.pixels.length === 0) {
-          state.pixels = [];
-          for (let i = 0; i < 24; i++) {
-            state.pixels.push({
-              radius: random(0.12, 0.48),
-              size: random(0.02, 0.06),
-              offset: random(TAU)
-            });
+        initializeGalaxyField(state);
+        state.angle = (state.angle || 0) + dt * 0.4;
+        for (let vortex of state.vortices) {
+          vortex.angle += dt * vortex.speed;
+        }
+        for (let particle of state.particles) {
+          let vortex = state.vortices[particle.band % state.vortices.length];
+          let targetAngle = vortex.angle + particle.armOffset;
+          let angleDiff = angleWrap(targetAngle - particle.angle);
+          particle.angularVel += angleDiff * dt * 0.45;
+          particle.angularVel += (0.35 + particle.band * 0.12) / (particle.radius + 0.18) * dt;
+          particle.angularVel *= 0.99;
+          let targetRadius = vortex.radius + particle.band * 0.05;
+          particle.radialVel += (targetRadius - particle.radius) * dt * 0.6;
+          particle.radialVel -= particle.radius * 0.08 * dt;
+          particle.radialVel *= 0.992;
+          particle.radius += particle.radialVel * dt;
+          particle.radius = constrain(particle.radius, 0.05, 0.7);
+          particle.angle += (particle.angularVel + state.angle * 0.22) * dt;
+          particle.twinkle += dt * (0.8 + particle.band * 0.2);
+        }
+        for (let i = state.bursts.length - 1; i >= 0; i--) {
+          let burst = state.bursts[i];
+          burst.life -= dt * 0.9;
+          burst.radius += dt * 0.05;
+          if (burst.life <= 0) {
+            state.bursts.splice(i, 1);
           }
         }
         craftNextTier(
@@ -877,8 +1413,54 @@
           6,
           0.18 + (researchState.lens || 0) * 0.03 + upgradesState.lanterns * 0.02,
           dt,
-          15
+          15,
+          () => spawnGalaxyBurst(state)
         );
+      }
+
+      function initializeGalaxyField(state) {
+        if (state.initialized) return;
+        state.initialized = true;
+        state.particles = [];
+        state.vortices = [
+          { radius: 0.22, angle: 0, speed: 0.26 },
+          { radius: 0.36, angle: TAU / 3, speed: 0.2 },
+          { radius: 0.5, angle: (2 * TAU) / 3, speed: 0.16 }
+        ];
+        state.bursts = [];
+        for (let band = 0; band < 3; band++) {
+          for (let i = 0; i < 30; i++) {
+            state.particles.push({
+              radius: random(0.12 + band * 0.12, 0.52 + band * 0.08),
+              angle: random(TAU),
+              radialVel: 0,
+              angularVel: random(0.3, 0.7),
+              band,
+              armOffset: random(-0.4, 0.4),
+              twinkle: random(TAU)
+            });
+          }
+        }
+      }
+
+      function spawnGalaxyBurst(state) {
+        if (!state.bursts) {
+          state.bursts = [];
+        }
+        state.bursts.push({
+          radius: random(0.1, 0.4),
+          angle: random(TAU),
+          life: 1
+        });
+        while (state.bursts.length > 6) {
+          state.bursts.shift();
+        }
+      }
+
+      function angleWrap(value) {
+        while (value > Math.PI) value -= TAU;
+        while (value < -Math.PI) value += TAU;
+        return value;
       }
 
       function updateUniverseState(dt) {
@@ -943,58 +1525,152 @@
         let state = moduleStates.conveyor;
         push();
         translate(center.x, center.y);
-        fill('#0b182c');
-        rect(0, panelH * 0.12, panelW * 0.86, panelH * 0.22, 8);
-        fill('#162a4a');
-        rect(0, panelH * 0.1, panelW * 0.8, panelH * 0.16, 6);
-        let wheelRadius = Math.max(10, panelH * 0.1);
-        fill('#243453');
-        circle(-panelW * 0.36, panelH * 0.2, wheelRadius);
-        circle(panelW * 0.36, panelH * 0.2, wheelRadius);
-        if (state) {
-          let start = -panelW * 0.38;
-          let end = panelW * 0.38;
-          for (let grain of state.grains) {
-            let x = lerp(start, end, constrain(grain.progress, 0, 1));
-            let y = -panelH * 0.05 + grain.offset * panelH * 0.06;
-            let size = Math.max(6, panelW * grain.size * 0.25);
-            fill('#e7c97a');
-            rect(x, y, size, size, 3);
-            fill('#bfa568');
-            rect(x - size * 0.28, y - size * 0.24, size * 0.6, size * 0.4, 2);
+        rectMode(CENTER);
+        fill('#051225');
+        rect(0, 0, panelW * 0.92, panelH * 0.72, 14);
+        if (state && state.geometry) {
+          let scaleX = panelW * 0.45;
+          let scaleY = panelH * 0.38;
+          let px = (x) => x * scaleX;
+          let py = (y) => y * scaleY;
+          let moldHeight = Math.max(
+            scaledY(18),
+            (state.geometry.moldSettle - state.geometry.moldTop) * scaleY
+          );
+          fill('#0a1a31');
+          rect(0, py((state.geometry.moldSettle + state.geometry.moldTop) / 2), panelW * 0.72, moldHeight, 12);
+          fill('#112845');
+          rect(0, py(state.geometry.releaseY) - scaledY(3), panelW * 0.76, scaledY(14), 8);
+          fill('#061123');
+          rect(0, py(state.geometry.moldSettle) + scaledY(12), panelW * 0.76, scaledY(24), 12);
+          for (let hole of state.geometry.holes) {
+            let hx = px(hole);
+            push();
+            translate(hx, py(state.geometry.releaseY));
+            fill('#030914');
+            rect(0, 0, panelW * 0.14, scaledY(20), 6);
+            fill('#173155');
+            rect(0, 0, panelW * 0.08, scaledY(20), 4);
+            pop();
           }
-          let housingW = panelW * 0.24;
-          let housingH = panelH * 0.34;
+          let thickness = panelH * 0.11;
+          for (let i = 0; i < state.geometry.beltSegments.length; i++) {
+            let segment = state.geometry.beltSegments[i];
+            let fromPix = createVector(px(segment.from.x), py(segment.from.y));
+            let toPix = createVector(px(segment.to.x), py(segment.to.y));
+            let centerPix = p5.Vector.add(fromPix, toPix).mult(0.5);
+            let delta = p5.Vector.sub(toPix, fromPix);
+            let angle = Math.atan2(delta.y, delta.x);
+            let length = Math.max(8, delta.mag());
+            let baseColor = segment.type === 'drop' ? '#0d1a2c' : '#13233d';
+            let highlight = i === state.geometry.beltSegments.length - 1 ? state.deliveryPulse || 0 : 0;
+            push();
+            translate(centerPix.x, centerPix.y);
+            rotate(angle);
+            noStroke();
+            fill(baseColor);
+            rect(0, 0, length + thickness * 0.4, thickness, thickness * 0.4);
+            let overlayColor = segment.type === 'drop' ? '#1f2a40' : '#1d3f67';
+            fill(withAlpha(overlayColor, segment.type === 'drop' ? 180 : 210));
+            rect(0, 0, length + thickness * 0.16, thickness * 0.56, thickness * 0.3);
+            if (highlight > 0.01) {
+              fill(withAlpha('#38bdf8', 120 + highlight * 120));
+              rect(0, 0, length + thickness * 0.12, thickness * 0.46, thickness * 0.25);
+            }
+            if (segment.type === 'drop') {
+              fill(withAlpha('#0b1220', 200));
+              rect(0, 0, thickness * 0.38, length + thickness * 0.16, thickness * 0.2);
+              fill(withAlpha('#22d3ee', 90));
+              rect(0, 0, thickness * 0.16, length + thickness * 0.16, thickness * 0.12);
+            }
+            pop();
+          }
+          if (state.fallers) {
+            for (let faller of state.fallers) {
+              let fx = px(faller.x);
+              let fy = py(faller.y);
+              let size = Math.max(4, panelW * faller.size * 0.22);
+              push();
+              translate(fx, fy);
+              rotate(Math.sin((faller.jitter || 0) + frameCount / 10) * 0.05);
+              fill('#f8e3a2');
+              rect(0, 0, size, size * 0.84, 4);
+              fill('#d9c079');
+              rect(0, -size * 0.18, size * 0.62, size * 0.36, 3);
+              pop();
+            }
+          }
+          if (state.modules) {
+            for (let module of state.modules) {
+              let mx = px(module.x || 0);
+              let my = py(module.y || 0);
+              let size = Math.max(6, panelW * 0.08 * (module.size || 1));
+              push();
+              translate(mx, my);
+              rotate(Math.sin(module.wobble || 0) * 0.08);
+              fill('#f2d28b');
+              rect(0, 0, size, size * 0.72, 4);
+              fill('#c09257');
+              rect(0, -size * 0.18, size * 0.66, size * 0.32, 3);
+              fill('#fde68a');
+              rect(0, size * 0.1, size * 0.54, size * 0.16, 3);
+              pop();
+            }
+          }
+        }
+        if (state) {
+          let housingW = panelW * 0.26;
+          let housingH = panelH * 0.36;
           push();
-          translate(panelW * 0.34, -panelH * 0.02);
-          fill('#0f1a2c');
-          rect(0, 0, housingW, housingH, 10);
-          fill('#1e2b44');
-          rect(0, -housingH * 0.08, housingW * 0.78, housingH * 0.56, 8);
-          let pulse = 1 + (state.packagePulse || 0) * 0.25;
+          translate(panelW * 0.28, panelH * 0.18);
+          fill('#0c182a');
+          rect(0, 0, housingW, housingH, 12);
+          fill('#1c2e49');
+          rect(0, -housingH * 0.04, housingW * 0.78, housingH * 0.54, 10);
+          let pulse = 1 + (state.packagePulse || 0) * 0.3;
           push();
-          translate(0, -housingH * 0.1);
-          rotate(frameCount / 18);
+          translate(0, -housingH * 0.14);
+          rotate(frameCount / 20);
           fill('#facc15');
-          rect(0, 0, housingW * 0.26 * pulse, housingW * 0.26 * pulse, 6);
+          rect(0, 0, housingW * 0.24 * pulse, housingW * 0.24 * pulse, 6);
           pop();
           push();
-          translate(0, -housingH * 0.1);
-          rotate(-frameCount / 24);
+          translate(0, -housingH * 0.14);
+          rotate(-frameCount / 26);
           stroke('#fde68a');
           strokeWeight(2);
           noFill();
-          rect(0, 0, housingW * 0.4, housingW * 0.4, 9);
+          rect(0, 0, housingW * 0.38, housingW * 0.38, 9);
           pop();
           noStroke();
           fill('#f59e0b');
           let gaugeHeight = housingH * 0.58 * constrain(state.packageProgress || 0, 0, 1);
-          rect(-housingW * 0.34, housingH * 0.12 - gaugeHeight / 2, housingW * 0.16, gaugeHeight, 4);
+          rect(-housingW * 0.34, housingH * 0.1 - gaugeHeight / 2, housingW * 0.16, gaugeHeight, 4);
+          pop();
+          push();
+          translate(-panelW * 0.42, panelH * 0.2);
+          fill('#1f2937');
+          rect(0, panelH * 0.18, panelW * 0.2, panelH * 0.1, 8);
+          fill('#0f172a');
+          rect(0, panelH * 0.04, panelW * 0.18, panelH * 0.32, 10);
+          fill('#22d3ee');
+          rect(0, -panelH * 0.02, panelW * 0.12, panelH * 0.24, 8);
+          fill('#f8fafc');
+          rect(0, -panelH * 0.18, panelW * 0.08, panelH * 0.14, 6);
+          fill('#f87171');
+          triangle(
+            -panelW * 0.04,
+            -panelH * 0.1,
+            panelW * 0.04,
+            -panelH * 0.1,
+            0,
+            panelH * 0.04
+          );
           pop();
           let packagesVisible = Math.min(4, Math.floor(powderCounts[1] || 0));
           for (let i = 0; i < packagesVisible; i++) {
-            let stackX = panelW * 0.48;
-            let stackY = panelH * 0.16 - i * panelH * 0.08;
+            let stackX = -panelW * 0.4;
+            let stackY = panelH * 0.12 - i * panelH * 0.08;
             fill('#f2b066');
             rect(stackX, stackY, panelW * 0.16, panelH * 0.08, 4);
             fill('#c08457');
@@ -1067,28 +1743,61 @@
         if (!state) return;
         push();
         translate(center.x, center.y);
+        rectMode(CENTER);
         fill('#0d1527');
-        rect(0, 0, panelW * 0.86, panelH * 0.68, 12);
-        stroke('#1e293b');
-        strokeWeight(2);
+        rect(0, 0, panelW * 0.88, panelH * 0.7, 12);
+        let scaleX = panelW * 0.36;
+        let scaleY = panelH * 0.3;
+        let ring = state.ring || 0;
+        let pulse = 1 + Math.sin(ring * 1.8) * 0.05 + (state.ringPulse || 0) * 0.12;
         noFill();
-        ellipse(0, 0, panelW * 0.62, panelH * 0.44);
-        ellipse(0, 0, panelW * 0.44, panelH * 0.3);
+        stroke(withAlpha('#1e293b', 200));
+        strokeWeight(2);
+        ellipse(0, 0, panelW * 0.7, panelH * 0.48);
+        stroke(withAlpha('#0f1a2c', 220));
+        ellipse(0, 0, panelW * 0.54, panelH * 0.36);
+        stroke(withAlpha('#38bdf8', 140 + (state.ringPulse || 0) * 80));
+        ellipse(0, 0, panelW * 0.42 * pulse, panelH * 0.3 * pulse);
         noStroke();
-        fill('#1f2937');
-        rect(0, 0, panelW * 0.32, panelW * 0.32, 10);
-        fill('#94a3b8');
-        rect(0, 0, panelW * 0.16, panelW * 0.16, 6);
-        let baseAngle = state.ring || 0;
-        for (let fragment of state.fragments || []) {
-          let angle = baseAngle + fragment.angle;
-          let radiusX = panelW * fragment.radius;
-          let radiusY = panelH * fragment.radius * 0.6;
-          let x = Math.cos(angle) * radiusX;
-          let y = Math.sin(angle) * radiusY;
-          let size = Math.max(4, panelW * 0.08 * fragment.life);
-          fill(withAlpha('#e2e8f0', fragment.life * 220));
-          rect(x, y, size, size * 0.8, 4);
+        fill(withAlpha('#0b1220', 220));
+        rect(0, 0, panelW * 0.28, panelW * 0.28, 12);
+        fill(withAlpha('#1e3a8a', 200));
+        rect(0, 0, panelW * 0.12, panelW * 0.12, 8);
+        if (state.powderBits) {
+          for (let bit of state.powderBits) {
+            let x = bit.x * scaleX;
+            let y = bit.y * scaleY;
+            let size = Math.max(3, bit.size * panelW * 0.22);
+            let alpha = 160 + Math.sin((bit.life || 1) * TAU + frameCount / 6) * 40;
+            fill(withAlpha('#cbd5f5', alpha));
+            rect(x, y, size, size * 0.7, 3);
+          }
+        }
+        if (state.asteroids) {
+          for (let asteroid of state.asteroids) {
+            let x = asteroid.x * scaleX;
+            let y = asteroid.y * scaleY;
+            let size = Math.max(8, asteroid.radius * panelW * 0.5);
+            if (asteroid.mergeGlow > 0) {
+              fill(withAlpha('#38bdf8', asteroid.mergeGlow * 120));
+              ellipse(x, y, size * 1.5, size * 1.3);
+            }
+            let hueT = constrain((asteroid.hue - 0.1) / 0.4, 0, 1);
+            let bodyColor = lerpColor(color('#475569'), color('#e2e8f0'), hueT);
+            fill(bodyColor);
+            ellipse(x, y, size, size * 0.78);
+            fill(withAlpha('#020617', 140));
+            ellipse(x + size * 0.16, y - size * 0.12, size * 0.46, size * 0.38);
+            fill(withAlpha('#94a3b8', 200));
+            ellipse(x - size * 0.12, y + size * 0.08, size * 0.24, size * 0.2);
+          }
+        }
+        if (state.coreMass && state.coreMass > 7) {
+          let coreSize = panelW * (0.12 + Math.sqrt(state.coreMass - 6) * 0.02);
+          fill(withAlpha('#1d4ed8', 200));
+          ellipse(0, 0, coreSize, coreSize * 0.78);
+          fill(withAlpha('#60a5fa', 180));
+          ellipse(0, 0, coreSize * 0.6, coreSize * 0.55);
         }
         drawModuleProgressBar(0, panelH * 0.3, panelW * 0.6, state.progress || 0, '#94a3b8');
         pop();
@@ -1100,32 +1809,67 @@
         if (!state) return;
         push();
         translate(center.x, center.y);
+        rectMode(CENTER);
         fill('#0c1729');
-        rect(0, 0, panelW * 0.88, panelH * 0.68, 12);
+        rect(0, 0, panelW * 0.9, panelH * 0.7, 12);
+        let scaleX = panelW * 0.38;
+        let scaleY = panelH * 0.32;
         let spin = state.spin || 0;
-        let planetSize = panelW * 0.28;
-        noStroke();
-        fill('#102a44');
-        rect(0, 0, planetSize * 1.6, planetSize, planetSize * 0.6);
-        push();
-        rotate(spin);
-        fill('#38bdf8');
-        rect(0, 0, planetSize * 1.2, planetSize * 1.2, planetSize * 0.6);
-        pop();
-        stroke('#22d3ee');
+        stroke(withAlpha('#12304c', 220));
         strokeWeight(2);
         noFill();
-        ellipse(0, 0, planetSize * 2.6, planetSize * 1.8);
+        ellipse(0, 0, panelW * 0.78, panelH * 0.52);
+        stroke(withAlpha('#1f6feb', 120));
+        ellipse(0, 0, panelW * 0.58, panelH * 0.4);
         noStroke();
-        for (let orbiter of state.orbiters || []) {
-          let angle = orbiter.angle || 0;
-          let radiusX = panelW * orbiter.radius;
-          let radiusY = panelH * orbiter.radius * 0.6;
-          let x = Math.cos(angle) * radiusX;
-          let y = Math.sin(angle) * radiusY;
-          let size = Math.max(4, panelW * 0.08 * orbiter.life);
-          fill(withAlpha('#f8fafc', orbiter.life * 220));
-          rect(x, y, size, size, 4);
+        if (state.planetesimals) {
+          for (let body of state.planetesimals) {
+            let x = body.x * scaleX;
+            let y = body.y * scaleY;
+            let size = Math.max(4, body.radius * panelW * 0.42);
+            let twinkle = (Math.sin(body.phase || 0) + 1) / 2;
+            let colorA = lerpColor(color('#22d3ee'), color('#bae6fd'), twinkle);
+            fill(colorA);
+            ellipse(x, y, size, size * 0.9);
+            fill(withAlpha('#0f172a', 160));
+            ellipse(x + size * 0.18, y - size * 0.18, size * 0.45, size * 0.4);
+          }
+        }
+        let core = state.planetCore || { mass: 6, radius: planetRadius(6), angle: 0 };
+        let planetSize = core.radius * panelW * 0.9;
+        let glow = 1 + (state.coreGlow || 0) * 0.3;
+        push();
+        rotate(spin * 0.4);
+        fill(withAlpha('#1d4ed8', 200));
+        ellipse(0, 0, planetSize * glow, planetSize * 0.82 * glow);
+        fill(withAlpha('#60a5fa', 200));
+        ellipse(0, 0, planetSize * 0.72 * glow, planetSize * 0.64 * glow);
+        fill(withAlpha('#f8fafc', 160));
+        ellipse(-planetSize * 0.12, -planetSize * 0.06, planetSize * 0.32, planetSize * 0.28);
+        pop();
+        if (state.moons) {
+          stroke(withAlpha('#334155', 180));
+          strokeWeight(1.5);
+          noFill();
+          for (let moon of state.moons) {
+            let orbitW = moon.radius * scaleX * 2;
+            let orbitH = moon.radius * scaleY * 2;
+            ellipse(0, 0, orbitW, orbitH);
+          }
+          noStroke();
+          for (let moon of state.moons) {
+            let x = Math.cos(moon.angle) * moon.radius * scaleX;
+            let y = Math.sin(moon.angle) * moon.radius * scaleY;
+            let size = Math.max(4, moon.size * panelW * 0.28);
+            push();
+            translate(x, y);
+            rotate(Math.sin(moon.wobble) * 0.15);
+            fill('#e2e8f0');
+            ellipse(0, 0, size, size * 0.82);
+            fill(withAlpha('#94a3b8', 180));
+            ellipse(size * 0.14, -size * 0.12, size * 0.4, size * 0.34);
+            pop();
+          }
         }
         drawModuleProgressBar(0, panelH * 0.32, panelW * 0.6, state.progress || 0, '#38bdf8');
         pop();
@@ -1163,24 +1907,56 @@
         if (!state) return;
         push();
         translate(center.x, center.y);
+        rectMode(CENTER);
         fill('#0f172a');
-        rect(0, 0, panelW * 0.88, panelH * 0.7, 12);
-        if (!state.pixels) {
-          state.pixels = [];
+        rect(0, 0, panelW * 0.92, panelH * 0.72, 14);
+        let scaleX = panelW * 0.42;
+        let scaleY = panelH * 0.34;
+        let baseColors = [color('#38bdf8'), color('#c084fc'), color('#f472b6')];
+        if (state.bursts) {
+          for (let burst of state.bursts) {
+            let angle = burst.angle + state.angle * 0.6;
+            let radius = burst.radius;
+            let x = Math.cos(angle) * radius * scaleX;
+            let y = Math.sin(angle) * radius * scaleY;
+            let glowSize = panelW * 0.24 * burst.life;
+            fill(withAlpha('#f0abfc', burst.life * 160));
+            ellipse(x, y, glowSize, glowSize * 0.7);
+            fill(withAlpha('#bae6fd', burst.life * 140));
+            ellipse(x, y, glowSize * 0.5, glowSize * 0.4);
+          }
         }
-        for (let pix of state.pixels) {
-          let angle = state.angle + pix.offset;
-          let radiusX = panelW * pix.radius;
-          let radiusY = panelH * pix.radius * 0.6;
-          let x = Math.cos(angle) * radiusX;
-          let y = Math.sin(angle) * radiusY;
-          let size = Math.max(4, panelW * pix.size * 0.5);
-          let alpha = 160 + Math.sin(angle * 2) * 50;
-          fill(withAlpha('#c084fc', alpha));
-          rect(x, y, size, size, 3);
+        if (state.particles) {
+          for (let particle of state.particles) {
+            let angle = particle.angle + state.angle * 0.25;
+            let radius = particle.radius;
+            let x = Math.cos(angle) * radius * scaleX;
+            let y = Math.sin(angle) * radius * scaleY;
+            let twinkle = (Math.sin(particle.twinkle) + 1) / 2;
+            let base = baseColors[particle.band % baseColors.length];
+            let shade = lerpColor(base, color('#f8fafc'), twinkle * 0.6 + 0.2);
+            let size = panelW * (0.02 + particle.band * 0.008);
+            fill(shade);
+            ellipse(x, y, size, size * 0.86);
+            fill(withAlpha('#0b1120', 120));
+            ellipse(x + size * 0.16, y - size * 0.16, size * 0.45, size * 0.4);
+          }
+        }
+        if (state.vortices) {
+          for (let vortex of state.vortices) {
+            let angle = vortex.angle + state.angle * 0.5;
+            let x = Math.cos(angle) * vortex.radius * scaleX;
+            let y = Math.sin(angle) * vortex.radius * scaleY;
+            fill('#fdf2f8');
+            ellipse(x, y, panelW * 0.05, panelW * 0.05);
+            fill('#fb7185');
+            ellipse(x, y, panelW * 0.028, panelW * 0.028);
+          }
         }
         fill('#f8fafc');
-        rect(0, 0, panelW * 0.12, panelW * 0.12, 4);
+        ellipse(0, 0, panelW * 0.16, panelW * 0.16);
+        fill('#c084fc');
+        ellipse(0, 0, panelW * 0.08, panelW * 0.08);
         drawModuleProgressBar(0, panelH * 0.32, panelW * 0.6, state.progress, '#38bdf8');
         pop();
       }
