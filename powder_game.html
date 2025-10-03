@@ -17,23 +17,70 @@
       const MENU_H = SCREEN_H / 3;
       const POWDER_AREA_H = SCREEN_H - MENU_H;
       const POWDER_SIZE = 6;
+      const BASE_FALL_SPEED = 2;
+      const BASE_DROPPER_INTERVAL = 2000; // ms
 
       // Powder tiers
       const powderTypes = [
-        { name: "Sand", color: "#e7c97a" },
-        { name: "Stone", color: "#888888" },
-        { name: "Diamond", color: "#3de6e1" }
+        { name: "Sand", color: "#e7c97a", dustValue: 1 },
+        { name: "Stone", color: "#888888", dustValue: 6 },
+        { name: "Diamond", color: "#3de6e1", dustValue: 30 },
+        { name: "Void Crystal", color: "#c084fc", dustValue: 120 }
+      ];
+
+      const tierUnlockCosts = [10, 25, 80];
+      const compressionRecipes = [
+        { from: 0, to: 1, baseCost: 15, output: 1 },
+        { from: 1, to: 2, baseCost: 10, output: 1 },
+        { from: 2, to: 3, baseCost: 6, output: 1 }
+      ];
+
+      const upgradeConfigs = [
+        {
+          key: "gravity",
+          name: "Gravity Well",
+          description: "Powders fall 20% faster per level.",
+          baseCost: 50,
+          costMult: 2
+        },
+        {
+          key: "refinery",
+          name: "Refinery Vats",
+          description: "Dust yield +35% per level.",
+          baseCost: 80,
+          costMult: 2.2
+        },
+        {
+          key: "compressor",
+          name: "Powder Compressor",
+          description: "Unlocks compression recipes and improves efficiency.",
+          baseCost: 120,
+          costMult: 2.6
+        }
       ];
 
       let powders = []; // {x, y, type}
-      let powderCounts = [0, 0, 0];
+      let powderCounts = new Array(powderTypes.length).fill(0);
       let selectedPowder = 0;
-      let upgrades = [false, false]; // unlock higher tiers
+      let tierUpgrades = new Array(powderTypes.length - 1).fill(false);
+      let autoDroppers = new Array(powderTypes.length).fill(0);
+      let dropperTimers = new Array(powderTypes.length).fill(0);
+      let dust = 0;
+      let totalDustEarned = 0;
+      let crystalCores = 0;
+      let totalPowderCollected = 0;
+      let upgradesState = {
+        gravity: 0,
+        refinery: 0,
+        compressor: 0
+      };
+      let buttons = [];
 
       function setup() {
         createCanvas(SCREEN_W, SCREEN_H);
         rectMode(CENTER);
         textAlign(CENTER, CENTER);
+        frameRate(60);
       }
 
       function draw() {
@@ -43,129 +90,339 @@
         fill(0);
         rect(SCREEN_W / 2, POWDER_AREA_H / 2, SCREEN_W, POWDER_AREA_H);
 
-        // Draw powders
+        updateAutoDroppers();
+        updatePowders();
+        renderPowders();
+        drawMenu();
+      }
+
+      function updatePowders() {
+        let fallSpeed = BASE_FALL_SPEED * getGravityMultiplier() * (deltaTime / 16.67);
+        for (let i = powders.length - 1; i >= 0; i--) {
+          let p = powders[i];
+          if (p.y + POWDER_SIZE / 2 < POWDER_AREA_H) {
+            p.y += fallSpeed;
+            if (p.y + POWDER_SIZE / 2 > POWDER_AREA_H) {
+              p.y = POWDER_AREA_H - POWDER_SIZE / 2;
+            }
+          }
+          if (p.y + POWDER_SIZE / 2 >= POWDER_AREA_H) {
+            settlePowder(i);
+          }
+        }
+      }
+
+      function renderPowders() {
         for (let p of powders) {
           fill(powderTypes[p.type].color);
           rect(p.x, p.y, POWDER_SIZE, POWDER_SIZE, 2);
         }
+      }
 
-        // Powder physics
-        for (let p of powders) {
-          if (p.y + POWDER_SIZE / 2 < POWDER_AREA_H) {
-            p.y += 2;
+      function settlePowder(index) {
+        let powder = powders[index];
+        powders.splice(index, 1);
+        powderCounts[powder.type]++;
+        totalPowderCollected++;
+        let dustGain = Math.round(
+          powderTypes[powder.type].dustValue * getDustMultiplier()
+        );
+        dust += dustGain;
+        totalDustEarned += dustGain;
+      }
+
+      function getGravityMultiplier() {
+        return 1 + upgradesState.gravity * 0.2 + crystalCores * 0.1;
+      }
+
+      function getDustMultiplier() {
+        return 1 + upgradesState.refinery * 0.35 + crystalCores * 0.25;
+      }
+
+      function getCompressorEfficiency() {
+        return upgradesState.compressor <= 0
+          ? 0
+          : 1 + upgradesState.compressor * 0.35;
+      }
+
+      function updateAutoDroppers() {
+        for (let i = 0; i < autoDroppers.length; i++) {
+          if (autoDroppers[i] <= 0) continue;
+          if (!(i === 0 || tierUpgrades[i - 1])) continue;
+          let baseInterval = BASE_DROPPER_INTERVAL / (1 + (autoDroppers[i] - 1) * 0.4);
+          baseInterval /= 1 + upgradesState.gravity * 0.15 + crystalCores * 0.1;
+          dropperTimers[i] -= deltaTime;
+          if (dropperTimers[i] <= 0) {
+            for (let d = 0; d < autoDroppers[i]; d++) {
+              dropPowder(i);
+            }
+            dropperTimers[i] += Math.max(400, baseInterval);
           }
         }
-
-        // Draw menu
-        drawMenu();
-
-        // Draw counters
-        drawPowderCounters();
-
-        // Check for combining
-        checkCombine();
       }
 
       function drawMenu() {
         fill(38, 50, 56);
         rect(SCREEN_W / 2, POWDER_AREA_H + MENU_H / 2, SCREEN_W, MENU_H);
 
-        // Powder select buttons
-        let btnW = 80, btnH = 40;
-        for (let i = 0; i < powderTypes.length; i++) {
-          // Only show tiers that are unlocked
-          if (i === 0 || upgrades[i - 1]) {
-            let bx = 60 + i * (btnW + 20);
-            let by = POWDER_AREA_H + 50;
-            fill(i === selectedPowder ? '#fff' : powderTypes[i].color);
-            rect(bx, by, btnW, btnH, 10);
-            fill(i === selectedPowder ? powderTypes[i].color : '#222');
-            text(powderTypes[i].name, bx, by);
-          }
-        }
+        buttons = [];
 
-        // Upgrade buttons
-        let upgY = POWDER_AREA_H + 120;
-        for (let i = 1; i < powderTypes.length; i++) {
-          let canUpgrade = powderCounts[i - 1] >= 10 && !upgrades[i - 1];
-          fill(canUpgrade ? '#4caf50' : '#888');
-          rect(60 + (i - 1) * (btnW + 20), upgY, btnW, btnH, 10);
-          fill('#fff');
-          text(
-            "Upgrade: " + powderTypes[i - 1].name + " → " + powderTypes[i].name,
-            60 + (i - 1) * (btnW + 20), upgY
-          );
-        }
-
-        // Drop button
-        fill('#1976d2');
-        rect(SCREEN_W - 60, POWDER_AREA_H + MENU_H - 50, btnW, btnH, 10);
         fill('#fff');
-        text("Drop", SCREEN_W - 60, POWDER_AREA_H + MENU_H - 50);
+        textSize(14);
+        text(
+          `Dust: ${Math.floor(dust)} | Crystal Cores: ${crystalCores} | Total Powder: ${totalPowderCollected}`,
+          SCREEN_W / 2,
+          POWDER_AREA_H + 22
+        );
+
+        drawPowderCounters();
+
+        let rowY = POWDER_AREA_H + 68;
+        rowY = drawPowderSelectRow(rowY);
+        rowY = drawTierUpgradeRow(rowY);
+        rowY = drawAutoDropperRow(rowY);
+        rowY = drawUpgradeRows(rowY);
+        rowY = drawCompressionRow(rowY);
+        drawPrestigeRow(rowY + 6);
+        drawDropButton();
       }
 
       function drawPowderCounters() {
-        let y = POWDER_AREA_H + MENU_H / 2;
-        fill('#fff');
-        textSize(16);
-        for (let i = 0; i < powderTypes.length; i++) {
-          if (i === 0 || upgrades[i - 1]) {
+        fill('#cfd8dc');
+        textSize(12);
+        let unlocked = getUnlockedIndices();
+        let pieces = unlocked.map(
+          (i) => `${powderTypes[i].name}: ${powderCounts[i]}`
+        );
+        text(pieces.join(' | '), SCREEN_W / 2, POWDER_AREA_H + 44);
+      }
+
+      function drawPowderSelectRow(y) {
+        let indices = getUnlockedIndices();
+        if (indices.length === 0) return y;
+        let btnW = 90;
+        let btnH = 32;
+        let xs = getRowPositions(indices.length);
+        textSize(13);
+        for (let idx = 0; idx < indices.length; idx++) {
+          let i = indices[idx];
+          let x = xs[idx];
+          fill(i === selectedPowder ? '#ffffff' : powderTypes[i].color);
+          rect(x, y, btnW, btnH, 10);
+          fill(i === selectedPowder ? powderTypes[i].color : '#222');
+          text(powderTypes[i].name, x, y);
+          buttons.push({ action: 'selectPowder', index: i, x, y, w: btnW, h: btnH });
+        }
+        textSize(14);
+        return y + 34;
+      }
+
+      function drawTierUpgradeRow(y) {
+        let btnW = 110;
+        let btnH = 30;
+        let xs = getRowPositions(tierUnlockCosts.length);
+        textSize(11);
+        for (let i = 0; i < tierUnlockCosts.length; i++) {
+          let x = xs[i];
+          let cost = tierUnlockCosts[i];
+          let canUpgrade = powderCounts[i] >= cost && !tierUpgrades[i];
+          fill(canUpgrade ? '#4caf50' : '#546e7a');
+          rect(x, y, btnW, btnH, 8);
+          fill('#fff');
+          text(
+            tierUpgrades[i]
+              ? `${powderTypes[i + 1].name} unlocked`
+              : `Unlock ${powderTypes[i + 1].name} (-${cost})`,
+            x,
+            y
+          );
+          buttons.push({ action: 'tierUpgrade', index: i, x, y, w: btnW, h: btnH });
+        }
+        textSize(14);
+        return y + 34;
+      }
+
+      function drawAutoDropperRow(y) {
+        let indices = getUnlockedIndices();
+        if (indices.length === 0) return y;
+        let btnW = 130;
+        let btnH = 30;
+        let xs = getRowPositions(indices.length);
+        textSize(11);
+        for (let idx = 0; idx < indices.length; idx++) {
+          let i = indices[idx];
+          let x = xs[idx];
+          let cost = getDropperCost(i);
+          let canBuy = dust >= cost;
+          fill(canBuy ? '#009688' : '#455a64');
+          rect(x, y, btnW, btnH, 8);
+          fill('#fff');
+          text(
+            `Auto ${powderTypes[i].name}: ${autoDroppers[i]} (\u2212${cost})`,
+            x,
+            y
+          );
+          buttons.push({ action: 'buyDropper', index: i, x, y, w: btnW, h: btnH });
+        }
+        textSize(14);
+        return y + 34;
+      }
+
+      function drawUpgradeRows(y) {
+        let columns = Math.min(3, upgradeConfigs.length);
+        let btnW = 120;
+        let btnH = 34;
+        let rows = Math.ceil(upgradeConfigs.length / columns);
+        textSize(10);
+        for (let r = 0; r < rows; r++) {
+          let start = r * columns;
+          let end = Math.min(start + columns, upgradeConfigs.length);
+          let count = end - start;
+          let xs = getRowPositions(count);
+          for (let c = 0; c < count; c++) {
+            let config = upgradeConfigs[start + c];
+            let level = upgradesState[config.key];
+            let cost = getUpgradeCost(config);
+            let canBuy = dust >= cost;
+            let x = xs[c];
+            let rowY = y + r * 36;
+            fill(canBuy ? '#8e24aa' : '#4a148c');
+            rect(x, rowY, btnW, btnH, 8);
+            fill('#fff');
             text(
-              powderTypes[i].name + ": " + powderCounts[i],
-              70 + i * 110, y
+              `${config.name} Lv.${level} (\u2212${cost})`,
+              x,
+              rowY - 8
             );
+            text(config.description, x, rowY + 6);
+            buttons.push({
+              action: 'buyUpgrade',
+              key: config.key,
+              x,
+              y: rowY,
+              w: btnW,
+              h: btnH
+            });
+          }
+        }
+        textSize(14);
+        return y + rows * 36;
+      }
+
+      function drawCompressionRow(y) {
+        if (upgradesState.compressor <= 0) {
+          textSize(11);
+          fill('#b0bec5');
+          text(
+            'Purchase the Powder Compressor to unlock conversion recipes.',
+            SCREEN_W / 2,
+            y
+          );
+          textSize(14);
+          return y + 34;
+        }
+
+        let availableRecipes = compressionRecipes.filter((recipe) =>
+          recipe.to === 0 ? true : tierUpgrades[recipe.to - 1]
+        );
+        if (availableRecipes.length === 0) {
+          return y;
+        }
+        let btnW = 160;
+        let btnH = 28;
+        let xs = getRowPositions(availableRecipes.length);
+        textSize(11);
+        let efficiency = getCompressorEfficiency();
+        for (let i = 0; i < availableRecipes.length; i++) {
+          let recipe = availableRecipes[i];
+          let cost = Math.max(2, Math.round(recipe.baseCost / efficiency));
+          let x = xs[i];
+          let canConvert = powderCounts[recipe.from] >= cost;
+          fill(canConvert ? '#ff7043' : '#5d4037');
+          rect(x, y, btnW, btnH, 8);
+          fill('#fff');
+          text(
+            `${powderTypes[recipe.from].name} → ${powderTypes[recipe.to].name} (\u2212${cost} +${recipe.output})`,
+            x,
+            y
+          );
+          buttons.push({ action: 'compress', recipe, x, y, w: btnW, h: btnH });
+        }
+        textSize(14);
+        return y + 34;
+      }
+
+      function drawPrestigeRow(y) {
+        let btnW = 220;
+        let btnH = 38;
+        let gain = getPrestigeGain();
+        let canPrestige = gain > 0;
+        fill(canPrestige ? '#ffca28' : '#8d6e63');
+        rect(SCREEN_W / 2, y, btnW, btnH, 10);
+        fill('#222');
+        textSize(12);
+        text(`Crystallize (+${gain} cores)`, SCREEN_W / 2, y - 8);
+        text('Resets for permanent dust & gravity boosts.', SCREEN_W / 2, y + 8);
+        textSize(14);
+        buttons.push({ action: 'prestige', x: SCREEN_W / 2, y, w: btnW, h: btnH });
+      }
+
+      function drawDropButton() {
+        let btnW = 90;
+        let btnH = 34;
+        let dropX = SCREEN_W - 70;
+        let dropY = POWDER_AREA_H + MENU_H - 40;
+        fill('#1976d2');
+        rect(dropX, dropY, btnW, btnH, 10);
+        fill('#fff');
+        text('Drop', dropX, dropY);
+        buttons.push({ action: 'drop', x: dropX, y: dropY, w: btnW, h: btnH });
+      }
+
+      function mousePressed() {
+        for (let btn of buttons) {
+          if (
+            mouseX > btn.x - btn.w / 2 &&
+            mouseX < btn.x + btn.w / 2 &&
+            mouseY > btn.y - btn.h / 2 &&
+            mouseY < btn.y + btn.h / 2
+          ) {
+            handleAction(btn);
+            break;
           }
         }
       }
 
-      function mousePressed() {
-        // Powder select
-        let btnW = 80, btnH = 40;
-        for (let i = 0; i < powderTypes.length; i++) {
-          if (i === 0 || upgrades[i - 1]) {
-            let bx = 60 + i * (btnW + 20);
-            let by = POWDER_AREA_H + 50;
-            if (
-              mouseX > bx - btnW / 2 && mouseX < bx + btnW / 2 &&
-              mouseY > by - btnH / 2 && mouseY < by + btnH / 2
-            ) {
-              selectedPowder = i;
-              return;
-            }
-          }
-        }
-
-        // Upgrade buttons
-        let upgY = POWDER_AREA_H + 120;
-        for (let i = 1; i < powderTypes.length; i++) {
-          let bx = 60 + (i - 1) * (btnW + 20);
-          let canUpgrade = powderCounts[i - 1] >= 10 && !upgrades[i - 1];
-          if (
-            mouseX > bx - btnW / 2 && mouseX < bx + btnW / 2 &&
-            mouseY > upgY - btnH / 2 && mouseY < upgY + btnH / 2
-          ) {
-            if (canUpgrade) {
-              powderCounts[i - 1] -= 10;
-              upgrades[i - 1] = true;
-            }
-            return;
-          }
-        }
-
-        // Drop powder button
-        let bx = SCREEN_W - 60,
-          by = POWDER_AREA_H + MENU_H - 50,
-          dropBtnW = 80,
-          dropBtnH = 40;
-        if (
-          mouseX > bx - dropBtnW / 2 && mouseX < bx + dropBtnW / 2 &&
-          mouseY > by - dropBtnH / 2 && mouseY < by + dropBtnH / 2
-        ) {
-          dropPowder(selectedPowder);
+      function handleAction(btn) {
+        switch (btn.action) {
+          case 'selectPowder':
+            selectedPowder = btn.index;
+            break;
+          case 'tierUpgrade':
+            unlockTier(btn.index);
+            break;
+          case 'drop':
+            dropPowder(selectedPowder);
+            break;
+          case 'buyDropper':
+            buyDropper(btn.index);
+            break;
+          case 'buyUpgrade':
+            buyUpgrade(btn.key);
+            break;
+          case 'compress':
+            compressPowder(btn.recipe);
+            break;
+          case 'prestige':
+            performPrestige();
+            break;
         }
       }
 
       function dropPowder(type) {
+        if (!(type === 0 || tierUpgrades[type - 1])) {
+          return;
+        }
         powders.push({
           x: random(POWDER_SIZE, SCREEN_W - POWDER_SIZE),
           y: POWDER_SIZE,
@@ -173,18 +430,100 @@
         });
       }
 
-      function checkCombine() {
-        // Count powders at rest (bottom of powder area)
-        let combined = false;
-        for (let i = 0; i < powders.length; i++) {
-          let p = powders[i];
-          if (p.y + POWDER_SIZE / 2 >= POWDER_AREA_H) {
-            powderCounts[p.type]++;
-            powders.splice(i, 1);
-            i--;
-            combined = true;
+      function unlockTier(index) {
+        if (tierUpgrades[index]) return;
+        let cost = tierUnlockCosts[index];
+        if (powderCounts[index] >= cost) {
+          powderCounts[index] -= cost;
+          tierUpgrades[index] = true;
+        }
+      }
+
+      function getDropperCost(index) {
+        return Math.floor(40 * (index + 1) * Math.pow(1.7, autoDroppers[index]));
+      }
+
+      function buyDropper(index) {
+        let cost = getDropperCost(index);
+        if (dust >= cost) {
+          dust -= cost;
+          autoDroppers[index]++;
+          dropperTimers[index] = 0;
+        }
+      }
+
+      function getUpgradeCost(config) {
+        let level = upgradesState[config.key];
+        return Math.floor(config.baseCost * Math.pow(config.costMult, level));
+      }
+
+      function buyUpgrade(key) {
+        let config = upgradeConfigs.find((u) => u.key === key);
+        if (!config) return;
+        let cost = getUpgradeCost(config);
+        if (dust >= cost) {
+          dust -= cost;
+          upgradesState[key]++;
+        }
+      }
+
+      function compressPowder(recipe) {
+        if (upgradesState.compressor <= 0) return;
+        if (!(recipe.to === 0 || tierUpgrades[recipe.to - 1])) return;
+        let efficiency = getCompressorEfficiency();
+        if (efficiency <= 0) return;
+        let cost = Math.max(2, Math.round(recipe.baseCost / efficiency));
+        if (powderCounts[recipe.from] >= cost) {
+          powderCounts[recipe.from] -= cost;
+          powderCounts[recipe.to] += recipe.output;
+        }
+      }
+
+      function getPrestigeGain() {
+        return Math.floor(Math.sqrt(totalDustEarned / 200));
+      }
+
+      function performPrestige() {
+        let gain = getPrestigeGain();
+        if (gain <= 0) return;
+        crystalCores += gain;
+        dust = 0;
+        powders = [];
+        powderCounts = new Array(powderTypes.length).fill(0);
+        tierUpgrades = new Array(powderTypes.length - 1).fill(false);
+        autoDroppers = new Array(powderTypes.length).fill(0);
+        dropperTimers = new Array(powderTypes.length).fill(0);
+        upgradesState.gravity = 0;
+        upgradesState.refinery = 0;
+        if (upgradesState.compressor > 0) {
+          upgradesState.compressor = 1; // retain basic access to compression if purchased
+        }
+        selectedPowder = 0;
+      }
+
+      function getUnlockedIndices() {
+        let unlocked = [];
+        for (let i = 0; i < powderTypes.length; i++) {
+          if (i === 0 || tierUpgrades[i - 1]) {
+            unlocked.push(i);
           }
         }
+        return unlocked;
+      }
+
+      function getRowPositions(count) {
+        if (count <= 0) return [];
+        let padding = 40;
+        if (count === 1) {
+          return [SCREEN_W / 2];
+        }
+        let available = SCREEN_W - padding * 2;
+        let step = available / (count - 1);
+        let xs = [];
+        for (let i = 0; i < count; i++) {
+          xs.push(padding + step * i);
+        }
+        return xs;
       }
     </script>
   </body>
