@@ -738,6 +738,11 @@
         if (!menuTabs.some((tab) => tab.key === 'jar')) {
           menuTabs.unshift({ key: 'jar', label: 'Sandfall', machine: 'jar' });
         }
+        if (!menuTabs.some((tab) => tab.key === 'developer')) {
+          let codexIndex = menuTabs.findIndex((tab) => tab.key === 'codex');
+          let insertIndex = codexIndex >= 0 ? codexIndex : menuTabs.length;
+          menuTabs.splice(insertIndex, 0, { key: 'developer', label: 'Developer' });
+        }
 
         let upgradeData = upgradesDataRaw || {};
         upgradeConfigs = upgradeData.upgrades || [];
@@ -3016,25 +3021,18 @@
           let jarHeight;
           if (fullscreenModule === 'jar') {
             jarWidth = Math.round(rect.width * 0.92);
-            jarHeight = Math.round(rect.height * 0.9);
+            jarHeight = Math.round(rect.height * 0.92);
           } else {
-            let targetWidth = PLAY_AREA_W * 0.28;
-            let maxWidth = rect.width * 0.82;
-            jarWidth = Math.max(
-              MAX_POWDER_SIZE + 6,
-              Math.min(targetWidth, maxWidth)
-            );
-            let maxHeight = rect.height * 0.92;
-            let targetHeight = SCREEN_H * 0.5;
-            jarHeight = Math.max(
-              MAX_POWDER_SIZE + 32,
-              Math.min(targetHeight, maxHeight)
-            );
+            let innerSize = Math.min(rect.width, rect.height) * 0.8;
+            let minimumSize = MAX_POWDER_SIZE + scaledX(10);
+            jarWidth = Math.max(minimumSize, Math.round(innerSize));
+            jarHeight = jarWidth;
           }
+          let center = getMachineCenter(rect);
           jarRect.width = Math.round(jarWidth);
           jarRect.height = Math.round(jarHeight);
-          jarRect.left = Math.round(rect.x + (rect.width - jarRect.width) / 2);
-          jarRect.top = Math.round(rect.y + (rect.height - jarRect.height) / 2);
+          jarRect.left = Math.round(center.x - jarRect.width / 2);
+          jarRect.top = Math.round(center.y - jarRect.height / 2);
         }
       }
 
@@ -3396,16 +3394,170 @@
         }
       }
 
+      function renderRoundedRectPath(ctx, x, y, width, height, radius) {
+        let r = Math.min(radius, width / 2, height / 2);
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + width - r, y);
+        ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+        ctx.lineTo(x + width, y + height - r);
+        ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+        ctx.lineTo(x + r, y + height);
+        ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+      }
+
+      function mixColors(hexA, hexB, t) {
+        let amount = constrain(t, 0, 1);
+        let colorA = color(hexA);
+        let colorB = color(hexB);
+        let blended = lerpColor(colorA, colorB, amount);
+        let alphaValue = alpha(blended) / 255;
+        return `rgba(${Math.round(red(blended))}, ${Math.round(green(blended))}, ${Math.round(blue(blended))}, ${alphaValue})`;
+      }
+
+      function drawMenuPanelBackground(centerX, centerY, width, height) {
+        let ctx = drawingContext;
+        ctx.save();
+        let left = centerX - width / 2;
+        let top = centerY - height / 2;
+        let gradient = ctx.createLinearGradient(0, top, 0, top + height);
+        gradient.addColorStop(0, '#142544');
+        gradient.addColorStop(0.55, '#0c172d');
+        gradient.addColorStop(1, '#050914');
+        ctx.fillStyle = gradient;
+        ctx.strokeStyle = 'rgba(30, 41, 59, 0.95)';
+        ctx.lineWidth = Math.max(1.5, scaledX(2));
+        ctx.shadowColor = 'rgba(56, 189, 248, 0.18)';
+        ctx.shadowBlur = Math.max(12, scaledX(20));
+        ctx.shadowOffsetY = scaledY(12);
+        let radius = Math.max(16, scaledX(20));
+        ctx.beginPath();
+        if (typeof ctx.roundRect === 'function') {
+          ctx.roundRect(left, top, width, height, radius);
+        } else {
+          renderRoundedRectPath(ctx, left, top, width, height, radius);
+          ctx.closePath();
+        }
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+
+        push();
+        rectMode(CENTER);
+        noFill();
+        stroke('rgba(125, 211, 252, 0.18)');
+        strokeWeight(Math.max(1, scaledX(1)));
+        rect(centerX, centerY, width - scaledX(16), height - scaledY(20), Math.max(12, scaledX(14)));
+        pop();
+      }
+
+      function drawGlassCard(centerX, centerY, width, height, accentColor = '#38bdf8') {
+        let ctx = drawingContext;
+        ctx.save();
+        let left = centerX - width / 2;
+        let top = centerY - height / 2;
+        let gradient = ctx.createLinearGradient(0, top, 0, top + height);
+        gradient.addColorStop(0, 'rgba(17, 24, 39, 0.9)');
+        gradient.addColorStop(1, 'rgba(8, 11, 24, 0.92)');
+        ctx.fillStyle = gradient;
+        ctx.strokeStyle = accentColor;
+        ctx.lineWidth = Math.max(1, scaledX(1.4));
+        ctx.shadowColor = 'rgba(56, 189, 248, 0.18)';
+        ctx.shadowBlur = Math.max(8, scaledX(12));
+        ctx.shadowOffsetY = scaledY(6);
+        let radius = Math.max(12, scaledX(14));
+        ctx.beginPath();
+        if (typeof ctx.roundRect === 'function') {
+          ctx.roundRect(left, top, width, height, radius);
+        } else {
+          renderRoundedRectPath(ctx, left, top, width, height, radius);
+          ctx.closePath();
+        }
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+
+        push();
+        rectMode(CENTER);
+        stroke('rgba(148, 163, 184, 0.3)');
+        strokeWeight(Math.max(1, scaledX(1)));
+        noFill();
+        rect(centerX, centerY, width - scaledX(12), height - scaledY(12), Math.max(10, scaledX(12)));
+        pop();
+      }
+
+      function drawNeonButton(x, y, w, h, options = {}) {
+        let active = !!options.active;
+        let enabled = options.enabled !== false;
+        let accentColor = options.accentColor || '#38bdf8';
+        let baseColor = options.baseColor || '#1f2a44';
+        let radius = options.radius || Math.min(14, h / 2);
+        let topColor;
+        let bottomColor;
+        let borderColor;
+        let glow = 'rgba(15, 23, 42, 0.25)';
+        if (!enabled) {
+          topColor = 'rgba(28, 37, 58, 0.8)';
+          bottomColor = 'rgba(12, 19, 35, 0.94)';
+          borderColor = 'rgba(30, 41, 59, 0.85)';
+          glow = 'rgba(15, 23, 42, 0.18)';
+        } else if (active) {
+          topColor = mixColors('#ffffff', accentColor, 0.3);
+          bottomColor = mixColors('#020617', accentColor, 0.55);
+          borderColor = mixColors(accentColor, '#1e3a8a', 0.35);
+          glow = 'rgba(56, 189, 248, 0.32)';
+        } else {
+          topColor = mixColors(baseColor, '#1f2937', 0.2);
+          bottomColor = mixColors(baseColor, '#020617', 0.7);
+          borderColor = 'rgba(46, 80, 133, 0.9)';
+          glow = 'rgba(59, 130, 246, 0.2)';
+        }
+
+        let ctx = drawingContext;
+        let left = x - w / 2;
+        let top = y - h / 2;
+        ctx.save();
+        let gradient = ctx.createLinearGradient(0, top, 0, top + h);
+        gradient.addColorStop(0, topColor);
+        gradient.addColorStop(1, bottomColor);
+        ctx.fillStyle = gradient;
+        ctx.strokeStyle = borderColor;
+        ctx.lineWidth = Math.max(1, scaledX(1.6));
+        ctx.shadowColor = glow;
+        ctx.shadowBlur = Math.max(6, scaledX(active ? 16 : 10));
+        ctx.shadowOffsetY = scaledY(active ? 5 : 3);
+        ctx.beginPath();
+        if (typeof ctx.roundRect === 'function') {
+          ctx.roundRect(left, top, w, h, radius);
+        } else {
+          renderRoundedRectPath(ctx, left, top, w, h, radius);
+          ctx.closePath();
+        }
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+
+        if (enabled) {
+          push();
+          rectMode(CENTER);
+          noFill();
+          stroke(`rgba(226, 232, 240, ${active ? 0.45 : 0.25})`);
+          strokeWeight(Math.max(1, scaledX(1)));
+          rect(x, y, w - scaledX(6), h - scaledY(6), Math.max(8, radius - scaledX(3)));
+          pop();
+        }
+      }
+
       function drawMenu() {
         let panelLeft = 0;
         let panelRight = MENU_W;
         let panelWidth = MENU_W;
         let panelCenter = panelLeft + panelWidth / 2;
-        fill('#0f172a');
-        rect(panelCenter, SCREEN_H / 2, panelWidth, SCREEN_H);
+        drawMenuPanelBackground(panelCenter, SCREEN_H / 2, panelWidth, SCREEN_H);
 
-        menuContentArea.left = panelLeft + scaledX(16);
-        menuContentArea.right = panelRight - scaledX(16);
+        menuContentArea.left = panelLeft + scaledX(22);
+        menuContentArea.right = panelRight - scaledX(22);
         menuContentArea.width = Math.max(
           0,
           menuContentArea.right - menuContentArea.left
@@ -3460,29 +3612,33 @@
       }
 
       function drawResourceHeader(panelCenter) {
-        let headerY = scaledY(32);
+        let cardWidth = MENU_W - scaledX(60);
+        let cardHeight = scaledY(122);
+        let cardCenterY = scaledY(70);
+        drawGlassCard(panelCenter, cardCenterY, cardWidth, cardHeight, '#22d3ee');
+
+        let summaryY = cardCenterY - cardHeight / 2 + scaledY(26);
         fill('#f8fafc');
-        textSize(scaledFont(13));
+        textSize(scaledFont(12));
         text(
-          `Dust: ${Math.floor(dust)} | Cores: ${crystalCores} | Powder: ${totalPowderCollected}`,
+          `Dust ${Math.floor(dust)}  •  Cores ${crystalCores}  •  Powder ${totalPowderCollected}`,
           panelCenter,
-          headerY
+          summaryY
         );
-        let nextLineY = headerY + scaledY(20);
         if (milestoneMessage) {
-          fill('#38bdf8');
+          fill('#7dd3fc');
           textSize(scaledFont(10));
-          text(milestoneMessage, panelCenter, nextLineY);
-          nextLineY += scaledY(18);
+          text(milestoneMessage, panelCenter, summaryY + scaledY(18));
         }
-        let nextY = drawPowderCounters(nextLineY + scaledY(8));
+        let countersStart = summaryY + (milestoneMessage ? scaledY(38) : scaledY(28));
+        let nextY = drawPowderCounters(countersStart);
         textSize(scaledFont(14));
-        return nextY;
+        return Math.max(nextY + scaledY(12), cardCenterY + cardHeight / 2 + scaledY(8));
       }
 
       function drawPowderCounters(y) {
-        fill('#cfd8dc');
-        textSize(scaledFont(12));
+        fill('#c7d2fe');
+        textSize(scaledFont(11));
         let unlocked = getUnlockedIndices();
         if (unlocked.length === 0) {
           text('No powders unlocked yet.', menuContentArea.center || SCREEN_W / 2, y);
@@ -3491,11 +3647,11 @@
         let split = Math.ceil(unlocked.length / 2);
         let firstLine = unlocked
           .slice(0, split)
-          .map((i) => `${powderTypes[i].name}: ${powderCounts[i]}`)
+          .map((i) => `${powderTypes[i].name}: ${powderCounts[i].toLocaleString()}`)
           .join('   ');
         let secondLine = unlocked
           .slice(split)
-          .map((i) => `${powderTypes[i].name}: ${powderCounts[i]}`)
+          .map((i) => `${powderTypes[i].name}: ${powderCounts[i].toLocaleString()}`)
           .join('   ');
         text(firstLine, menuContentArea.center || SCREEN_W / 2, y);
         if (secondLine.length > 0) {
@@ -3553,9 +3709,13 @@
           for (let i = 0; i < rowTabs.length; i++) {
             let tab = rowTabs[i];
             let active = tab.key === activeMenu;
-            fill(active ? '#22d3ee' : '#1b2640');
-            rect(xs[i], currentY, tabW, tabH, 8);
-            fill(active ? '#071426' : '#f0f4f8');
+            drawNeonButton(xs[i], currentY, tabW, tabH, {
+              active,
+              accentColor: '#22d3ee',
+              baseColor: '#13213a',
+              radius: Math.min(12, tabH / 2)
+            });
+            fill(active ? '#031524' : '#e2f1ff');
             text(tab.label, xs[i], currentY);
             addButton(
               {
@@ -3586,13 +3746,27 @@
         push();
         textAlign(LEFT, CENTER);
         textSize(scaledFont(11));
-        fill('#38bdf8');
+        fill('#bae6fd');
         text(title.toUpperCase(), left, y);
-        stroke('#17233b');
-        strokeWeight(2);
-        line(left, y + scaledY(12), right, y + scaledY(12));
+        let ctx = drawingContext;
+        ctx.save();
+        let lineLeft = left;
+        let lineRight = right;
+        let lineY = y + scaledY(14);
+        let gradient = ctx.createLinearGradient(lineLeft, 0, lineRight, 0);
+        gradient.addColorStop(0, 'rgba(34, 211, 238, 0)');
+        gradient.addColorStop(0.2, 'rgba(34, 211, 238, 0.4)');
+        gradient.addColorStop(0.8, 'rgba(59, 130, 246, 0.4)');
+        gradient.addColorStop(1, 'rgba(59, 130, 246, 0)');
+        ctx.strokeStyle = gradient;
+        ctx.lineWidth = Math.max(1, scaledY(1.4));
+        ctx.beginPath();
+        ctx.moveTo(lineLeft, lineY);
+        ctx.lineTo(lineRight, lineY);
+        ctx.stroke();
+        ctx.restore();
         pop();
-        return y + scaledY(28);
+        return y + scaledY(32);
       }
 
       function drawJarMenu(y) {
@@ -3695,6 +3869,81 @@
         return y;
       }
 
+      function drawDeveloperMenu(y) {
+        y = drawSectionHeader('Grain Tools', y);
+        let centerX = menuContentArea.center || SCREEN_W / 2;
+        let cardWidth = menuContentArea.width || SCREEN_W - scaledX(80);
+        let cardHeight = scaledY(176);
+        let topY = y + scaledY(12);
+        let cardCenterY = topY + cardHeight / 2;
+        drawGlassCard(centerX, cardCenterY, cardWidth, cardHeight, '#38bdf8');
+
+        let grainCount = powderCounts.length > 0 ? powderCounts[0] : 0;
+        let titleY = cardCenterY - cardHeight / 2 + scaledY(28);
+        fill('#e0f2fe');
+        textSize(scaledFont(12));
+        text(`Grains on hand: ${grainCount}`, centerX, titleY);
+        fill('#8fbce6');
+        textSize(scaledFont(10));
+        text('Grant grains instantly to accelerate testing builds.', centerX, titleY + scaledY(18));
+
+        let quickAmounts = [100, 1000, 10000];
+        let quickY = cardCenterY - scaledY(10);
+        let btnW = Math.min(scaledX(110), Math.max(scaledX(90), cardWidth / quickAmounts.length - scaledX(24)));
+        let btnH = scaledY(34);
+        let xs = getRowPositions(quickAmounts.length);
+        textSize(scaledFont(11));
+        for (let i = 0; i < quickAmounts.length; i++) {
+          let amount = quickAmounts[i];
+          let x = xs[i];
+          drawNeonButton(x, quickY, btnW, btnH, {
+            active: false,
+            accentColor: '#22d3ee',
+            baseColor: '#11263d',
+            radius: 12
+          });
+          fill('#e6faff');
+          text(`+${amount.toLocaleString()}`, x, quickY);
+          addButton(
+            {
+              action: 'developerAdd',
+              amount,
+              x,
+              y: quickY,
+              w: btnW,
+              h: btnH
+            },
+            { scrollAware: true }
+          );
+        }
+
+        let customY = quickY + scaledY(48);
+        let customW = Math.min(cardWidth - scaledX(40), scaledX(200));
+        let customH = scaledY(36);
+        drawNeonButton(centerX, customY, customW, customH, {
+          active: false,
+          accentColor: '#a855f7',
+          baseColor: '#2d1b4f',
+          radius: 14
+        });
+        fill('#f5e8ff');
+        textSize(scaledFont(11));
+        text('Custom amount…', centerX, customY);
+        addButton(
+          {
+            action: 'developerPromptAdd',
+            x: centerX,
+            y: customY,
+            w: customW,
+            h: customH
+          },
+          { scrollAware: true }
+        );
+
+        textSize(scaledFont(14));
+        return cardCenterY + cardHeight / 2 + scaledY(24);
+      }
+
       function drawActiveMenuContent(y) {
         switch (activeMenu) {
           case 'jar':
@@ -3717,6 +3966,8 @@
             return drawSingularityMenu(y);
           case 'codex':
             return drawCodexMenu(y);
+          case 'developer':
+            return drawDeveloperMenu(y);
           default:
             return y;
         }
@@ -3963,9 +4214,13 @@
           let x = xs[idx];
           let isSelected = i === selectedPowder;
           let baseColor = powderTypes[i].color;
-          fill(isSelected ? '#22d3ee' : withAlpha(baseColor, 200));
-          rect(x, y, btnW, btnH, 10);
-          fill(isSelected ? '#0b1120' : '#f8fafc');
+          drawNeonButton(x, y, btnW, btnH, {
+            active: isSelected,
+            accentColor: baseColor,
+            baseColor: mixColors(baseColor, '#0b1220', 0.7),
+            radius: 12
+          });
+          fill(isSelected ? '#041021' : '#f8fafc');
           text(powderTypes[i].name, x, y);
           addButton(
             {
@@ -3999,9 +4254,14 @@
           let x = xs[i];
           let cost = tierUnlockCosts[i];
           let canUpgrade = powderCounts[i] >= cost && !tierUpgrades[i];
-          fill(canUpgrade ? '#4caf50' : '#546e7a');
-          rect(x, y, btnW, btnH, 8);
-          fill('#fff');
+          drawNeonButton(x, y, btnW, btnH, {
+            active: tierUpgrades[i],
+            enabled: canUpgrade || tierUpgrades[i],
+            accentColor: '#34d399',
+            baseColor: '#16323f',
+            radius: 10
+          });
+          fill('#e0f2f1');
           text(
             tierUpgrades[i]
               ? `${powderTypes[i + 1].name} unlocked`
@@ -4041,9 +4301,14 @@
           let x = xs[idx];
           let cost = getDropperCost(i);
           let canBuy = dust >= cost;
-          fill(canBuy ? '#009688' : '#455a64');
-          rect(x, y, btnW, btnH, 8);
-          fill('#fff');
+          drawNeonButton(x, y, btnW, btnH, {
+            active: autoDroppers[i] > 0,
+            enabled: canBuy || autoDroppers[i] > 0,
+            accentColor: '#22d3ee',
+            baseColor: '#10243d',
+            radius: 10
+          });
+          fill('#e2f3fb');
           text(
             `Auto ${powderTypes[i].name}: ${autoDroppers[i]} (\u2212${cost})`,
             x,
@@ -4087,14 +4352,20 @@
             let canBuy = dust >= cost;
             let x = xs[c];
             let rowY = y + scaledY(r * 36);
-            fill(canBuy ? '#8e24aa' : '#4a148c');
-            rect(x, rowY, btnW, btnH, 8);
-            fill('#fff');
+            drawNeonButton(x, rowY, btnW, btnH, {
+              active: level > 0,
+              enabled: canBuy,
+              accentColor: '#f472b6',
+              baseColor: '#2d1846',
+              radius: 12
+            });
+            fill('#fde2ff');
             text(
               `${config.name} Lv.${level} (\u2212${cost})`,
               x,
               rowY - scaledY(8)
             );
+            fill('#f5d0fe');
             text(config.description, x, rowY + scaledY(6));
             addButton(
               {
@@ -4132,10 +4403,16 @@
           let cost = getUpgradeCost(config);
           let canBuy = dust >= cost;
           let x = xs[i];
-          fill(canBuy ? '#8e24aa' : '#4a148c');
-          rect(x, y, btnW, btnH, 8);
-          fill('#fff');
+          drawNeonButton(x, y, btnW, btnH, {
+            active: level > 0,
+            enabled: canBuy,
+            accentColor: '#f472b6',
+            baseColor: '#2d1846',
+            radius: 12
+          });
+          fill('#fde2ff');
           text(`${config.name} Lv.${level} (\u2212${cost})`, x, y - scaledY(8));
+          fill('#f5d0fe');
           text(config.description, x, y + scaledY(6));
           addButton(
             {
@@ -4176,16 +4453,21 @@
             let canBuy = dust >= cost;
             let rowY = y + scaledY(r * 68);
             let x = xs[i];
-            fill(canBuy ? '#facc15' : '#854d0e');
-            rect(x, rowY, btnW, btnH, 12);
-            fill(canBuy ? '#0f172a' : '#f8fafc');
+            drawNeonButton(x, rowY, btnW, btnH, {
+              active: level > 0,
+              enabled: canBuy,
+              accentColor: '#facc15',
+              baseColor: '#3a250b',
+              radius: 14
+            });
+            fill('#fff7cc');
             textSize(scaledFont(11));
             text(`${config.name} Lv.${level}`, x, rowY - scaledY(16));
             textSize(scaledFont(10));
-            fill('#f8fafc');
+            fill('#fde68a');
             text(`Cost: ${cost} dust`, x, rowY - scaledY(2));
             textSize(scaledFont(9));
-            fill('#e2e8f0');
+            fill('#fef3c7');
             text(config.description, x, rowY + scaledY(14));
             addButton(
               {
@@ -4363,8 +4645,12 @@
         let dropY =
           (menuContentArea.bottom || SCREEN_H - scaledY(36)) -
           scaledY(compact ? 12 : 16);
-        fill(compact ? '#2dd4bf' : '#1976d2');
-        rect(dropX, dropY, btnW, btnH, compact ? 8 : 10);
+        drawNeonButton(dropX, dropY, btnW, btnH, {
+          active: true,
+          accentColor: compact ? '#2dd4bf' : '#38bdf8',
+          baseColor: compact ? '#0f2f3a' : '#10263d',
+          radius: compact ? 10 : 12
+        });
         fill('#f8fafc');
         textSize(scaledFont(compact ? 11 : 12));
         text(compact ? 'Quick Drop' : 'Drop', dropX, dropY);
@@ -4442,6 +4728,12 @@
             break;
           case 'compress':
             compressPowder(btn.recipe);
+            break;
+          case 'developerAdd':
+            grantDeveloperGrains(btn.amount);
+            break;
+          case 'developerPromptAdd':
+            promptDeveloperAddGrains();
             break;
           case 'prestige':
             performPrestige();
@@ -4725,6 +5017,31 @@
           powderCounts[recipe.from] -= cost;
           powderCounts[recipe.to] += recipe.output;
         }
+      }
+
+      function grantDeveloperGrains(amount) {
+        if (!powderCounts || powderCounts.length === 0) return;
+        let parsed = Math.floor(Number(amount));
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+          return;
+        }
+        powderCounts[0] += parsed;
+        totalPowderCollected += parsed;
+        milestoneMessage = `Granted ${parsed.toLocaleString()} grains for testing.`;
+        milestoneMessageTimer = 3600;
+      }
+
+      function promptDeveloperAddGrains() {
+        if (typeof window === 'undefined' || !window.prompt) {
+          return;
+        }
+        let response = window.prompt('Enter the number of grains to add:', '1000');
+        if (response === null) {
+          return;
+        }
+        let sanitized = response.replace(/,/g, '').trim();
+        let amount = Number(sanitized);
+        grantDeveloperGrains(amount);
       }
 
       function getPrestigeGain() {
