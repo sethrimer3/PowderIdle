@@ -1,0 +1,69 @@
+{
+  "upgrades": [
+    {
+      "key": "gravity",
+      "name": "Gravity Well",
+      "description": "Powders fall 20% faster per level.",
+      "baseCost": 50,
+      "costMult": 2
+    },
+    {
+      "key": "refinery",
+      "name": "Refinery Vats",
+      "description": "Dust yield +35% per level.",
+      "baseCost": 80,
+      "costMult": 2.2
+    },
+    {
+      "key": "compressor",
+      "name": "Powder Compressor",
+      "description": "Unlocks compression recipes and improves efficiency.",
+      "baseCost": 120,
+      "costMult": 2.6
+    },
+    {
+      "key": "lanterns",
+      "name": "Aether Lanterns",
+      "description": "Layer stabilization +25% per level.",
+      "baseCost": 140,
+      "costMult": 2.4
+    },
+    {
+      "key": "harmonics",
+      "name": "Harmonic Resonator",
+      "description": "Automation cadence +20% per level.",
+      "baseCost": 200,
+      "costMult": 2.8
+    }
+  ],
+  "research": [
+    {
+      "key": "lens",
+      "name": "Crystal Lens",
+      "description": "Dust multiplier +20% per rank.",
+      "baseCost": 250,
+      "costMult": 3
+    },
+    {
+      "key": "overclock",
+      "name": "Overclocked Funnels",
+      "description": "Auto-droppers work +15% faster per rank.",
+      "baseCost": 320,
+      "costMult": 2.8
+    },
+    {
+      "key": "quantum",
+      "name": "Quantum Silos",
+      "description": "Collect +1 of gathered powder per rank.",
+      "baseCost": 480,
+      "costMult": 3.2
+    },
+    {
+      "key": "archives",
+      "name": "Archive Script",
+      "description": "Milestone rewards are 10% stronger per rank.",
+      "baseCost": 680,
+      "costMult": 3.1
+    }
+  ]
+}

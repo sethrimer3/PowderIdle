@@ -1,36 +1,4 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>Powder Fall Game</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
-    <style>
-      @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
-
-      body {
-        margin: 0;
-        padding: 0;
-        background: #050a16;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        min-height: 100vh;
-        font-family: 'Press Start 2P', monospace;
-        color: #e2e8f0;
-        letter-spacing: 0.04em;
-      }
-      canvas {
-        display: block;
-        margin: auto;
-        box-shadow: 0 12px 48px rgba(8, 13, 26, 0.6);
-        border-radius: 8px;
-        image-rendering: pixelated;
-      }
-    </style>
-  </head>
-  <body>
-    <script>
-      // Game constants
+// Game constants
       const BASE_SCREEN_W = 360;
       const BASE_SCREEN_H = 640;
       let SCREEN_W = BASE_SCREEN_W;
@@ -46,204 +14,24 @@
       const AUTO_DROP_INTERVAL = 1200;
       const AUTO_COMPRESS_INTERVAL = 1800;
 
-      // Powder tiers and recipes
-      const powderTypes = [
-        { name: "Sand", color: "#e7c97a", size: 1 },
-        { name: "Stone", color: "#888888", size: 2 },
-        { name: "Bronze", color: "#b08d57", size: 3 },
-        { name: "Silver", color: "#c0c0c0", size: 4 },
-        { name: "Gold", color: "#ffdd55", size: 5 },
-        { name: "Diamond", color: "#3de6e1", size: 6 },
-        { name: "Void Crystal", color: "#c084fc", size: 7 },
-        { name: "Mythril", color: "#6bb6ff", size: 8 },
-        { name: "Sunforge Ember", color: "#ff8a4c", size: 9 },
-        { name: "Singularity Core", color: "#f8f99c", size: 10 }
-      ];
-      for (let type of powderTypes) {
-        type.dustValue = type.size * type.size;
-      }
-      const MAX_POWDER_SIZE = Math.max(...powderTypes.map((type) => type.size));
-
-      const machineDefinitions = [
-        {
-          key: "jar",
-          name: "Sandfall Jar",
-          description: "The heart of your atelier.",
-          grid: { col: 1, row: 1, width: 1, height: 1 }
-        },
-        {
-          key: "conveyor",
-          name: "Grain Conveyor",
-          description: "Carries grains into the world.",
-          grid: { col: 1, row: 2, width: 1, height: 1 }
-        },
-        {
-          key: "rocket",
-          name: "Launch Bay",
-          description: "Loads rockets with dense sand.",
-          grid: { col: 0, row: 2, width: 1, height: 1 }
-        },
-        {
-          key: "forge",
-          name: "Stellar Forge",
-          description: "Compresses matter into celestial bodies.",
-          grid: { col: 0, row: 0, width: 1, height: 1 }
-        },
-        {
-          key: "galaxy",
-          name: "Celestial Loom",
-          description: "Spins stars into galaxies.",
-          grid: { col: 1, row: 0, width: 1, height: 1 }
-        },
-        {
-          key: "universe",
-          name: "Universe Foundry",
-          description: "Weaves galaxies into universes.",
-          grid: { col: 2, row: 0, width: 1, height: 1 }
-        },
-        {
-          key: "singularity",
-          name: "Singularity Crucible",
-          description: "Collapses universes into singularities.",
-          grid: { col: 2, row: 1, width: 1, height: 1 }
-        }
-      ];
-
-      const machineConnections = [
-        { from: "jar", to: "conveyor" },
-        { from: "conveyor", to: "rocket" },
-        { from: "rocket", to: "forge" },
-        { from: "forge", to: "galaxy" },
-        { from: "galaxy", to: "universe" },
-        { from: "universe", to: "singularity" }
-      ];
-
-      const tierUnlockCosts = [10, 25, 80, 220, 650, 1800, 5200, 15000, 42000];
-      const compressionRecipes = [
-        { from: 0, to: 1, baseCost: 15, output: 1 },
-        { from: 1, to: 2, baseCost: 12, output: 1 },
-        { from: 2, to: 3, baseCost: 10, output: 1 },
-        { from: 3, to: 4, baseCost: 8, output: 1 },
-        { from: 4, to: 5, baseCost: 6, output: 1 },
-        { from: 5, to: 6, baseCost: 5, output: 1 },
-        { from: 6, to: 7, baseCost: 4, output: 1 },
-        { from: 7, to: 8, baseCost: 3, output: 1 },
-        { from: 8, to: 9, baseCost: 2, output: 1 }
-      ];
-
-      const upgradeConfigs = [
-        {
-          key: "gravity",
-          name: "Gravity Well",
-          description: "Powders fall 20% faster per level.",
-          baseCost: 50,
-          costMult: 2
-        },
-        {
-          key: "refinery",
-          name: "Refinery Vats",
-          description: "Dust yield +35% per level.",
-          baseCost: 80,
-          costMult: 2.2
-        },
-        {
-          key: "compressor",
-          name: "Powder Compressor",
-          description: "Unlocks compression recipes and improves efficiency.",
-          baseCost: 120,
-          costMult: 2.6
-        },
-        {
-          key: "lanterns",
-          name: "Aether Lanterns",
-          description: "Layer stabilization +25% per level.",
-          baseCost: 140,
-          costMult: 2.4
-        },
-        {
-          key: "harmonics",
-          name: "Harmonic Resonator",
-          description: "Automation cadence +20% per level.",
-          baseCost: 200,
-          costMult: 2.8
-        }
-      ];
-
-      const menuTabs = [
-        { key: "jar", label: "Sandfall", machine: "jar" },
-        { key: "conveyor", label: "Conveyor", machine: "conveyor" },
-        { key: "rocket", label: "Launch Bay", machine: "rocket" },
-        { key: "forge", label: "Forge", machine: "forge" },
-        { key: "galaxy", label: "Galaxies", machine: "galaxy" },
-        { key: "universe", label: "Universe", machine: "universe" },
-        { key: "singularity", label: "Singularity", machine: "singularity" }
-      ];
-
-      const strataLayers = [
-        {
-          name: "Surface Crust",
-          requirement: 160,
-          dustBonus: 0.06,
-          gravityBonus: 0.05,
-          color: "#1f2937",
-          description: "Stabilize the loose crust to focus the fall."
-        },
-        {
-          name: "Basalt Vein",
-          requirement: 420,
-          dustBonus: 0.08,
-          gravityBonus: 0.08,
-          color: "#111c2d",
-          description: "Dense basalt channels powders into tighter streams."
-        },
-        {
-          name: "Shimmer Cavern",
-          requirement: 900,
-          dustBonus: 0.14,
-          gravityBonus: 0.12,
-          color: "#2c1b47",
-          description: "Glittering caverns hum with resonant dust currents."
-        },
-        {
-          name: "Aether Mantle",
-          requirement: 1600,
-          dustBonus: 0.22,
-          gravityBonus: 0.18,
-          color: "#3b185f",
-          description: "Liquid aether bends gravity toward your funnels."
-        }
-      ];
-
-      const researchProjects = [
-        {
-          key: "lens",
-          name: "Crystal Lens",
-          description: "Dust multiplier +20% per rank.",
-          baseCost: 250,
-          costMult: 3
-        },
-        {
-          key: "overclock",
-          name: "Overclocked Funnels",
-          description: "Auto-droppers work +15% faster per rank.",
-          baseCost: 320,
-          costMult: 2.8
-        },
-        {
-          key: "quantum",
-          name: "Quantum Silos",
-          description: "Collect +1 of gathered powder per rank.",
-          baseCost: 480,
-          costMult: 3.2
-        }
-      ];
+      let powderTypes = [];
+      let machineDefinitions = [];
+      let machineConnections = [];
+      let menuTabs = [];
+      let tierUnlockCosts = [];
+      let compressionRecipes = [];
+      let upgradeConfigs = [];
+      let researchProjects = [];
+      let strataLayers = [];
+      let milestoneConfigs = [];
+      let MAX_POWDER_SIZE = 1;
 
       let powders = []; // {col, row, type, fallProgress, collected}
-      let powderCounts = new Array(powderTypes.length).fill(0);
+      let powderCounts = [];
       let selectedPowder = 0;
-      let tierUpgrades = new Array(powderTypes.length - 1).fill(false);
-      let autoDroppers = new Array(powderTypes.length).fill(0);
-      let dropperTimers = new Array(powderTypes.length).fill(0);
+      let tierUpgrades = [];
+      let autoDroppers = [];
+      let dropperTimers = [];
       let dust = 0;
       let totalDustEarned = 0;
       let crystalCores = 0;
@@ -255,22 +43,29 @@
         lanterns: 0,
         harmonics: 0
       };
-      let activeMenu = menuTabs[0].key;
-      let layerStates = strataLayers.map((layer, index) => ({
-        unlocked: index === 0,
-        completed: false,
-        progress: 0
-      }));
-      let researchState = researchProjects.reduce((acc, project) => {
-        acc[project.key] = 0;
-        return acc;
-      }, {});
+      let activeMenu = 'jar';
+      let layerStates = [];
+      let researchState = {};
       let automationSettings = {
+        autoDrop: false,
+        autoCompress: false
+      };
+      let automationUnlocks = {
         autoDrop: false,
         autoCompress: false
       };
       let autoDropTimer = 0;
       let autoCompressTimer = 0;
+      let milestoneStates = [];
+      let milestoneBonuses = {
+        gravity: 0,
+        dust: 0,
+        automation: 0,
+        core: 0
+      };
+      let milestoneMessage = null;
+      let milestoneMessageTimer = 0;
+      let codexUnlocked = false;
       let buttons = [];
       let fullscreenModule = null;
       let jarVisible = true;
@@ -303,6 +98,180 @@
       };
       let jarRect = { left: 0, top: 0, width: 0, height: 0 };
       let menuContentArea = { left: 0, right: 0, center: 0, width: 0, top: 0, bottom: 0 };
+      let powdersDataRaw = null;
+      let machinesDataRaw = null;
+      let upgradesDataRaw = null;
+      let progressionDataRaw = null;
+      let milestoneLookup = {};
+
+      function preload() {
+        powdersDataRaw = loadJSON('data/powders.json');
+        machinesDataRaw = loadJSON('data/machines.json');
+        upgradesDataRaw = loadJSON('data/upgrades.json');
+        progressionDataRaw = loadJSON('data/progression.json');
+      }
+
+      function initializeGameData() {
+        let powderData = powdersDataRaw || {};
+        powderTypes = (powderData.types || []).map((type) => ({
+          ...type,
+          dustValue: Math.pow(type.size || 1, 2)
+        }));
+        tierUnlockCosts = powderData.tierUnlockCosts || [];
+        compressionRecipes = powderData.compressionRecipes || [];
+        MAX_POWDER_SIZE = powderTypes.reduce(
+          (max, type) => Math.max(max, type.size || 1),
+          1
+        );
+
+        let machineData = machinesDataRaw || {};
+        machineDefinitions = machineData.definitions || [];
+        machineConnections = machineData.connections || [];
+        menuTabs = machineData.menuTabs || [];
+        if (!menuTabs.some((tab) => tab.key === 'jar')) {
+          menuTabs.unshift({ key: 'jar', label: 'Sandfall', machine: 'jar' });
+        }
+
+        let upgradeData = upgradesDataRaw || {};
+        upgradeConfigs = upgradeData.upgrades || [];
+        researchProjects = upgradeData.research || [];
+
+        let progressionData = progressionDataRaw || {};
+        strataLayers = progressionData.strataLayers || [];
+        milestoneConfigs = progressionData.milestones || [];
+        milestoneLookup = milestoneConfigs.reduce((acc, milestone, index) => {
+          acc[milestone.key] = index;
+          return acc;
+        }, {});
+      }
+
+      function initializeGameState() {
+        powders = [];
+        powderCounts = new Array(powderTypes.length).fill(0);
+        selectedPowder = 0;
+        tierUpgrades = new Array(Math.max(0, powderTypes.length - 1)).fill(false);
+        autoDroppers = new Array(powderTypes.length).fill(0);
+        dropperTimers = new Array(powderTypes.length).fill(0);
+        dust = 0;
+        totalDustEarned = 0;
+        totalPowderCollected = 0;
+        upgradesState.gravity = 0;
+        upgradesState.refinery = 0;
+        upgradesState.compressor = 0;
+        upgradesState.lanterns = 0;
+        upgradesState.harmonics = 0;
+        layerStates = strataLayers.map((layer, index) => ({
+          unlocked: index === 0,
+          completed: false,
+          progress: 0
+        }));
+        researchState = researchProjects.reduce((acc, project) => {
+          acc[project.key] = 0;
+          return acc;
+        }, {});
+        automationSettings.autoDrop = false;
+        automationSettings.autoCompress = false;
+        automationUnlocks.autoDrop = false;
+        automationUnlocks.autoCompress = false;
+        autoDropTimer = 0;
+        autoCompressTimer = 0;
+        milestoneStates = milestoneConfigs.map(() => ({
+          unlocked: false,
+          achieved: false,
+          applied: false
+        }));
+        milestoneBonuses.gravity = 0;
+        milestoneBonuses.dust = 0;
+        milestoneBonuses.automation = 0;
+        milestoneBonuses.core = 0;
+        milestoneMessage = null;
+        milestoneMessageTimer = 0;
+        activeMenu = menuTabs.length > 0 ? menuTabs[0].key : 'jar';
+        codexUnlocked = false;
+      }
+
+      function getMilestoneState(key) {
+        if (!(key in milestoneLookup)) {
+          return null;
+        }
+        return milestoneStates[milestoneLookup[key]];
+      }
+
+      function getMilestoneConfig(key) {
+        if (!(key in milestoneLookup)) return null;
+        return milestoneConfigs[milestoneLookup[key]];
+      }
+
+      function getMilestoneForType(type) {
+        return milestoneConfigs.find((milestone) => milestone.type === type);
+      }
+
+      function getMilestoneResourceValue(resource) {
+        switch (resource) {
+          case 'cores':
+            return crystalCores;
+          case 'powder':
+            return totalPowderCollected;
+          case 'dust':
+          default:
+            return totalDustEarned;
+        }
+      }
+
+      function getMilestoneBonusScale() {
+        return 1 + (researchState.archives || 0) * 0.1;
+      }
+
+      function applyMilestoneReward(config) {
+        switch (config.type) {
+          case 'unlockAutoDrop':
+            automationUnlocks.autoDrop = true;
+            break;
+          case 'unlockAutoCompress':
+            automationUnlocks.autoCompress = true;
+            break;
+          case 'gravityBonus':
+            milestoneBonuses.gravity += config.magnitude || 0;
+            break;
+          case 'dustBonus':
+            milestoneBonuses.dust += config.magnitude || 0;
+            break;
+          case 'codexUnlock':
+            codexUnlocked = true;
+            milestoneBonuses.automation += config.magnitude || 0;
+            break;
+          case 'coreBonus':
+            milestoneBonuses.core += config.magnitude || 0;
+            break;
+        }
+        milestoneMessage = `${config.name} achieved! ${config.reward}`;
+        milestoneMessageTimer = 4200;
+      }
+
+      function updateMilestones() {
+        for (let i = 0; i < milestoneConfigs.length; i++) {
+          let config = milestoneConfigs[i];
+          let state = milestoneStates[i];
+          if (!state) continue;
+          let resourceValue = getMilestoneResourceValue(config.resource);
+          if (!state.unlocked && resourceValue >= config.requirement * 0.25) {
+            state.unlocked = true;
+          }
+          if (!state.achieved && resourceValue >= config.requirement) {
+            state.achieved = true;
+          }
+          if (state.achieved && !state.applied) {
+            state.applied = true;
+            applyMilestoneReward(config);
+          }
+        }
+        if (milestoneMessageTimer > 0) {
+          milestoneMessageTimer = Math.max(0, milestoneMessageTimer - deltaTime);
+          if (milestoneMessageTimer <= 0) {
+            milestoneMessage = null;
+          }
+        }
+      }
 
       function getPowderSizeByType(type) {
         if (!powderTypes[type]) return 1;
@@ -411,6 +380,8 @@
       }
 
       function setup() {
+        initializeGameData();
+        initializeGameState();
         updateLayoutDimensions();
         canvas = createCanvas(SCREEN_W, SCREEN_H);
         pixelDensity(1);
@@ -439,6 +410,7 @@
         updateAutoDroppers();
         updateAutomationControllers();
         updatePowders();
+        updateMilestones();
         if (jarVisible) {
           renderPowders();
           drawJarOverlay();
@@ -812,7 +784,13 @@
           while (state.progress >= 1 && powderCounts[5] > 0) {
             state.progress -= 1;
             powderCounts[5] -= 1;
-            crystalCores += 1;
+            let coreGain = 1 + milestoneBonuses.core * getMilestoneBonusScale();
+            let wholeCores = Math.floor(coreGain);
+            let remainder = coreGain - wholeCores;
+            crystalCores += wholeCores;
+            if (Math.random() < remainder) {
+              crystalCores += 1;
+            }
             dust += Math.max(5, Math.round(8 * getDustMultiplier()));
             state.shards.push({ life: 1, angle: Math.random() * TAU });
           }
@@ -1389,7 +1367,8 @@
           1 +
           upgradesState.gravity * 0.2 +
           crystalCores * 0.1 +
-          getLayerGravityBonus()
+          getLayerGravityBonus() +
+          milestoneBonuses.gravity * getMilestoneBonusScale()
         );
       }
 
@@ -1399,7 +1378,8 @@
           upgradesState.refinery * 0.35 +
           crystalCores * 0.25 +
           getLayerDustBonus() +
-          (researchState.lens || 0) * 0.2
+          (researchState.lens || 0) * 0.2 +
+          milestoneBonuses.dust * getMilestoneBonusScale()
         );
       }
 
@@ -1426,7 +1406,7 @@
       }
 
       function updateAutomationControllers() {
-        if (automationSettings.autoDrop) {
+        if (automationSettings.autoDrop && automationUnlocks.autoDrop) {
           let interval = Math.max(
             260,
             AUTO_DROP_INTERVAL / getAutomationIntervalMultiplier()
@@ -1440,7 +1420,11 @@
           autoDropTimer = 0;
         }
 
-        if (automationSettings.autoCompress && upgradesState.compressor > 0) {
+        if (
+          automationSettings.autoCompress &&
+          automationUnlocks.autoCompress &&
+          upgradesState.compressor > 0
+        ) {
           let interval = Math.max(
             380,
             AUTO_COMPRESS_INTERVAL / getAutomationIntervalMultiplier()
@@ -1524,6 +1508,9 @@
           case 'singularity':
             drawSingularityMenu(contentY);
             break;
+          case 'codex':
+            drawCodexMenu(contentY);
+            break;
         }
 
         drawDropButton(activeMenu !== 'jar');
@@ -1537,7 +1524,13 @@
           SCREEN_W / 2,
           POWDER_AREA_H + scaledY(24)
         );
-        let nextY = drawPowderCounters(POWDER_AREA_H + scaledY(46));
+        if (milestoneMessage) {
+          fill('#38bdf8');
+          textSize(scaledFont(10));
+          text(milestoneMessage, SCREEN_W / 2, POWDER_AREA_H + scaledY(38));
+        }
+        let counterOffset = milestoneMessage ? 58 : 46;
+        let nextY = drawPowderCounters(POWDER_AREA_H + scaledY(counterOffset));
         textSize(scaledFont(14));
         return nextY;
       }
@@ -1570,6 +1563,12 @@
       function isMenuTabUnlocked(key) {
         let tab = menuTabs.find((t) => t.key === key);
         if (!tab) return false;
+        if (tab.requiresMilestone) {
+          let state = getMilestoneState(tab.requiresMilestone);
+          if (!state || !state.achieved) {
+            return false;
+          }
+        }
         if (!tab.machine || tab.machine === 'jar') return true;
         return isMachineUnlocked(tab.machine);
       }
@@ -1696,6 +1695,82 @@
         return y;
       }
 
+      function drawCodexMenu(y) {
+        y = drawSectionHeader('Epoch Milestones', y);
+        for (let i = 0; i < milestoneConfigs.length; i++) {
+          y = drawMilestoneCard(milestoneConfigs[i], milestoneStates[i], y + scaledY(6));
+        }
+        y = drawSectionHeader('Development Roadmap', y + scaledY(18));
+        y = drawDevelopmentNotes(y + scaledY(10));
+        return y;
+      }
+
+      function drawMilestoneCard(config, state, y) {
+        let cardW = menuContentArea.width || SCREEN_W - scaledX(60);
+        let cardH = scaledY(78);
+        let x = menuContentArea.center || SCREEN_W / 2;
+        let progressValue = getMilestoneResourceValue(config.resource);
+        let ratio = config.requirement > 0
+          ? constrain(progressValue / config.requirement, 0, 1)
+          : 1;
+        let achieved = state && state.achieved;
+        let unlocked = state && state.unlocked;
+        let baseColor = achieved ? '#0ea5e9' : unlocked ? '#1e3a8a' : '#1e293b';
+        fill(withAlpha(baseColor, achieved ? 230 : unlocked ? 190 : 140));
+        rect(x, y, cardW, cardH, 12);
+        fill('#f8fafc');
+        textSize(scaledFont(12));
+        text(config.name, x, y - scaledY(22));
+        fill('#cbd5f5');
+        textSize(scaledFont(10));
+        text(config.description, x, y - scaledY(6));
+        fill('#94a3b8');
+        textSize(scaledFont(10));
+        let resourceLabel =
+          config.resource === 'cores'
+            ? 'Cores'
+            : config.resource === 'powder'
+            ? 'Powder'
+            : 'Dust';
+        let progressText = achieved
+          ? config.reward
+          : `${resourceLabel}: ${Math.floor(progressValue)} / ${config.requirement}`;
+        text(progressText, x, y + scaledY(10));
+        push();
+        rectMode(CORNER);
+        let barW = cardW - scaledX(36);
+        let barH = scaledY(8);
+        let barX = x - barW / 2;
+        let barY = y + scaledY(20);
+        fill('#0f172a');
+        rect(barX, barY, barW, barH, 4);
+        let filled = Math.max(0, Math.min(barW, barW * ratio));
+        fill(achieved ? '#22d3ee' : '#3b82f6');
+        rect(barX, barY, filled, barH, 4);
+        pop();
+        return y + cardH + scaledY(8);
+      }
+
+      function drawDevelopmentNotes(y) {
+        let notes = [
+          'Refine automation scripting to handle new powder branches.',
+          'Introduce prestige-era modules that consume singularity cores.',
+          'Expand narrative entries tied to each newly stabilized layer.',
+          'Design late-game events that remix earlier strata with modifiers.'
+        ];
+        let left = menuContentArea.left + scaledX(6);
+        push();
+        textAlign(LEFT, TOP);
+        textSize(scaledFont(10));
+        fill('#cbd5f5');
+        for (let note of notes) {
+          text(`• ${note}`, left, y);
+          y += scaledY(18);
+        }
+        pop();
+        return y + scaledY(6);
+      }
+
       function drawLayerCard(layer, state, y) {
         let cardW = menuContentArea.width || SCREEN_W - scaledX(60);
         let cardH = scaledY(70);
@@ -1804,22 +1879,46 @@
         for (let i = 0; i < controls.length; i++) {
           let control = controls[i];
           let enabled = automationSettings[control.key];
+          let unlocked = automationUnlocks[control.key];
           let x = xs[i];
-          fill(enabled ? '#66bb6a' : '#455a64');
-          rect(x, y, btnW, btnH, 12);
-          fill(enabled ? '#0b1120' : '#f8fafc');
-          textSize(scaledFont(12));
-          text(`${control.label}: ${enabled ? 'ON' : 'OFF'}`, x, y - scaledY(12));
-          textSize(scaledFont(11));
-          text(control.description, x, y + scaledY(6));
-          buttons.push({
-            action: 'toggleAutomation',
-            key: control.key,
-            x,
-            y,
-            w: btnW,
-            h: btnH
-          });
+          if (unlocked) {
+            fill(enabled ? '#66bb6a' : '#455a64');
+            rect(x, y, btnW, btnH, 12);
+            fill(enabled ? '#0b1120' : '#f8fafc');
+            textSize(scaledFont(12));
+            text(`${control.label}: ${enabled ? 'ON' : 'OFF'}`, x, y - scaledY(12));
+            textSize(scaledFont(11));
+            text(control.description, x, y + scaledY(6));
+            buttons.push({
+              action: 'toggleAutomation',
+              key: control.key,
+              x,
+              y,
+              w: btnW,
+              h: btnH
+            });
+          } else {
+            fill('#1e293b');
+            rect(x, y, btnW, btnH, 12);
+            fill('#64748b');
+            textSize(scaledFont(12));
+            text(`${control.label}: Locked`, x, y - scaledY(12));
+            let milestone = getMilestoneForType(
+              control.key === 'autoDrop' ? 'unlockAutoDrop' : 'unlockAutoCompress'
+            );
+            textSize(scaledFont(10));
+            if (milestone) {
+              text(
+                `${milestone.name} (${milestone.requirement} ${
+                  milestone.resource === 'cores' ? 'cores' : 'dust'
+                })`,
+                x,
+                y + scaledY(4)
+              );
+            } else {
+              text('Progress deeper to unlock automation.', x, y + scaledY(4));
+            }
+          }
         }
         textSize(scaledFont(14));
         return y + btnH + scaledY(18);
@@ -2104,7 +2203,12 @@
         textSize(scaledFont(11));
         text(`Diamonds awaiting collapse: ${powderCounts[5] || 0}`, center, y);
         text(`Crystallized cores: ${crystalCores}`, center, y + scaledY(16));
-        text('Strike the crucible to channel fresh cores.', center, y + scaledY(32));
+        let coreBoost = Math.round(milestoneBonuses.core * getMilestoneBonusScale() * 100);
+        if (coreBoost > 0) {
+          text(`Codex bonus: +${coreBoost}% core yield`, center, y + scaledY(32));
+        } else {
+          text('Strike the crucible to channel fresh cores.', center, y + scaledY(32));
+        }
         textSize(scaledFont(14));
         return y + scaledY(46);
       }
@@ -2373,6 +2477,7 @@
 
       function toggleAutomation(key) {
         if (!(key in automationSettings)) return;
+        if (!automationUnlocks[key]) return;
         automationSettings[key] = !automationSettings[key];
         if (!automationSettings[key]) {
           if (key === 'autoDrop') {
@@ -2497,7 +2602,8 @@
           upgradesState.harmonics * 0.2 +
           crystalCores * 0.1 +
           (researchState.overclock || 0) * 0.15 +
-          getLayerGravityBonus() * 0.5
+          getLayerGravityBonus() * 0.5 +
+          milestoneBonuses.automation * getMilestoneBonusScale()
         );
       }
 
@@ -2507,7 +2613,8 @@
           upgradesState.harmonics * 0.2 +
           crystalCores * 0.1 +
           (researchState.overclock || 0) * 0.15 +
-          getLayerGravityBonus() * 0.4
+          getLayerGravityBonus() * 0.4 +
+          milestoneBonuses.automation * getMilestoneBonusScale()
         );
       }
 
@@ -2582,6 +2689,3 @@
           }
         }
       }
-    </script>
-  </body>
-</html>
