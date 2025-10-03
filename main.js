@@ -2987,9 +2987,11 @@
       }
 
       function drawFullscreenToggle(rectInfo, key, enabled) {
-        let size = Math.max(16, scaledX(16));
-        let x = rectInfo.x + rectInfo.width - size / 2 - scaledX(12);
-        let y = rectInfo.y + size / 2 + scaledY(12);
+        let size = Math.max(scaledX(12), scaledY(12));
+        let marginX = Math.max(scaledX(4), size / 2 + scaledX(2));
+        let marginY = Math.max(scaledY(4), size / 2 + scaledY(2));
+        let x = rectInfo.x + rectInfo.width - marginX;
+        let y = rectInfo.y + marginY;
         let active = fullscreenModule === key;
         push();
         rectMode(CENTER);
@@ -3001,7 +3003,7 @@
             : '#1e3a8a'
           : '#111c2d';
         fill(baseColor);
-        rect(x, y, size, size, 4);
+        rect(x, y, size, size, Math.max(3, size * 0.25));
         noStroke();
         fill(active ? '#0b1120' : '#cbd5f5');
         let inset = size * 0.35;
@@ -3013,7 +3015,7 @@
         }
         pop();
         if (enabled) {
-        addButton({ action: 'toggleFullscreen', key, x, y, w: size, h: size });
+          addButton({ action: 'toggleFullscreen', key, x, y, w: size, h: size });
         }
       }
 
@@ -3700,8 +3702,21 @@
         let headerBottom = drawResourceHeader(panelCenter);
         let tabs = getUnlockedMenuTabs();
         if (tabs.length === 0) {
+          menuContentArea.top = headerBottom + scaledY(12);
           menuContentArea.bottom = SCREEN_H - scaledY(32);
-          drawDropButton(true, panelCenter);
+          menuContentArea.height = Math.max(
+            0,
+            menuContentArea.bottom - menuContentArea.top
+          );
+          fill('#64748b');
+          textSize(scaledFont(11));
+          text(
+            'Unlock a module to access its controls.',
+            panelCenter,
+            menuContentArea.top + scaledY(32)
+          );
+          menuScroll = 0;
+          menuScrollMax = 0;
           return;
         }
         if (!tabs.some((tab) => tab.key === activeMenu)) {
@@ -3730,22 +3745,10 @@
           drawingContext.clip();
           menuContentArea.scrollOffset = menuScroll;
           contentEnd = drawActiveMenuContent(contentStart);
-          let dropCenterY = contentEnd + scaledY(40);
-          let dropBottom = drawDropButton(activeMenu !== 'jar', panelCenter, {
-            y: dropCenterY,
-            scrollAware: true
-          });
-          contentEnd = Math.max(contentEnd, dropBottom + scaledY(20));
           drawingContext.restore();
         } else {
           menuContentArea.scrollOffset = menuScroll;
           contentEnd = drawActiveMenuContent(contentStart);
-          let dropCenterY = contentEnd + scaledY(40);
-          let dropBottom = drawDropButton(activeMenu !== 'jar', panelCenter, {
-            y: dropCenterY,
-            scrollAware: true
-          });
-          contentEnd = Math.max(contentEnd, dropBottom + scaledY(20));
         }
         menuContentArea.scrollOffset = 0;
         let contentHeight = contentEnd - contentStart;
@@ -3831,49 +3834,76 @@
         if (!tabs || tabs.length === 0) {
           return y;
         }
-        let columns = Math.min(3, tabs.length);
+        let availableWidth = menuContentArea.width || SCREEN_W - scaledX(80);
+        let spacingX = scaledX(8);
+        let spacingY = scaledY(8);
+        let minColumns = tabs.length === 1 ? 1 : 2;
+        let maxColumns = Math.min(4, tabs.length);
+        let columns = minColumns;
+        let minSize = scaledX(56);
+        for (let c = maxColumns; c >= minColumns; c--) {
+          let candidate = (availableWidth - spacingX * (c - 1)) / c;
+          if (candidate >= minSize) {
+            columns = c;
+            break;
+          }
+        }
+        let tabSize = Math.min(
+          scaledX(96),
+          (availableWidth - spacingX * (columns - 1)) / columns
+        );
         let rows = Math.ceil(tabs.length / columns);
-        let tabH = scaledY(28);
-        let spacingY = scaledY(10);
-        let currentY = y;
-        textSize(scaledFont(12));
+        let currentTop = y;
+        let centerX = menuContentArea.center || SCREEN_W / 2;
+        if (typeof textWrap === 'function') {
+          textWrap('WORD');
+        }
         for (let row = 0; row < rows; row++) {
           let rowTabs = tabs.slice(row * columns, row * columns + columns);
-          let availableWidth = menuContentArea.width || SCREEN_W - scaledX(80);
-          let tabW = Math.min(
-            scaledX(120),
-            Math.max(
-              scaledX(60),
-              availableWidth / Math.max(1, rowTabs.length) - scaledX(8)
-            )
-          );
-          let xs = getRowPositions(rowTabs.length);
+          let rowCount = rowTabs.length;
+          let rowWidth = rowCount * tabSize + Math.max(0, rowCount - 1) * spacingX;
+          let startX = centerX - rowWidth / 2 + tabSize / 2;
+          let centerY = currentTop + tabSize / 2;
+          textSize(scaledFont(11));
           for (let i = 0; i < rowTabs.length; i++) {
             let tab = rowTabs[i];
+            let x = startX + i * (tabSize + spacingX);
             let active = tab.key === activeMenu;
-            drawNeonButton(xs[i], currentY, tabW, tabH, {
+            drawNeonButton(x, centerY, tabSize, tabSize, {
               active,
               accentColor: '#22d3ee',
               baseColor: '#13213a',
-              radius: Math.min(12, tabH / 2)
+              radius: Math.min(12, tabSize / 2)
             });
+            push();
+            textAlign(CENTER, CENTER);
             fill(active ? '#031524' : '#e2f1ff');
-            text(tab.label, xs[i], currentY);
+            text(
+              tab.label,
+              x,
+              centerY,
+              tabSize - scaledX(12),
+              tabSize - scaledY(12)
+            );
+            pop();
             addButton(
               {
                 action: 'switchMenu',
                 key: tab.key,
-                x: xs[i],
-                y: currentY,
-                w: tabW,
-                h: tabH
+                x,
+                y: centerY,
+                w: tabSize,
+                h: tabSize
               }
             );
           }
-          currentY += tabH + spacingY;
+          currentTop += tabSize + spacingY;
+        }
+        if (typeof textWrap === 'function') {
+          textWrap('WORD');
         }
         textSize(scaledFont(14));
-        return currentY - spacingY + scaledY(2);
+        return y + rows * tabSize + Math.max(0, rows - 1) * spacingY;
       }
 
       function drawSectionHeader(title, y) {
@@ -4343,41 +4373,72 @@
       function drawPowderSelectRow(y) {
         let indices = getUnlockedIndices();
         if (indices.length === 0) return y;
-        let maxWidth = menuContentArea.width || SCREEN_W - scaledX(80);
-        let btnW = Math.min(
-          scaledX(110),
-          Math.max(scaledX(72), maxWidth / Math.max(1, indices.length) - scaledX(12))
+        let availableWidth = menuContentArea.width || SCREEN_W - scaledX(80);
+        let spacingX = scaledX(8);
+        let spacingY = scaledY(8);
+        let minColumns = indices.length === 1 ? 1 : 2;
+        let maxColumns = Math.min(4, indices.length);
+        let columns = minColumns;
+        let minSize = scaledX(60);
+        for (let c = maxColumns; c >= minColumns; c--) {
+          let candidate = (availableWidth - spacingX * (c - 1)) / c;
+          if (candidate >= minSize) {
+            columns = c;
+            break;
+          }
+        }
+        let btnSize = Math.min(
+          scaledX(96),
+          (availableWidth - spacingX * (columns - 1)) / columns
         );
-        let btnH = scaledY(32);
-        let xs = getRowPositions(indices.length);
-        textSize(scaledFont(13));
-        for (let idx = 0; idx < indices.length; idx++) {
-          let i = indices[idx];
-          let x = xs[idx];
-          let isSelected = i === selectedPowder;
-          let baseColor = powderTypes[i].color;
-          drawNeonButton(x, y, btnW, btnH, {
-            active: isSelected,
-            accentColor: baseColor,
-            baseColor: mixColors(baseColor, '#0b1220', 0.7),
-            radius: 12
-          });
-          fill(isSelected ? '#041021' : '#f8fafc');
-          text(powderTypes[i].name, x, y);
-          addButton(
-            {
-              action: 'selectPowder',
-              index: i,
+        let rows = Math.ceil(indices.length / columns);
+        let currentTop = y;
+        let centerX = menuContentArea.center || SCREEN_W / 2;
+        for (let row = 0; row < rows; row++) {
+          let rowIndices = indices.slice(row * columns, row * columns + columns);
+          let rowCount = rowIndices.length;
+          let rowWidth = rowCount * btnSize + Math.max(0, rowCount - 1) * spacingX;
+          let startX = centerX - rowWidth / 2 + btnSize / 2;
+          let centerY = currentTop + btnSize / 2;
+          textSize(scaledFont(12));
+          for (let i = 0; i < rowIndices.length; i++) {
+            let powderIndex = rowIndices[i];
+            let x = startX + i * (btnSize + spacingX);
+            let isSelected = powderIndex === selectedPowder;
+            let baseColor = powderTypes[powderIndex].color;
+            drawNeonButton(x, centerY, btnSize, btnSize, {
+              active: isSelected,
+              accentColor: baseColor,
+              baseColor: mixColors(baseColor, '#0b1220', 0.7),
+              radius: Math.min(12, btnSize / 2)
+            });
+            push();
+            textAlign(CENTER, CENTER);
+            fill(isSelected ? '#041021' : '#f8fafc');
+            text(
+              powderTypes[powderIndex].name,
               x,
-              y,
-              w: btnW,
-              h: btnH
-            },
-            { scrollAware: true }
-          );
+              centerY,
+              btnSize - scaledX(12),
+              btnSize - scaledY(12)
+            );
+            pop();
+            addButton(
+              {
+                action: 'selectPowder',
+                index: powderIndex,
+                x,
+                y: centerY,
+                w: btnSize,
+                h: btnSize
+              },
+              { scrollAware: true }
+            );
+          }
+          currentTop += btnSize + spacingY;
         }
         textSize(scaledFont(14));
-        return y + scaledY(34);
+        return y + rows * btnSize + Math.max(0, rows - 1) * spacingY;
       }
 
       function drawTierUpgradeRow(y) {
@@ -4780,46 +4841,6 @@
         return y + scaledY(62);
       }
 
-      function drawDropButton(
-        compact = false,
-        fallbackCenter = SCREEN_W / 2,
-        options = {}
-      ) {
-        let btnW = scaledX(compact ? 82 : 100);
-        let btnH = scaledY(compact ? 26 : 34);
-        let dropX =
-          options.x !== undefined
-            ? options.x
-            : menuContentArea.center || fallbackCenter;
-        let dropY;
-        if (options.y !== undefined) {
-          dropY = options.y;
-        } else {
-          dropY =
-            (menuContentArea.bottom || SCREEN_H - scaledY(36)) -
-            scaledY(compact ? 12 : 16);
-        }
-        drawNeonButton(dropX, dropY, btnW, btnH, {
-          active: true,
-          accentColor: compact ? '#2dd4bf' : '#38bdf8',
-          baseColor: compact ? '#0f2f3a' : '#10263d',
-          radius: compact ? 10 : 12
-        });
-        fill('#f8fafc');
-        textSize(scaledFont(compact ? 11 : 12));
-        text(compact ? 'Quick Drop' : 'Drop', dropX, dropY);
-        textSize(scaledFont(14));
-        if (options.scrollAware) {
-          addButton(
-            { action: 'drop', x: dropX, y: dropY, w: btnW, h: btnH },
-            { scrollAware: true }
-          );
-        } else {
-          addButton({ action: 'drop', x: dropX, y: dropY, w: btnW, h: btnH });
-        }
-        return dropY + btnH / 2;
-      }
-
       function addButton(btn, options = {}) {
         let entry = { ...btn };
         if (options.scrollAware) {
@@ -4937,9 +4958,6 @@
             break;
           case 'tierUpgrade':
             unlockTier(btn.index);
-            break;
-          case 'drop':
-            dropPowder(selectedPowder);
             break;
           case 'buyDropper':
             buyDropper(btn.index);
@@ -5425,19 +5443,9 @@
         let availableHeight = Math.max(windowHeight - margin, BASE_SCREEN_H);
         SCREEN_W = Math.round(Math.max(availableWidth, BASE_SCREEN_W));
         SCREEN_H = Math.round(Math.max(availableHeight, BASE_SCREEN_H));
-        let desiredMenuW = Math.max(220, Math.round(SCREEN_W * 0.62));
-        let minPlayArea = Math.max(260, Math.round(SCREEN_W * 0.24));
-        let maxMenuW = SCREEN_W - minPlayArea;
-        if (maxMenuW <= 0) {
-          MENU_W = Math.max(200, Math.round(SCREEN_W * 0.5));
-        } else {
-          MENU_W = Math.max(200, Math.min(desiredMenuW, maxMenuW));
-        }
+        let halfWidth = Math.round(SCREEN_W / 2);
+        MENU_W = halfWidth;
         PLAY_AREA_W = SCREEN_W - MENU_W;
-        if (PLAY_AREA_W < 220) {
-          PLAY_AREA_W = 220;
-          MENU_W = SCREEN_W - PLAY_AREA_W;
-        }
         layoutScaleX = SCREEN_W / BASE_SCREEN_W;
         layoutScaleY = SCREEN_H / BASE_SCREEN_H;
         cellPixelSize = 1;
