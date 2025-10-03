@@ -5,18 +5,36 @@
     <title>Powder Fall Game</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
     <style>
-      body { margin: 0; padding: 0; }
-      canvas { display: block; margin: auto; }
+      body {
+        margin: 0;
+        padding: 0;
+        background: #111827;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+      }
+      canvas {
+        display: block;
+        margin: auto;
+        box-shadow: 0 12px 40px rgba(15, 23, 42, 0.45);
+        border-radius: 18px;
+      }
     </style>
   </head>
   <body>
     <script>
       // Game constants
-      const SCREEN_W = 360;
-      const SCREEN_H = 640;
-      const MENU_H = SCREEN_H / 3;
-      const POWDER_AREA_H = SCREEN_H - MENU_H;
-      const POWDER_SIZE = 6;
+      const BASE_SCREEN_W = 360;
+      const BASE_SCREEN_H = 640;
+      let SCREEN_W = BASE_SCREEN_W;
+      let SCREEN_H = BASE_SCREEN_H;
+      let MENU_H = SCREEN_H / 3;
+      let POWDER_AREA_H = SCREEN_H - MENU_H;
+      let powderSize = 6;
+      let layoutScaleX = 1;
+      let layoutScaleY = 1;
+      let canvas;
       const BASE_FALL_SPEED = 2;
       const BASE_DROPPER_INTERVAL = 2000; // ms
 
@@ -77,10 +95,15 @@
       let buttons = [];
 
       function setup() {
-        createCanvas(SCREEN_W, SCREEN_H);
+        updateLayoutDimensions();
+        canvas = createCanvas(SCREEN_W, SCREEN_H);
         rectMode(CENTER);
         textAlign(CENTER, CENTER);
         frameRate(60);
+      }
+
+      function windowResized() {
+        updateLayoutDimensions(true);
       }
 
       function draw() {
@@ -97,16 +120,17 @@
       }
 
       function updatePowders() {
-        let fallSpeed = BASE_FALL_SPEED * getGravityMultiplier() * (deltaTime / 16.67);
+        let fallSpeed =
+          BASE_FALL_SPEED * getGravityMultiplier() * (deltaTime / 16.67);
         for (let i = powders.length - 1; i >= 0; i--) {
           let p = powders[i];
-          if (p.y + POWDER_SIZE / 2 < POWDER_AREA_H) {
+          if (p.y + powderSize / 2 < POWDER_AREA_H) {
             p.y += fallSpeed;
-            if (p.y + POWDER_SIZE / 2 > POWDER_AREA_H) {
-              p.y = POWDER_AREA_H - POWDER_SIZE / 2;
+            if (p.y + powderSize / 2 > POWDER_AREA_H) {
+              p.y = POWDER_AREA_H - powderSize / 2;
             }
           }
-          if (p.y + POWDER_SIZE / 2 >= POWDER_AREA_H) {
+          if (p.y + powderSize / 2 >= POWDER_AREA_H) {
             settlePowder(i);
           }
         }
@@ -115,7 +139,7 @@
       function renderPowders() {
         for (let p of powders) {
           fill(powderTypes[p.type].color);
-          rect(p.x, p.y, POWDER_SIZE, POWDER_SIZE, 2);
+          rect(p.x, p.y, powderSize, powderSize, 4);
         }
       }
 
@@ -168,42 +192,42 @@
         buttons = [];
 
         fill('#fff');
-        textSize(14);
+        textSize(scaledFont(14));
         text(
           `Dust: ${Math.floor(dust)} | Crystal Cores: ${crystalCores} | Total Powder: ${totalPowderCollected}`,
           SCREEN_W / 2,
-          POWDER_AREA_H + 22
+          POWDER_AREA_H + scaledY(22)
         );
 
         drawPowderCounters();
 
-        let rowY = POWDER_AREA_H + 68;
+        let rowY = POWDER_AREA_H + scaledY(68);
         rowY = drawPowderSelectRow(rowY);
         rowY = drawTierUpgradeRow(rowY);
         rowY = drawAutoDropperRow(rowY);
         rowY = drawUpgradeRows(rowY);
         rowY = drawCompressionRow(rowY);
-        drawPrestigeRow(rowY + 6);
+        drawPrestigeRow(rowY + scaledY(6));
         drawDropButton();
       }
 
       function drawPowderCounters() {
         fill('#cfd8dc');
-        textSize(12);
+        textSize(scaledFont(12));
         let unlocked = getUnlockedIndices();
         let pieces = unlocked.map(
           (i) => `${powderTypes[i].name}: ${powderCounts[i]}`
         );
-        text(pieces.join(' | '), SCREEN_W / 2, POWDER_AREA_H + 44);
+        text(pieces.join(' | '), SCREEN_W / 2, POWDER_AREA_H + scaledY(44));
       }
 
       function drawPowderSelectRow(y) {
         let indices = getUnlockedIndices();
         if (indices.length === 0) return y;
-        let btnW = 90;
-        let btnH = 32;
+        let btnW = scaledX(90);
+        let btnH = scaledY(32);
         let xs = getRowPositions(indices.length);
-        textSize(13);
+        textSize(scaledFont(13));
         for (let idx = 0; idx < indices.length; idx++) {
           let i = indices[idx];
           let x = xs[idx];
@@ -211,17 +235,24 @@
           rect(x, y, btnW, btnH, 10);
           fill(i === selectedPowder ? powderTypes[i].color : '#222');
           text(powderTypes[i].name, x, y);
-          buttons.push({ action: 'selectPowder', index: i, x, y, w: btnW, h: btnH });
+          buttons.push({
+            action: 'selectPowder',
+            index: i,
+            x,
+            y,
+            w: btnW,
+            h: btnH
+          });
         }
-        textSize(14);
-        return y + 34;
+        textSize(scaledFont(14));
+        return y + scaledY(34);
       }
 
       function drawTierUpgradeRow(y) {
-        let btnW = 110;
-        let btnH = 30;
+        let btnW = scaledX(110);
+        let btnH = scaledY(30);
         let xs = getRowPositions(tierUnlockCosts.length);
-        textSize(11);
+        textSize(scaledFont(11));
         for (let i = 0; i < tierUnlockCosts.length; i++) {
           let x = xs[i];
           let cost = tierUnlockCosts[i];
@@ -236,19 +267,26 @@
             x,
             y
           );
-          buttons.push({ action: 'tierUpgrade', index: i, x, y, w: btnW, h: btnH });
+          buttons.push({
+            action: 'tierUpgrade',
+            index: i,
+            x,
+            y,
+            w: btnW,
+            h: btnH
+          });
         }
-        textSize(14);
-        return y + 34;
+        textSize(scaledFont(14));
+        return y + scaledY(34);
       }
 
       function drawAutoDropperRow(y) {
         let indices = getUnlockedIndices();
         if (indices.length === 0) return y;
-        let btnW = 130;
-        let btnH = 30;
+        let btnW = scaledX(130);
+        let btnH = scaledY(30);
         let xs = getRowPositions(indices.length);
-        textSize(11);
+        textSize(scaledFont(11));
         for (let idx = 0; idx < indices.length; idx++) {
           let i = indices[idx];
           let x = xs[idx];
@@ -262,18 +300,25 @@
             x,
             y
           );
-          buttons.push({ action: 'buyDropper', index: i, x, y, w: btnW, h: btnH });
+          buttons.push({
+            action: 'buyDropper',
+            index: i,
+            x,
+            y,
+            w: btnW,
+            h: btnH
+          });
         }
-        textSize(14);
-        return y + 34;
+        textSize(scaledFont(14));
+        return y + scaledY(34);
       }
 
       function drawUpgradeRows(y) {
         let columns = Math.min(3, upgradeConfigs.length);
-        let btnW = 120;
-        let btnH = 34;
+        let btnW = scaledX(120);
+        let btnH = scaledY(34);
         let rows = Math.ceil(upgradeConfigs.length / columns);
-        textSize(10);
+        textSize(scaledFont(10));
         for (let r = 0; r < rows; r++) {
           let start = r * columns;
           let end = Math.min(start + columns, upgradeConfigs.length);
@@ -285,16 +330,16 @@
             let cost = getUpgradeCost(config);
             let canBuy = dust >= cost;
             let x = xs[c];
-            let rowY = y + r * 36;
+            let rowY = y + scaledY(r * 36);
             fill(canBuy ? '#8e24aa' : '#4a148c');
             rect(x, rowY, btnW, btnH, 8);
             fill('#fff');
             text(
               `${config.name} Lv.${level} (\u2212${cost})`,
               x,
-              rowY - 8
+              rowY - scaledY(8)
             );
-            text(config.description, x, rowY + 6);
+            text(config.description, x, rowY + scaledY(6));
             buttons.push({
               action: 'buyUpgrade',
               key: config.key,
@@ -305,21 +350,21 @@
             });
           }
         }
-        textSize(14);
-        return y + rows * 36;
+        textSize(scaledFont(14));
+        return y + scaledY(rows * 36);
       }
 
       function drawCompressionRow(y) {
         if (upgradesState.compressor <= 0) {
-          textSize(11);
+          textSize(scaledFont(11));
           fill('#b0bec5');
           text(
             'Purchase the Powder Compressor to unlock conversion recipes.',
             SCREEN_W / 2,
             y
           );
-          textSize(14);
-          return y + 34;
+          textSize(scaledFont(14));
+          return y + scaledY(34);
         }
 
         let availableRecipes = compressionRecipes.filter((recipe) =>
@@ -328,10 +373,10 @@
         if (availableRecipes.length === 0) {
           return y;
         }
-        let btnW = 160;
-        let btnH = 28;
+        let btnW = scaledX(160);
+        let btnH = scaledY(28);
         let xs = getRowPositions(availableRecipes.length);
-        textSize(11);
+        textSize(scaledFont(11));
         let efficiency = getCompressorEfficiency();
         for (let i = 0; i < availableRecipes.length; i++) {
           let recipe = availableRecipes[i];
@@ -348,30 +393,34 @@
           );
           buttons.push({ action: 'compress', recipe, x, y, w: btnW, h: btnH });
         }
-        textSize(14);
-        return y + 34;
+        textSize(scaledFont(14));
+        return y + scaledY(34);
       }
 
       function drawPrestigeRow(y) {
-        let btnW = 220;
-        let btnH = 38;
+        let btnW = scaledX(220);
+        let btnH = scaledY(38);
         let gain = getPrestigeGain();
         let canPrestige = gain > 0;
         fill(canPrestige ? '#ffca28' : '#8d6e63');
         rect(SCREEN_W / 2, y, btnW, btnH, 10);
         fill('#222');
-        textSize(12);
-        text(`Crystallize (+${gain} cores)`, SCREEN_W / 2, y - 8);
-        text('Resets for permanent dust & gravity boosts.', SCREEN_W / 2, y + 8);
-        textSize(14);
+        textSize(scaledFont(12));
+        text(`Crystallize (+${gain} cores)`, SCREEN_W / 2, y - scaledY(8));
+        text(
+          'Resets for permanent dust & gravity boosts.',
+          SCREEN_W / 2,
+          y + scaledY(8)
+        );
+        textSize(scaledFont(14));
         buttons.push({ action: 'prestige', x: SCREEN_W / 2, y, w: btnW, h: btnH });
       }
 
       function drawDropButton() {
-        let btnW = 90;
-        let btnH = 34;
-        let dropX = SCREEN_W - 70;
-        let dropY = POWDER_AREA_H + MENU_H - 40;
+        let btnW = scaledX(90);
+        let btnH = scaledY(34);
+        let dropX = SCREEN_W - scaledX(70);
+        let dropY = POWDER_AREA_H + MENU_H - scaledY(40);
         fill('#1976d2');
         rect(dropX, dropY, btnW, btnH, 10);
         fill('#fff');
@@ -380,6 +429,7 @@
       }
 
       function mousePressed() {
+        let handled = false;
         for (let btn of buttons) {
           if (
             mouseX > btn.x - btn.w / 2 &&
@@ -388,8 +438,18 @@
             mouseY < btn.y + btn.h / 2
           ) {
             handleAction(btn);
+            handled = true;
             break;
           }
+        }
+        if (
+          !handled &&
+          mouseX >= 0 &&
+          mouseX <= SCREEN_W &&
+          mouseY >= 0 &&
+          mouseY <= SCREEN_H
+        ) {
+          dropPowder(selectedPowder, mouseX);
         }
       }
 
@@ -419,13 +479,17 @@
         }
       }
 
-      function dropPowder(type) {
+      function dropPowder(type, spawnX) {
         if (!(type === 0 || tierUpgrades[type - 1])) {
           return;
         }
+        let x =
+          spawnX === undefined
+            ? random(powderSize, SCREEN_W - powderSize)
+            : constrain(spawnX, powderSize, SCREEN_W - powderSize);
         powders.push({
-          x: random(POWDER_SIZE, SCREEN_W - POWDER_SIZE),
-          y: POWDER_SIZE,
+          x,
+          y: powderSize,
           type: type
         });
       }
@@ -513,7 +577,7 @@
 
       function getRowPositions(count) {
         if (count <= 0) return [];
-        let padding = 40;
+        let padding = scaledX(40);
         if (count === 1) {
           return [SCREEN_W / 2];
         }
@@ -524,6 +588,45 @@
           xs.push(padding + step * i);
         }
         return xs;
+      }
+
+      function scaledFont(value) {
+        let scale = Math.min(layoutScaleX, layoutScaleY);
+        return constrain(Math.round(value * scale), 12, 28);
+      }
+
+      function scaledX(value) {
+        return value * layoutScaleX;
+      }
+
+      function scaledY(value) {
+        return value * layoutScaleY;
+      }
+
+      function updateLayoutDimensions(resize = false) {
+        let margin = 40;
+        let availableWidth = Math.max(windowWidth - margin, BASE_SCREEN_W);
+        let availableHeight = Math.max(windowHeight - margin, BASE_SCREEN_H);
+        SCREEN_W = Math.round(
+          Math.min(Math.max(availableWidth, BASE_SCREEN_W), 1280)
+        );
+        SCREEN_H = Math.round(
+          Math.min(Math.max(availableHeight, BASE_SCREEN_H), 960)
+        );
+        MENU_H = Math.round(SCREEN_H * 0.35);
+        POWDER_AREA_H = SCREEN_H - MENU_H;
+        layoutScaleX = SCREEN_W / BASE_SCREEN_W;
+        layoutScaleY = SCREEN_H / BASE_SCREEN_H;
+        powderSize = Math.max(8, Math.round(Math.min(SCREEN_W, POWDER_AREA_H) / 50));
+        if (resize && canvas) {
+          resizeCanvas(SCREEN_W, SCREEN_H);
+        }
+      }
+
+      function keyPressed() {
+        if (key === ' ' || keyCode === 32) {
+          dropPowder(selectedPowder);
+        }
       }
     </script>
   </body>
