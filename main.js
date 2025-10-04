@@ -31,6 +31,8 @@
 
       let powders = []; // {col, row, type, fallProgress, collected}
       let powderCounts = [];
+      let tierInventories = [];
+      let nextEntityId = 1;
       let selectedPowder = 0;
       let tierUpgrades = [];
       let autoDroppers = [];
@@ -597,7 +599,8 @@
             explosions: [],
             successPulse: 0,
             incoming: [],
-            nextLane: 0
+            nextLane: 0,
+            packageQueue: []
           },
           asteroid: {
             progress: 0,
@@ -629,6 +632,178 @@
           universe: { progress: 0, angle: 0, nodes: [], autoTimer: 0 },
           singularity: { progress: 0, shards: [], orbit: 0, halo: 0, autoTimer: 0 }
         };
+      }
+
+      function resetInventories() {
+        tierInventories = new Array(powderTypes.length).fill(null).map(() => []);
+        nextEntityId = 1;
+      }
+
+      function ensureInventory(type) {
+        if (!tierInventories[type]) {
+          tierInventories[type] = [];
+        }
+        return tierInventories[type];
+      }
+
+      function mergeLineage(components, includeId) {
+        let lineageSet = new Set();
+        if (includeId && typeof includeId === 'number') {
+          lineageSet.add(includeId);
+        }
+        for (let component of components || []) {
+          if (!component) continue;
+          if (Array.isArray(component.lineage)) {
+            for (let id of component.lineage) {
+              lineageSet.add(id);
+            }
+          } else if (component.id != null) {
+            lineageSet.add(component.id);
+          }
+        }
+        return Array.from(lineageSet);
+      }
+
+      function createBaseEntity(type, props = {}) {
+        let id = nextEntityId++;
+        return {
+          id,
+          type,
+          color:
+            props.color || (powderTypes[type] && powderTypes[type].color) || '#ffffff',
+          mass: props.mass != null ? props.mass : 1,
+          lineage: mergeLineage(props.contents, id),
+          contents: props.contents ? props.contents.slice() : [],
+          origin: props.origin || 'jar',
+          metadata: props.metadata ? { ...props.metadata } : {}
+        };
+      }
+
+      function createCompositeEntity(type, components, props = {}) {
+        let id = nextEntityId++;
+        let contents = (components || []).slice();
+        let mass = contents.reduce((sum, c) => sum + (c && c.mass != null ? c.mass : 1), 0);
+        if (!Number.isFinite(mass) || mass <= 0) {
+          mass = Math.max(1, contents.length);
+        }
+        return {
+          id,
+          type,
+          color:
+            props.color || (powderTypes[type] && powderTypes[type].color) || '#ffffff',
+          mass,
+          contents,
+          lineage: mergeLineage(contents, id),
+          origin: props.origin || 'composite',
+          metadata: props.metadata ? { ...props.metadata } : {}
+        };
+      }
+
+      function recalcCompositeMass(entity) {
+        if (!entity) return 0;
+        let contents = Array.isArray(entity.contents) ? entity.contents : [];
+        let mass = contents.reduce((sum, c) => sum + (c && c.mass != null ? c.mass : 1), 0);
+        if (!Number.isFinite(mass) || mass <= 0) {
+          mass = Math.max(1, contents.length);
+        }
+        entity.mass = mass;
+        entity.lineage = mergeLineage(contents, entity.id);
+        return mass;
+      }
+
+      function gainEntity(type, entity) {
+        let inventory = ensureInventory(type);
+        inventory.push(entity);
+        powderCounts[type] = (powderCounts[type] || 0) + 1;
+        routeEntityPostCreation(entity);
+        return entity;
+      }
+
+      function gainEntities(type, entities) {
+        for (let entity of entities || []) {
+          gainEntity(type, entity);
+        }
+      }
+
+      function routeEntityPostCreation(entity) {
+        if (!entity || entity.type == null) return;
+        switch (entity.type) {
+          case 0:
+            // Reintroduce base grains into the conveyor flow when they originate outside the jar.
+            if (entity.origin && entity.origin !== 'jar' && entity.origin !== 'quantum') {
+              requeueSalvagedGrains([entity]);
+            }
+            break;
+          case 1:
+            if (entity.origin !== 'conveyor') {
+              queuePackageDirect(entity);
+            }
+            break;
+          default:
+            break;
+        }
+      }
+
+      function queuePackageDirect(packageEntity) {
+        if (!packageEntity) return;
+        let rocketState = moduleStates && moduleStates.rocket;
+        if (!rocketState) return;
+        rocketState.packageQueue = rocketState.packageQueue || [];
+        if (rocketState.packageQueue.some((pkg) => pkg && pkg.id === packageEntity.id)) {
+          return;
+        }
+        rocketState.packageQueue.push(packageEntity);
+        while (rocketState.packageQueue.length > 60) {
+          rocketState.packageQueue.shift();
+        }
+        rocketState.incoming = rocketState.incoming || [];
+        let laneCount = rocketState.pods && rocketState.pods.length ? rocketState.pods.length : 3;
+        let lane = rocketState.nextLane || 0;
+        rocketState.nextLane = (lane + 1) % laneCount;
+        let colors = (packageEntity.contents || []).map((grain) => grain.color || '#f2b066');
+        rocketState.incoming.push({
+          package: packageEntity,
+          colors,
+          pulse: 0.6,
+          progress: 0.9,
+          lane
+        });
+        while (rocketState.incoming.length > 8) {
+          rocketState.incoming.shift();
+        }
+      }
+
+      function consumeEntity(type, entity) {
+        let inventory = ensureInventory(type);
+        let index = inventory.findIndex((item) => item && item.id === entity.id);
+        if (index !== -1) {
+          let [removed] = inventory.splice(index, 1);
+          powderCounts[type] = Math.max(0, (powderCounts[type] || 0) - 1);
+          return removed;
+        }
+        return null;
+      }
+
+      function consumeEntities(type, entities) {
+        let removed = [];
+        for (let entity of entities || []) {
+          let result = consumeEntity(type, entity);
+          if (result) {
+            removed.push(result);
+          }
+        }
+        return removed;
+      }
+
+      function takeEntities(type, count) {
+        let inventory = ensureInventory(type);
+        if (count <= 0 || inventory.length === 0) {
+          return [];
+        }
+        let actual = Math.min(count, inventory.length);
+        let batch = inventory.splice(0, actual);
+        powderCounts[type] = Math.max(0, (powderCounts[type] || 0) - actual);
+        return batch;
       }
       let grid = [];
       let gridCols = 0;
@@ -790,6 +965,7 @@
       function initializeGameState() {
         powders = [];
         powderCounts = new Array(powderTypes.length).fill(0);
+        resetInventories();
         selectedPowder = 0;
         tierUpgrades = new Array(Math.max(0, powderTypes.length - 1)).fill(false);
         autoDroppers = new Array(powderTypes.length).fill(0);
@@ -1340,19 +1516,41 @@
       function craftNextTier(state, inputIndex, outputIndex, speed, dt, dustBase, onCraft) {
         if (!state) return;
         state.progress = state.progress || 0;
-        if (powderCounts[inputIndex] >= CHAIN_REQUIREMENT) {
+        let inventory = ensureInventory(inputIndex);
+        if (inventory.length >= CHAIN_REQUIREMENT) {
           state.progress += dt * speed;
-          while (state.progress >= 1 && powderCounts[inputIndex] >= CHAIN_REQUIREMENT) {
+          while (state.progress >= 1 && inventory.length >= CHAIN_REQUIREMENT) {
             state.progress -= 1;
-            powderCounts[inputIndex] -= CHAIN_REQUIREMENT;
-            powderCounts[outputIndex] += 1;
+            let consumed = takeEntities(inputIndex, CHAIN_REQUIREMENT);
+            if (consumed.length < CHAIN_REQUIREMENT) {
+              // return consumed entities to inventory if we couldn't gather enough
+              gainEntities(inputIndex, consumed);
+              state.progress = 0;
+              break;
+            }
+            let originMap = [
+              'jar',
+              'conveyor',
+              'rocket',
+              'asteroid',
+              'planet',
+              'forge',
+              'galaxy',
+              'universe',
+              'singularity'
+            ];
+            let composite = createCompositeEntity(outputIndex, consumed, {
+              origin: originMap[outputIndex] || 'composite'
+            });
+            gainEntity(outputIndex, composite);
             if (dustBase && dustBase > 0) {
               let gain = Math.max(1, Math.round(dustBase * getDustMultiplier()));
               dust += gain;
             }
             if (onCraft) {
-              onCraft();
+              onCraft(composite, consumed);
             }
+            inventory = ensureInventory(inputIndex);
           }
         } else {
           state.progress = Math.max(0, state.progress - dt * 0.35);
@@ -1421,21 +1619,28 @@
         while (
           (state.packageProgress || 0) >= 1 &&
           (state.packageBuffer || []).length >= CHAIN_REQUIREMENT &&
-          powderCounts[0] >= CHAIN_REQUIREMENT
+          (ensureInventory(0).length >= CHAIN_REQUIREMENT)
         ) {
           state.packageProgress -= 1;
           let packageGrains = state.packageBuffer.splice(0, CHAIN_REQUIREMENT);
-          powderCounts[0] -= CHAIN_REQUIREMENT;
-          powderCounts[1] += 1;
+          let removed = consumeEntities(0, packageGrains);
+          if (removed.length < CHAIN_REQUIREMENT) {
+            // Requeue any unremoved grains to maintain flow
+            state.packageBuffer.unshift(...packageGrains.filter((g) => !removed.includes(g)));
+            state.packageProgress = 0;
+            break;
+          }
+          let packageEntity = createCompositeEntity(1, removed, { origin: 'conveyor' });
+          gainEntity(1, packageEntity);
           state.packagePulse = 1;
           state.deliveryPulse = 1;
-          let colors = packageGrains.map((grain) => grain.color);
+          let colors = removed.map((grain) => grain.color);
           state.packageHistory = state.packageHistory || [];
           state.packageHistory.push({ colors, pulse: 1 });
           while (state.packageHistory.length > 4) {
             state.packageHistory.shift();
           }
-          let packageWorth = packageGrains.reduce((total, grain) => {
+          let packageWorth = removed.reduce((total, grain) => {
             let type = grain.type != null ? grain.type : 0;
             let dustValue =
               powderTypes[type] && powderTypes[type].dustValue != null
@@ -1445,6 +1650,7 @@
           }, 0);
           state.departures = state.departures || [];
           state.departures.push({
+            package: packageEntity,
             colors,
             pulse: 1,
             progress: 0,
@@ -1457,13 +1663,42 @@
           let overfillLevel = getUpgradeLevel('conveyorOverfill');
           if (overfillLevel > 0) {
             let extraChance = Math.min(0.6, 0.18 * overfillLevel);
-            if (Math.random() < extraChance) {
-              powderCounts[1] += 1;
+            if (
+              Math.random() < extraChance &&
+              state.packageBuffer.length >= CHAIN_REQUIREMENT &&
+              ensureInventory(0).length >= CHAIN_REQUIREMENT
+            ) {
+              let bonusGrains = state.packageBuffer.splice(0, CHAIN_REQUIREMENT);
+              let bonusRemoved = consumeEntities(0, bonusGrains);
+              if (bonusRemoved.length === CHAIN_REQUIREMENT) {
+                let bonusPackage = createCompositeEntity(1, bonusRemoved, { origin: 'conveyor' });
+                gainEntity(1, bonusPackage);
+                let bonusWorth = bonusRemoved.reduce((total, grain) => {
+                  let type = grain.type != null ? grain.type : 0;
+                  let dustValue =
+                    powderTypes[type] && powderTypes[type].dustValue != null
+                      ? powderTypes[type].dustValue
+                      : 1;
+                  return total + dustValue;
+                }, 0);
+                state.departures.push({
+                  package: bonusPackage,
+                  colors: bonusRemoved.map((grain) => grain.color),
+                  pulse: 1,
+                  progress: 0,
+                  worth: bonusWorth,
+                  rocket: isMachineUnlocked('rocket')
+                });
+                state.deliveryPulse = 1;
+              } else {
+                // Return grains if bonus package failed to form
+                state.packageBuffer.unshift(...bonusGrains);
+                gainEntities(0, bonusRemoved);
+              }
               dust += Math.max(
                 1,
                 Math.round((2 + overfillLevel) * getDustMultiplier())
               );
-              state.deliveryPulse = 1;
             }
           }
         }
@@ -1543,6 +1778,7 @@
         let range = state.geometry.entryRange || [-0.32, 0.32];
         for (let i = 0; i < count; i++) {
           let entry = state.queue.shift();
+          if (!entry || !entry.grain) continue;
           let source = entry.source != null ? entry.source : 0.5;
           let spawnX = lerp(range[0], range[1], source);
           spawnX += random(-0.02, 0.02);
@@ -1551,8 +1787,9 @@
             y: state.geometry.holeTop,
             vx: 0,
             vy: -0.04,
-            type: entry.type,
-            color: entry.color
+            type: entry.grain.type,
+            color: entry.grain.color,
+            grain: entry.grain
           });
         }
         while (state.fallers.length > 48) {
@@ -1578,7 +1815,8 @@
               x: faller.x,
               y: beltY,
               type: faller.type,
-              color: faller.color
+              color: faller.color,
+              grain: faller.grain
             });
             if (state.modules.length > 48) {
               state.modules.shift();
@@ -1600,7 +1838,7 @@
           let segment = segments[grain.segment];
           if (!segment) {
             state.modules.splice(i, 1);
-            state.packageBuffer.push({ type: grain.type, color: grain.color });
+            state.packageBuffer.push(grain.grain || grain);
             if (state.packageBuffer.length > CHAIN_REQUIREMENT * 3) {
               state.packageBuffer.splice(0, state.packageBuffer.length - CHAIN_REQUIREMENT * 3);
             }
@@ -1621,7 +1859,7 @@
           }
           if (!segment) {
             state.modules.splice(i, 1);
-            state.packageBuffer.push({ type: grain.type, color: grain.color });
+            state.packageBuffer.push(grain.grain || grain);
             if (state.packageBuffer.length > CHAIN_REQUIREMENT * 3) {
               state.packageBuffer.splice(0, state.packageBuffer.length - CHAIN_REQUIREMENT * 3);
             }
@@ -1669,6 +1907,13 @@
         let rocketState = moduleStates && moduleStates.rocket;
         if (!rocketState) return;
         rocketState.incoming = rocketState.incoming || [];
+        rocketState.packageQueue = rocketState.packageQueue || [];
+        if (pkg.package) {
+          rocketState.packageQueue.push(pkg.package);
+          while (rocketState.packageQueue.length > 40) {
+            rocketState.packageQueue.shift();
+          }
+        }
         let laneCount =
           rocketState.pods && rocketState.pods.length > 0
             ? rocketState.pods.length
@@ -1676,6 +1921,7 @@
         let lane = rocketState.nextLane || 0;
         rocketState.nextLane = (lane + 1) % laneCount;
         rocketState.incoming.push({
+          package: pkg.package,
           colors: pkg.colors,
           pulse: 1,
           progress: 0,
@@ -1697,11 +1943,12 @@
         if (!state.pods || state.pods.length === 0) {
           state.pods = new Array(3)
             .fill(0)
-            .map(() => ({ progress: 0, launch: 0, fueling: false }));
+            .map(() => ({ progress: 0, launch: 0, fueling: false, package: null }));
         }
         state.explosions = state.explosions || [];
         state.successPulse = Math.max(0, (state.successPulse || 0) - dt * 1.1);
         state.incoming = state.incoming || [];
+        state.packageQueue = state.packageQueue || [];
         for (let i = state.incoming.length - 1; i >= 0; i--) {
           let incoming = state.incoming[i];
           incoming.progress = (incoming.progress || 0) + dt * 0.9;
@@ -1722,10 +1969,14 @@
             }
             continue;
           }
-          if (!pod.fueling && powderCounts[1] >= CHAIN_REQUIREMENT) {
-            powderCounts[1] -= CHAIN_REQUIREMENT;
-            pod.fueling = true;
-            pod.progress = 0;
+          if (!pod.fueling && state.packageQueue.length > 0) {
+            let nextPackage = state.packageQueue.shift();
+            let consumed = nextPackage ? consumeEntity(1, nextPackage) : null;
+            if (consumed) {
+              pod.fueling = true;
+              pod.progress = 0;
+              pod.package = consumed;
+            }
           }
           if (pod.fueling) {
             pod.progress += dt * fuelSpeed;
@@ -1734,18 +1985,28 @@
               pod.launch = 0.01;
               pod.fueling = false;
               if (Math.random() < successRate) {
-                powderCounts[2] += 1;
+                let launch = createCompositeEntity(2, pod.package ? [pod.package] : [], {
+                  origin: 'rocket'
+                });
+                gainEntity(2, launch);
                 dust += Math.max(2, Math.round(6 * getDustMultiplier()));
                 state.successPulse = 1;
               } else {
                 let salvage = Math.floor(
                   CHAIN_REQUIREMENT * (0.05 + getUpgradeLevel('rocketSuccessRate') * 0.05)
                 );
-                if (salvage > 0) {
-                  powderCounts[1] += salvage;
+                if (salvage > 0 && pod.package && pod.package.contents) {
+                  let grains = pod.package.contents.slice();
+                  let shuffled = grains.slice().sort(() => Math.random() - 0.5);
+                  let survivors = shuffled.slice(0, Math.min(salvage, shuffled.length));
+                  if (survivors.length > 0) {
+                    gainEntities(0, survivors);
+                    requeueSalvagedGrains(survivors);
+                  }
                 }
                 state.explosions.push({ life: 1, index: i });
               }
+              pod.package = null;
             }
           } else {
             pod.progress = Math.max(0, pod.progress - dt * 0.3);
@@ -1772,9 +2033,9 @@
           0.26 + (researchState.lens || 0) * 0.03,
           dt,
           8,
-          () => {
-            spawnAsteroidPowder(state);
-            applyAsteroidFissionBonus(state);
+          (asteroidEntity, consumed) => {
+            spawnAsteroidPowder(state, asteroidEntity);
+            applyAsteroidFissionBonus(state, asteroidEntity, consumed);
           }
         );
         updateAsteroidPowder(state, dt);
@@ -1805,11 +2066,15 @@
         }
       }
 
-      function spawnAsteroidPowder(state) {
+      function spawnAsteroidPowder(state, asteroidEntity) {
         if (!state.powderBits) {
           state.powderBits = [];
         }
-        for (let i = 0; i < 4; i++) {
+        let bitCount = 4;
+        if (asteroidEntity && asteroidEntity.mass) {
+          bitCount = Math.max(4, Math.min(12, Math.round(asteroidEntity.mass / 4)));
+        }
+        for (let i = 0; i < bitCount; i++) {
           let angle = random(TAU);
           let radius = random(0.48, 0.7);
           let tangential = 0.25 + Math.random() * 0.18;
@@ -1827,15 +2092,61 @@
           state.powderBits.shift();
         }
         state.ringPulse = 1;
+        if (asteroidEntity) {
+          state.asteroids = state.asteroids || [];
+          let mass = recalcCompositeMass(asteroidEntity);
+          state.asteroids.push({
+            x: random(-0.2, 0.2),
+            y: random(-0.2, 0.2),
+            vx: random(-0.12, 0.12),
+            vy: random(-0.12, 0.12),
+            mass,
+            radius: asteroidRadius(mass),
+            hue: random(0.15, 0.32),
+            mergeGlow: 0.8,
+            entity: asteroidEntity
+          });
+          while (state.asteroids.length > 12) {
+            state.asteroids.shift();
+          }
+        }
       }
 
-      function applyAsteroidFissionBonus(state) {
+      function applyAsteroidFissionBonus(state, asteroidEntity) {
         let level = getUpgradeLevel('asteroidFissionBoost');
         if (level <= 0) return;
         let bonusChance = Math.min(0.65, 0.2 + level * 0.12);
-        if (Math.random() < bonusChance) {
-          powderCounts[3] += 1;
-          state.ringPulse = 1;
+        if (
+          Math.random() < bonusChance &&
+          asteroidEntity &&
+          Array.isArray(asteroidEntity.contents) &&
+          asteroidEntity.contents.length > 1
+        ) {
+          let splitCount = Math.max(1, Math.floor(asteroidEntity.contents.length / 2));
+          let fragments = asteroidEntity.contents.splice(0, splitCount);
+          recalcCompositeMass(asteroidEntity);
+          asteroidEntity.lineage = mergeLineage(asteroidEntity.contents, asteroidEntity.id);
+          if (fragments.length > 0) {
+            let newAsteroid = createCompositeEntity(3, fragments);
+            gainEntity(3, newAsteroid);
+            state.asteroids = state.asteroids || [];
+            let mass = recalcCompositeMass(newAsteroid);
+            state.asteroids.push({
+              x: random(-0.25, 0.25),
+              y: random(-0.25, 0.25),
+              vx: random(-0.18, 0.18),
+              vy: random(-0.18, 0.18),
+              mass,
+              radius: asteroidRadius(mass),
+              hue: random(0.18, 0.4),
+              mergeGlow: 1,
+              entity: newAsteroid
+            });
+            while (state.asteroids.length > 12) {
+              state.asteroids.shift();
+            }
+            state.ringPulse = 1;
+          }
         }
         dust += Math.max(1, Math.round((3 + level * 2) * getDustMultiplier()));
       }
@@ -1954,6 +2265,22 @@
               a.radius = asteroidRadius(totalMass);
               a.hue = newHue;
               a.mergeGlow = 1;
+              if (a.entity || b.entity) {
+                let host = a.entity || b.entity;
+                let components = [];
+                if (a.entity && Array.isArray(a.entity.contents)) {
+                  components.push(...a.entity.contents);
+                }
+                if (b.entity && Array.isArray(b.entity.contents)) {
+                  components.push(...b.entity.contents);
+                }
+                if (components.length === 0) {
+                  components = [host];
+                }
+                host.contents = components;
+                recalcCompositeMass(host);
+                a.entity = host;
+              }
               asteroids.splice(j, 1);
               j--;
               state.ringPulse = 1;
@@ -1982,7 +2309,7 @@
           0.24 + (researchState.overclock || 0) * 0.02,
           dt,
           10,
-          () => spawnPlanetesimals(state)
+          (planetEntity) => spawnPlanetesimals(state, planetEntity)
         );
         updatePlanetesimals(state, dt);
         updatePlanetMoons(state, dt);
@@ -2008,14 +2335,16 @@
         }
       }
 
-      function spawnPlanetesimals(state) {
+      function spawnPlanetesimals(state, planetEntity) {
         if (!state.planetesimals) {
           state.planetesimals = [];
         }
-        for (let i = 0; i < 3; i++) {
+        let planetMass = planetEntity ? recalcCompositeMass(planetEntity) : 8;
+        let count = Math.max(3, Math.min(8, Math.round(planetMass / 5)));
+        for (let i = 0; i < count; i++) {
           let angle = random(TAU);
           let radius = random(0.26, 0.58);
-          state.planetesimals.push(createPlanetesimal(angle, radius));
+          state.planetesimals.push(createPlanetesimal(angle, radius, planetEntity));
         }
         while (state.planetesimals.length > 40) {
           state.planetesimals.shift();
@@ -2023,9 +2352,10 @@
         state.coreGlow = 1;
       }
 
-      function createPlanetesimal(angle, radius) {
+      function createPlanetesimal(angle, radius, planetEntity) {
         let tangential = 0.32 + Math.random() * 0.18;
-        let mass = 1 + Math.random() * 0.9;
+        let baseMass = planetEntity ? Math.max(0.6, recalcCompositeMass(planetEntity) / 18) : 1;
+        let mass = baseMass + Math.random() * baseMass * 0.6;
         return {
           x: Math.cos(angle) * radius,
           y: Math.sin(angle) * radius * 0.72,
@@ -2035,7 +2365,8 @@
           radius: planetesimalRadius(mass),
           colorPhase: Math.random(),
           spin: random(0.8, 1.6),
-          phase: random(TAU)
+          phase: random(TAU),
+          entity: planetEntity
         };
       }
 
@@ -2142,7 +2473,10 @@
         let level = getUpgradeLevel('planetMoonNursery');
         if (level <= 0) return;
         let bonusPlanets = Math.max(1, level);
-        powderCounts[4] += bonusPlanets;
+        for (let i = 0; i < bonusPlanets; i++) {
+          let phantom = createCompositeEntity(4, [], { origin: 'planet' });
+          gainEntity(4, phantom);
+        }
         dust += Math.max(1, Math.round((6 + level * 2) * getDustMultiplier()));
         state.moonPulse = 1;
       }
@@ -2177,9 +2511,9 @@
           0.22 + getUpgradeLevel('compressor') * 0.05,
           dt,
           12,
-          () => {
+          (starEntity) => {
             state.pulses.push({ life: 1, angle: Math.random() * TAU });
-            applyForgeSupernovaBonus(state);
+            applyForgeSupernovaBonus(state, starEntity);
           }
         );
         for (let i = state.pulses.length - 1; i >= 0; i--) {
@@ -2191,11 +2525,22 @@
         runModuleAutomation(state, 'forge', dt, 9, hammerForge);
       }
 
-      function applyForgeSupernovaBonus(state) {
+      function applyForgeSupernovaBonus(state, starEntity) {
         let level = getUpgradeLevel('forgeSupernova');
         if (level <= 0) return;
         if (Math.random() < Math.min(0.55, 0.2 * level)) {
-          powderCounts[5] += 1;
+          let fragments = [];
+          if (
+            starEntity &&
+            Array.isArray(starEntity.contents) &&
+            starEntity.contents.length > 1
+          ) {
+            let split = Math.max(1, Math.floor(starEntity.contents.length / 2));
+            fragments = starEntity.contents.splice(0, split);
+            recalcCompositeMass(starEntity);
+          }
+          let bonusStar = createCompositeEntity(5, fragments, { origin: 'forge' });
+          gainEntity(5, bonusStar);
         }
         dust += Math.max(1, Math.round((8 + level * 5) * getDustMultiplier()));
         if (state && state.pulses) {
@@ -2245,9 +2590,9 @@
           0.18 + (researchState.lens || 0) * 0.03 + getUpgradeLevel('lanterns') * 0.02,
           dt,
           15,
-          () => {
-            spawnGalaxyBurst(state);
-            applyGalaxyClusterBonus(state);
+          (galaxyEntity) => {
+            spawnGalaxyBurst(state, galaxyEntity);
+            applyGalaxyClusterBonus(state, galaxyEntity);
           }
         );
         runModuleAutomation(state, 'galaxy', dt, 10.5, swirlGalaxy);
@@ -2278,21 +2623,25 @@
         }
       }
 
-      function spawnGalaxyBurst(state) {
+      function spawnGalaxyBurst(state, galaxyEntity) {
         if (!state.bursts) {
           state.bursts = [];
         }
-        state.bursts.push({
-          radius: random(0.1, 0.4),
-          angle: random(TAU),
-          life: 1
-        });
+        let count = galaxyEntity ? Math.max(1, Math.min(4, Math.round(recalcCompositeMass(galaxyEntity) / 10))) : 1;
+        for (let i = 0; i < count; i++) {
+          state.bursts.push({
+            radius: random(0.1, 0.4),
+            angle: random(TAU),
+            life: 1,
+            entity: galaxyEntity
+          });
+        }
         while (state.bursts.length > 6) {
           state.bursts.shift();
         }
       }
 
-      function applyGalaxyClusterBonus(state) {
+      function applyGalaxyClusterBonus(state, galaxyEntity) {
         let level = getUpgradeLevel('galaxyCluster');
         if (level <= 0) return;
         let extra = 0;
@@ -2302,7 +2651,20 @@
           }
         }
         if (extra > 0) {
-          powderCounts[6] += extra;
+          for (let i = 0; i < extra; i++) {
+            let fragments = [];
+            if (
+              galaxyEntity &&
+              Array.isArray(galaxyEntity.contents) &&
+              galaxyEntity.contents.length > 1
+            ) {
+              let split = Math.max(1, Math.floor(galaxyEntity.contents.length / 3));
+              fragments = galaxyEntity.contents.splice(0, split);
+              recalcCompositeMass(galaxyEntity);
+            }
+            let bonusGalaxy = createCompositeEntity(6, fragments, { origin: 'galaxy' });
+            gainEntity(6, bonusGalaxy);
+          }
         }
         dust += Math.max(1, Math.round((10 + level * 6) * getDustMultiplier()));
         if (state && state.bursts) {
@@ -2340,16 +2702,27 @@
           0.16 + (researchState.overclock || 0) * 0.02 + getUpgradeLevel('harmonics') * 0.02,
           dt,
           18,
-          () => applyUniverseContinuumBonus(state)
+          (universeEntity) => applyUniverseContinuumBonus(state, universeEntity)
         );
         runModuleAutomation(state, 'universe', dt, 12, syncUniverse);
       }
 
-      function applyUniverseContinuumBonus(state) {
+      function applyUniverseContinuumBonus(state, universeEntity) {
         let level = getUpgradeLevel('universeContinuum');
         if (level <= 0) return;
         if (Math.random() < Math.min(0.5, 0.18 * level)) {
-          powderCounts[7] += 1;
+          let fragments = [];
+          if (
+            universeEntity &&
+            Array.isArray(universeEntity.contents) &&
+            universeEntity.contents.length > 1
+          ) {
+            let split = Math.max(1, Math.floor(universeEntity.contents.length / 4));
+            fragments = universeEntity.contents.splice(0, split);
+            recalcCompositeMass(universeEntity);
+          }
+          let bonusUniverse = createCompositeEntity(7, fragments, { origin: 'universe' });
+          gainEntity(7, bonusUniverse);
         }
         dust += Math.max(1, Math.round((12 + level * 6) * getDustMultiplier()));
         let singularity = moduleStates.singularity;
@@ -2364,12 +2737,19 @@
         state.orbit += dt * 0.5;
         state.halo = (state.halo || 0) + dt * 1.1;
         let speed = 0.12 + crystalCores * 0.008;
-        if (powderCounts[7] >= CHAIN_REQUIREMENT) {
+        let universes = ensureInventory(7);
+        if (universes.length >= CHAIN_REQUIREMENT) {
           state.progress += dt * speed;
-          while (state.progress >= 1 && powderCounts[7] >= CHAIN_REQUIREMENT) {
+          while (state.progress >= 1 && universes.length >= CHAIN_REQUIREMENT) {
             state.progress -= 1;
-            powderCounts[7] -= CHAIN_REQUIREMENT;
-            powderCounts[8] += 1;
+            let consumed = takeEntities(7, CHAIN_REQUIREMENT);
+            if (consumed.length < CHAIN_REQUIREMENT) {
+              gainEntities(7, consumed);
+              state.progress = 0;
+              break;
+            }
+            let singularityEntity = createCompositeEntity(8, consumed);
+            gainEntity(8, singularityEntity);
             let coreGain = 1 + milestoneBonuses.core * getMilestoneBonusScale();
             let wholeCores = Math.floor(coreGain);
             let remainder = coreGain - wholeCores;
@@ -2380,6 +2760,7 @@
             dust += Math.max(5, Math.round(22 * getDustMultiplier()));
             state.shards.push({ life: 1, angle: Math.random() * TAU });
             applySingularityEchoBonus();
+            universes = ensureInventory(7);
           }
         } else {
           state.progress = Math.max(0, state.progress - dt * 0.25);
@@ -2673,7 +3054,7 @@
             ellipse(x, panelH * 0.12, radius * 0.6, radius * 0.4);
           }
         }
-        let queue = Math.min(6, Math.floor((powderCounts[1] || 0) / 5));
+        let queue = Math.min(6, Math.floor((ensureInventory(1).length || 0) / 5));
         for (let i = 0; i < queue; i++) {
           let qx = -panelW * 0.48;
           let qy = panelH * 0.24 - i * panelH * 0.08;
@@ -3296,8 +3677,27 @@
         let type = powder.type;
         let bonusPowder = researchState.quantum || 0;
         let powderGain = 1 + bonusPowder;
-        powderCounts[type] += powderGain;
-        totalPowderCollected += powderGain;
+        let size = getPowderSize(powder);
+        let spawnRatio = 0.5;
+        if (gridCols > 0) {
+          let centerCol = powder.col + size / 2;
+          spawnRatio = constrain(centerCol / gridCols, 0, 1);
+        }
+        let grains = [];
+        for (let i = 0; i < powderGain; i++) {
+          let entity = createBaseEntity(type, {
+            origin: i === 0 ? 'jar' : 'quantum',
+            metadata: {
+              spawnRatio,
+              jarCol: powder.col,
+              jarRow: powder.row,
+              size
+            }
+          });
+          gainEntity(type, entity);
+          totalPowderCollected += 1;
+          grains.push(entity);
+        }
         let baseValue = powderTypes[type].dustValue;
         let dustGain = Math.round(
           baseValue * getDustMultiplier() * duneDustMultiplier
@@ -3305,29 +3705,52 @@
         dust += dustGain;
         totalDustEarned += dustGain;
         addLayerProgress(baseValue * powderGain);
-        if (type === 0) {
-          enqueueConveyorGrains(powder, powderGain);
+        if (type === 0 && grains.length > 0) {
+          enqueueConveyorGrains(powder, grains);
         }
         powder.collected = true;
       }
 
-      function enqueueConveyorGrains(powder, amount) {
+      function enqueueConveyorGrains(powder, grains) {
         if (!moduleStates || !moduleStates.conveyor) return;
         if (!isMachineUnlocked('conveyor')) return;
-        if (amount <= 0) return;
+        if (!grains || grains.length === 0) return;
         let state = moduleStates.conveyor;
         state.queue = state.queue || [];
         let size = getPowderSize(powder);
         let centerCol = powder.col + size / 2;
         let ratio = gridCols > 0 ? constrain(centerCol / gridCols, 0, 1) : 0.5;
-        let spawnCount = Math.max(1, Math.round(amount));
-        for (let i = 0; i < spawnCount; i++) {
-          let spread = spawnCount > 1 ? (i / Math.max(1, spawnCount - 1)) - 0.5 : 0;
+        for (let i = 0; i < grains.length; i++) {
+          let grain = grains[i];
+          let spread = grains.length > 1 ? (i / Math.max(1, grains.length - 1)) - 0.5 : 0;
           let source = constrain(ratio + spread * 0.1 + random(-0.04, 0.04), 0, 1);
           state.queue.push({
-            type: powder.type,
-            color: powderTypes[powder.type].color,
-            source
+            grain,
+            source,
+            color: grain.color,
+            type: grain.type
+          });
+        }
+        while (state.queue.length > 280) {
+          state.queue.shift();
+        }
+      }
+
+      function requeueSalvagedGrains(grains) {
+        if (!moduleStates || !moduleStates.conveyor) return;
+        if (!grains || grains.length === 0) return;
+        let state = moduleStates.conveyor;
+        state.queue = state.queue || [];
+        for (let grain of grains) {
+          let baseSource =
+            grain && grain.metadata && typeof grain.metadata.spawnRatio === 'number'
+              ? grain.metadata.spawnRatio
+              : 0.5;
+          state.queue.push({
+            grain,
+            source: constrain(baseSource + random(-0.12, 0.12), 0, 1),
+            color: grain.color,
+            type: grain.type
           });
         }
         while (state.queue.length > 280) {
@@ -3598,12 +4021,36 @@
           .sort((a, b) => b.to - a.to);
         for (let recipe of availableRecipes) {
           let cost = Math.max(2, Math.round(recipe.baseCost / efficiency));
-          if (powderCounts[recipe.from] >= cost) {
-            powderCounts[recipe.from] -= cost;
-            powderCounts[recipe.to] += recipe.output;
-            break;
+          if (ensureInventory(recipe.from).length >= cost) {
+            if (executeCompressionRecipe(recipe, cost)) {
+              break;
+            }
           }
         }
+      }
+
+      function executeCompressionRecipe(recipe, cost) {
+        if (!recipe) return false;
+        let consumed = takeEntities(recipe.from, cost);
+        if (consumed.length < cost) {
+          gainEntities(recipe.from, consumed);
+          return false;
+        }
+        let outputs = Math.max(1, recipe.output || 1);
+        for (let i = 0; i < outputs; i++) {
+          let remainingOutputs = outputs - i;
+          let portionSize = Math.max(1, Math.ceil(consumed.length / remainingOutputs));
+          let portion = consumed.splice(0, portionSize);
+          let composite = createCompositeEntity(recipe.to, portion, {
+            origin: 'compression'
+          });
+          gainEntity(recipe.to, composite);
+        }
+        // Return any unused fragments
+        if (consumed.length > 0) {
+          gainEntities(recipe.from, consumed);
+        }
+        return true;
       }
 
       function renderRoundedRectPath(ctx, x, y, width, height, radius) {
@@ -4850,7 +5297,7 @@
           let recipe = availableRecipes[i];
           let cost = Math.max(2, Math.round(recipe.baseCost / efficiency));
           let x = xs[i];
-          let canConvert = powderCounts[recipe.from] >= cost;
+          let canConvert = ensureInventory(recipe.from).length >= cost;
           fill(canConvert ? '#ff7043' : '#5d4037');
           rect(x, y, btnW, btnH, 8);
           fill('#fff');
@@ -5184,12 +5631,17 @@
       function boostRockets() {
         let state = moduleStates.rocket;
         if (!state || !state.pods) return;
+        state.packageQueue = state.packageQueue || [];
         for (let pod of state.pods) {
           if (pod.launch > 0) continue;
-          if (!pod.fueling && powderCounts[1] >= CHAIN_REQUIREMENT) {
-            powderCounts[1] -= CHAIN_REQUIREMENT;
-            pod.fueling = true;
-            pod.progress = 0;
+          if (!pod.fueling && state.packageQueue.length > 0) {
+            let nextPackage = state.packageQueue.shift();
+            let consumed = nextPackage ? consumeEntity(1, nextPackage) : null;
+            if (consumed) {
+              pod.fueling = true;
+              pod.progress = 0;
+              pod.package = consumed;
+            }
           }
           if (pod.fueling) {
             pod.progress = Math.min(1, pod.progress + 0.35);
@@ -5384,9 +5836,8 @@
         let efficiency = getCompressorEfficiency();
         if (efficiency <= 0) return;
         let cost = Math.max(2, Math.round(recipe.baseCost / efficiency));
-        if (powderCounts[recipe.from] >= cost) {
-          powderCounts[recipe.from] -= cost;
-          powderCounts[recipe.to] += recipe.output;
+        if (ensureInventory(recipe.from).length >= cost) {
+          executeCompressionRecipe(recipe, cost);
         }
       }
 
@@ -5396,8 +5847,11 @@
         if (!Number.isFinite(parsed) || parsed <= 0) {
           return;
         }
-        powderCounts[0] += parsed;
-        totalPowderCollected += parsed;
+        for (let i = 0; i < parsed; i++) {
+          let grain = createBaseEntity(0, { origin: 'developer' });
+          gainEntity(0, grain);
+          totalPowderCollected += 1;
+        }
         milestoneMessage = `Granted ${parsed.toLocaleString()} grains for testing.`;
         milestoneMessageTimer = 3600;
       }
@@ -5426,6 +5880,7 @@
         dust = 0;
         powders = [];
         powderCounts = new Array(powderTypes.length).fill(0);
+        resetInventories();
         tierUpgrades = new Array(powderTypes.length - 1).fill(false);
         autoDroppers = new Array(powderTypes.length).fill(0);
         dropperTimers = new Array(powderTypes.length).fill(0);
