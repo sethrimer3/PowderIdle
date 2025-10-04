@@ -14,6 +14,8 @@
       const AUTO_DROP_INTERVAL = 1200;
       const AUTO_COMPRESS_INTERVAL = 1800;
       const CHAIN_REQUIREMENT = 100;
+      const SAND_RELEASE_HEIGHT = 30;
+      const SAND_RELEASE_OPEN_DURATION = 0.6;
 
       let powderTypes = [];
       let machineDefinitions = [];
@@ -76,6 +78,7 @@
       let selectedModule = null;
       let duneHeightUnits = 0;
       let duneDustMultiplier = 1;
+      let jarReleaseState = { open: false, openTimer: 0, cooldown: 0 };
       const moduleInteractionHints = {
         conveyor: 'Click to rush extra cargo.',
         rocket: 'Tap to fuel launches faster.',
@@ -1491,44 +1494,44 @@
         state.packageHistory = state.packageHistory || [];
         state.departures = state.departures || [];
         state.geometry = {
-          holeTop: -0.68,
-          beltY: -0.28,
-          entryRange: [-0.32, 0.32],
+          holeTop: -0.74,
+          beltY: -0.32,
+          entryRange: [-0.36, 0.36],
           spawnRate: 0.22,
           beltSegments: [
             {
-              from: { x: 0, y: -0.28 },
-              to: { x: 0.66, y: -0.28 },
+              from: { x: -0.12, y: -0.32 },
+              to: { x: 0.92, y: -0.32 },
               speed: 0.42,
               type: 'belt'
             },
             {
-              from: { x: 0.66, y: -0.28 },
-              to: { x: 0.66, y: 0.18 },
+              from: { x: 0.92, y: -0.32 },
+              to: { x: 0.92, y: 0.08 },
               speed: 0.58,
               type: 'drop'
             },
             {
-              from: { x: 0.66, y: 0.18 },
-              to: { x: -0.54, y: 0.18 },
-              speed: 0.34,
+              from: { x: 0.92, y: 0.08 },
+              to: { x: -0.84, y: 0.08 },
+              speed: 0.36,
               type: 'belt'
             },
             {
-              from: { x: -0.54, y: 0.18 },
-              to: { x: -0.54, y: 0.42 },
+              from: { x: -0.84, y: 0.08 },
+              to: { x: -0.84, y: 0.34 },
               speed: 0.6,
               type: 'drop'
             },
             {
-              from: { x: -0.54, y: 0.42 },
-              to: { x: 0.4, y: 0.42 },
-              speed: 0.32,
+              from: { x: -0.84, y: 0.34 },
+              to: { x: 0.62, y: 0.34 },
+              speed: 0.34,
               type: 'belt'
             }
           ],
-          packageSpot: { x: 0.4, y: 0.42 },
-          packageExit: { x: -0.74, y: 0.34 }
+          packageSpot: { x: 0.62, y: 0.34 },
+          packageExit: { x: -0.96, y: 0.24 }
         };
       }
 
@@ -2408,27 +2411,27 @@
         fill('#051225');
         rect(0, 0, panelW * 0.92, panelH * 0.72, 14);
         if (state && state.geometry) {
-          let scaleX = panelW * 0.45;
-          let scaleY = panelH * 0.38;
-          let beltPixelY = panelH * 0.12;
+          let scaleX = panelW * 0.52;
+          let scaleY = panelH * 0.4;
+          let beltPixelY = panelH * 0.06;
           let offsetY = beltPixelY - (state.geometry.beltY || 0) * scaleY;
           let px = (x) => x * scaleX;
           let py = (y) => y * scaleY + offsetY;
           noStroke();
           fill('#071324');
-          rect(0, panelH * 0.1, panelW * 0.9, panelH * 0.12, 12);
+          rect(0, panelH * 0.06, panelW * 0.9, panelH * 0.1, 12);
           fill('#091a30');
-          rect(0, panelH * 0.12, panelW * 0.86, panelH * 0.06, 8);
+          rect(0, panelH * 0.08, panelW * 0.84, panelH * 0.05, 8);
 
           push();
-          translate(0, py(state.geometry.holeTop) - panelH * 0.08);
+          translate(0, py(state.geometry.holeTop) - panelH * 0.06);
           fill('#0b1629');
-          rect(0, 0, panelW * 0.48, panelH * 0.18, 12);
+          rect(0, 0, panelW * 0.44, panelH * 0.14, 12);
           fill('#01070e');
-          rect(0, panelH * 0.02, panelW * 0.36, panelH * 0.12, 10);
+          rect(0, panelH * 0.016, panelW * 0.32, panelH * 0.09, 10);
           pop();
 
-          let thickness = panelH * 0.12;
+          let thickness = panelH * 0.08;
           for (let i = 0; i < state.geometry.beltSegments.length; i++) {
             let segment = state.geometry.beltSegments[i];
             let fromPix = createVector(px(segment.from.x), py(segment.from.y));
@@ -2443,18 +2446,18 @@
             noStroke();
             let baseColor = segment.type === 'drop' ? '#0c1627' : '#132b47';
             fill(baseColor);
-            rect(0, 0, length + thickness * 0.4, thickness, thickness * 0.45);
+            rect(0, 0, length + thickness * 0.36, thickness, thickness * 0.45);
             let overlay = segment.type === 'drop' ? '#19304c' : '#1f3f66';
             fill(withAlpha(overlay, 220));
-            rect(0, 0, length, thickness * 0.62, thickness * 0.34);
+            rect(0, 0, length, thickness * 0.58, thickness * 0.34);
             if (segment.type === 'drop') {
               fill(withAlpha('#01070f', 200));
-              rect(0, 0, thickness * 0.34, length + thickness * 0.12, thickness * 0.2);
+              rect(0, 0, thickness * 0.32, length + thickness * 0.1, thickness * 0.2);
               fill(withAlpha('#22d3ee', 90 + (state.deliveryPulse || 0) * 90));
-              rect(0, 0, thickness * 0.18, length + thickness * 0.1, thickness * 0.16);
+              rect(0, 0, thickness * 0.16, length + thickness * 0.08, thickness * 0.16);
             } else if ((state.deliveryPulse || 0) > 0.01 && i === state.geometry.beltSegments.length - 1) {
               fill(withAlpha('#38bdf8', 140 * (state.deliveryPulse || 0)));
-              rect(0, 0, length, thickness * 0.5, thickness * 0.28);
+              rect(0, 0, length, thickness * 0.46, thickness * 0.28);
             }
             pop();
           }
@@ -2468,7 +2471,7 @@
             for (let faller of state.fallers) {
               let fx = px(faller.x);
               let fy = py(faller.y);
-              let size = Math.max(4, panelW * 0.06);
+              let size = Math.max(3, panelW * 0.045);
               push();
               translate(fx, fy);
               rotate(Math.sin(frameCount * 0.04 + (faller.vx || 0)) * 0.1);
@@ -2486,7 +2489,7 @@
             for (let grain of state.modules) {
               let gx = px(grain.x || 0);
               let gy = py(grain.y || 0);
-              let size = Math.max(5, panelW * 0.06);
+              let size = Math.max(4, panelW * 0.048);
               push();
               translate(gx, gy);
               rotate(Math.sin(grain.wobble || 0) * 0.08);
@@ -2509,28 +2512,28 @@
                 lerp(packageSpot.y, packageExit.y, eased) - arc * (pkg.rocket ? 0.6 : 0.4);
               let drawX = px(pathX);
               let drawY = py(pathY);
-              let size = panelW * 0.22 * (1 - eased * 0.18);
+              let size = panelW * 0.16 * (1 - eased * 0.2);
               drawPackageSprite(pkg, drawX, drawY, size);
             }
           }
 
           let pkgX = px(packageSpot.x);
           let pkgY = py(packageSpot.y);
-          let pkgSize = panelW * 0.26;
+          let pkgSize = panelW * 0.18;
           push();
           translate(pkgX, pkgY);
           rectMode(CENTER);
           fill('#0a172a');
-          rect(0, 0, pkgSize * 1.18, pkgSize * 1.18, 12);
+          rect(0, 0, pkgSize * 1.16, pkgSize * 1.16, 12);
           fill('#122742');
           rect(0, 0, pkgSize, pkgSize, 10);
           let progress = constrain(state.packageProgress || 0, 0, 1);
           if (progress > 0) {
             fill(withAlpha('#38bdf8', 140));
-            rect(0, pkgSize * (0.5 - progress / 2), pkgSize * 0.82, pkgSize * progress, 8);
+            rect(0, pkgSize * (0.5 - progress / 2), pkgSize * 0.78, pkgSize * progress, 8);
           }
           stroke('#38bdf8');
-          strokeWeight(2 + (state.packagePulse || 0) * 2.4);
+          strokeWeight(1.5 + (state.packagePulse || 0) * 2);
           noFill();
           rect(0, 0, pkgSize, pkgSize, 10);
           pop();
@@ -2540,15 +2543,15 @@
             (state.packageBuffer ? state.packageBuffer.length : 0) / CHAIN_REQUIREMENT
           );
           push();
-          translate(pkgX + panelW * 0.16, pkgY - panelH * 0.18);
+          translate(pkgX + panelW * 0.14, pkgY - panelH * 0.16);
           fill('#0a1424');
-          rect(0, panelH * 0.08, panelW * 0.08, panelH * 0.3, 8);
+          rect(0, panelH * 0.08, panelW * 0.07, panelH * 0.26, 8);
           fill('#22d3ee');
           rect(
             0,
-            panelH * 0.08 + panelH * 0.15 * (1 - bufferRatio),
-            panelW * 0.06,
-            panelH * 0.3 * bufferRatio,
+            panelH * 0.08 + panelH * 0.13 * (1 - bufferRatio),
+            panelW * 0.052,
+            panelH * 0.26 * bufferRatio,
             6
           );
           pop();
@@ -2557,9 +2560,9 @@
             let display = state.packageHistory.slice(-2);
             for (let i = 0; i < display.length; i++) {
               let pkg = display[display.length - 1 - i];
-              let x = pkgX - panelW * 0.34;
-              let y = pkgY - i * panelH * 0.22;
-              drawPackageSprite(pkg, x, y, panelW * 0.22);
+              let x = pkgX - panelW * 0.32;
+              let y = pkgY - i * panelH * 0.2;
+              drawPackageSprite(pkg, x, y, panelW * 0.16);
             }
           }
         }
@@ -2586,7 +2589,7 @@
           rect(cx, cy, cell * 0.9, cell * 0.9, 2);
         }
         stroke('#0f172a');
-        strokeWeight(2 + pulse * 2);
+        strokeWeight(1.4 + pulse * 1.6);
         noFill();
         rect(0, 0, size, size, 8);
         pop();
@@ -3053,18 +3056,17 @@
         let centerX = jarRect.left + jarRect.width / 2;
         let centerY = jarRect.top + jarRect.height / 2;
         let corner = Math.min(jarRect.width, jarRect.height) * 0.18;
+        let innerW = jarRect.width * 0.88;
+        let innerH = jarRect.height * 0.82;
+        let baseHeight = innerH * 0.12;
+        let baseY = centerY + innerH / 2 - baseHeight / 2;
         push();
         rectMode(CENTER);
         noStroke();
         fill('#061225');
         rect(centerX, centerY, jarRect.width, jarRect.height, corner * 0.75);
-        let innerW = jarRect.width * 0.88;
-        let innerH = jarRect.height * 0.82;
-        let innerY = centerY + jarRect.height * 0.04;
         fill('#020912');
-        rect(centerX, innerY, innerW, innerH, corner * 0.6);
-        fill(withAlpha('#0f2744', 160));
-        rect(centerX, jarRect.top + innerH * 0.22, innerW * 0.94, innerH * 0.18, corner * 0.5);
+        rect(centerX, centerY, innerW, innerH, corner * 0.58);
         let totalLayers = strataLayers.length;
         if (totalLayers > 0) {
           let segmentHeight = innerH / totalLayers;
@@ -3079,24 +3081,19 @@
             }
             let alpha = 60 + ratio * 160;
             fill(withAlpha(layer.color, alpha));
-            let y = jarRect.top + segmentHeight * (i + 0.5);
-            rect(centerX, y + jarRect.height * 0.08, innerW * 0.86, segmentHeight + 2, corner * 0.5);
+            let y = centerY - innerH / 2 + segmentHeight * (i + 0.5);
+            rect(centerX, y, innerW * 0.82, segmentHeight + 2, corner * 0.45);
           }
         }
-        fill('#0b1c30');
-        let chuteH = innerH * 0.38;
-        rect(centerX, innerY + innerH * 0.08, innerW * 0.32, chuteH, corner * 0.5);
-        let holeW = innerW * 0.46;
-        let holeH = innerH * 0.16;
-        let holeY = innerY + innerH / 2 + innerH * 0.26;
-        fill('#01060d');
-        ellipse(centerX, holeY, holeW, holeH);
-        fill('#1c3757');
-        ellipse(centerX, holeY - holeH * 0.18, holeW * 0.74, holeH * 0.54);
-        stroke(withAlpha('#38bdf8', 120));
-        strokeWeight(2);
-        noFill();
-        ellipse(centerX, holeY, holeW * 1.04, holeH * 1.1);
+        let baseColor = jarReleaseState.open
+          ? withAlpha('#38bdf8', 180)
+          : '#0a172a';
+        fill(baseColor);
+        rect(centerX, baseY, innerW * 0.9, baseHeight, corner * 0.4);
+        if (!jarReleaseState.open) {
+          fill('#132b47');
+          rect(centerX, baseY - baseHeight * 0.25, innerW * 0.84, baseHeight * 0.4, corner * 0.35);
+        }
         pop();
       }
 
@@ -3105,21 +3102,28 @@
         let centerX = jarRect.left + jarRect.width / 2;
         let centerY = jarRect.top + jarRect.height / 2;
         let corner = Math.min(jarRect.width, jarRect.height) * 0.18;
+        let innerW = jarRect.width * 0.88;
+        let innerH = jarRect.height * 0.82;
+        let baseHeight = innerH * 0.12;
+        let baseY = centerY + innerH / 2 - baseHeight / 2;
         push();
         rectMode(CENTER);
         noFill();
         stroke('#38bdf8');
         strokeWeight(2);
         rect(centerX, centerY, jarRect.width, jarRect.height, corner);
-        let innerW = jarRect.width * 0.88;
-        let innerH = jarRect.height * 0.82;
-        let innerY = centerY + jarRect.height * 0.04;
-        let holeY = innerY + innerH / 2 + innerH * 0.26;
-        let holeW = innerW * 0.46;
         noStroke();
-        fill(withAlpha('#38bdf8', 60));
-        ellipse(centerX, holeY, holeW * 1.18, holeW * 0.42);
+        if (jarReleaseState.open) {
+          fill(withAlpha('#38bdf8', 80));
+          rect(centerX, baseY, innerW * 0.9, baseHeight, corner * 0.35);
+        } else {
+          fill(withAlpha('#22d3ee', 50));
+          rect(centerX, baseY, innerW * 0.9, baseHeight * 0.45, corner * 0.35);
+        }
+        textAlign(CENTER, CENTER);
         fill('#e2e8f0');
+        textSize(scaledFont(12));
+        text('Sandfall Jar', centerX, jarRect.top - scaledY(36));
         textSize(scaledFont(10));
         text('Click or press Space/E to drop powder', centerX, jarRect.top - scaledY(20));
         fill('#94a3b8');
@@ -3267,6 +3271,7 @@
           }
         }
         updateDuneMultiplierFromGrid();
+        updateJarReleaseState();
       }
 
       function renderPowders() {
@@ -3359,6 +3364,7 @@
       }
 
       function isHoleSpan(col, size) {
+        if (!jarReleaseState || !jarReleaseState.open) return false;
         if (gridCols <= 0) return false;
         let collectorWidth = Math.max(size, Math.floor(gridCols * 0.2));
         collectorWidth = Math.min(collectorWidth, Math.floor(gridCols * 0.6));
@@ -3391,6 +3397,78 @@
         }
         duneHeightUnits = Math.max(0, heightCells);
         duneDustMultiplier = 1 + duneHeightUnits * 0.1;
+      }
+
+      function updateJarReleaseState() {
+        if (!jarReleaseState) {
+          jarReleaseState = { open: false, openTimer: 0, cooldown: 0 };
+        }
+        let dt = deltaTime / 1000;
+        if (jarReleaseState.open) {
+          jarReleaseState.openTimer = Math.max(0, jarReleaseState.openTimer - dt);
+          if (jarReleaseState.openTimer <= 0) {
+            jarReleaseState.open = false;
+          }
+        } else if (jarReleaseState.cooldown > 0) {
+          jarReleaseState.cooldown = Math.max(0, jarReleaseState.cooldown - dt);
+        }
+        if (
+          !jarReleaseState.open &&
+          jarReleaseState.cooldown <= 0 &&
+          duneHeightUnits >= SAND_RELEASE_HEIGHT
+        ) {
+          triggerJarRelease();
+        }
+      }
+
+      function triggerJarRelease() {
+        releaseJarPowdersToConveyor();
+        jarReleaseState.open = true;
+        jarReleaseState.openTimer = SAND_RELEASE_OPEN_DURATION;
+        jarReleaseState.cooldown = SAND_RELEASE_OPEN_DURATION;
+      }
+
+      function releaseJarPowdersToConveyor() {
+        if (!powders || powders.length === 0) return;
+        let released = false;
+        for (let i = powders.length - 1; i >= 0; i--) {
+          let powder = powders[i];
+          clearPowderCells(powder);
+          collectPowder(powder);
+          powders.splice(i, 1);
+          released = true;
+        }
+        if (released) {
+          let state = moduleStates && moduleStates.conveyor;
+          if (state) {
+            setupConveyorGeometry(state);
+            state.fallers = state.fallers || [];
+            state.queue = state.queue || [];
+            let range =
+              state.geometry && state.geometry.entryRange
+                ? state.geometry.entryRange
+                : [-0.36, 0.36];
+            while (state.queue.length > 0) {
+              let entry = state.queue.shift();
+              let source = entry.source != null ? entry.source : 0.5;
+              let spawnX = lerp(range[0], range[1], source) + random(-0.02, 0.02);
+              state.fallers.push({
+                x: spawnX,
+                y: state.geometry ? state.geometry.holeTop : -0.74,
+                vx: 0,
+                vy: -0.04,
+                type: entry.type,
+                color: entry.color
+              });
+            }
+            while (state.fallers.length > 64) {
+              state.fallers.shift();
+            }
+            state.spawnTimer = 0;
+          }
+          rebuildGrid();
+          updateDuneMultiplierFromGrid();
+        }
       }
 
       function refreshPowderGrid(rescale = false) {
