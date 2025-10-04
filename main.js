@@ -3835,45 +3835,68 @@
           return y;
         }
         let availableWidth = menuContentArea.width || SCREEN_W - scaledX(80);
+        if (availableWidth <= 0) {
+          availableWidth = SCREEN_W - scaledX(80);
+        }
         let spacingX = scaledX(8);
         let spacingY = scaledY(8);
-        let minColumns = tabs.length === 1 ? 1 : 2;
-        let maxColumns = Math.min(4, tabs.length);
-        let columns = minColumns;
-        let minSize = scaledX(56);
-        for (let c = maxColumns; c >= minColumns; c--) {
-          let candidate = (availableWidth - spacingX * (c - 1)) / c;
-          if (candidate >= minSize) {
-            columns = c;
-            break;
+        let paddingX = scaledX(18);
+        let paddingY = scaledY(12);
+        textSize(scaledFont(11));
+        let lineHeight = typeof textAscent === 'function'
+          ? textAscent() + textDescent()
+          : scaledY(12);
+        let tabHeight = Math.max(scaledY(28), lineHeight + paddingY);
+        let minWidth = scaledX(48);
+        let maxWidth = Math.max(minWidth, Math.min(availableWidth, scaledX(160)));
+        let descriptors = tabs.map((tab) => {
+          let labelWidth = textWidth(tab.label || '');
+          let width = constrain(labelWidth + paddingX, minWidth, maxWidth);
+          return { tab, width };
+        });
+        let rows = [];
+        let currentRow = [];
+        let currentWidth = 0;
+        for (let descriptor of descriptors) {
+          let projected =
+            currentWidth +
+            (currentRow.length > 0 ? spacingX : 0) +
+            descriptor.width;
+          if (currentRow.length > 0 && projected > availableWidth) {
+            rows.push({ items: currentRow, width: currentWidth });
+            currentRow = [];
+            currentWidth = 0;
           }
+          if (currentRow.length > 0) {
+            currentWidth += spacingX;
+          }
+          currentRow.push(descriptor);
+          currentWidth += descriptor.width;
         }
-        let tabSize = Math.min(
-          scaledX(96),
-          (availableWidth - spacingX * (columns - 1)) / columns
-        );
-        let rows = Math.ceil(tabs.length / columns);
+        if (currentRow.length > 0) {
+          rows.push({ items: currentRow, width: currentWidth });
+        }
+        if (rows.length === 0) {
+          return y;
+        }
         let currentTop = y;
         let centerX = menuContentArea.center || SCREEN_W / 2;
         if (typeof textWrap === 'function') {
           textWrap('WORD');
         }
-        for (let row = 0; row < rows; row++) {
-          let rowTabs = tabs.slice(row * columns, row * columns + columns);
-          let rowCount = rowTabs.length;
-          let rowWidth = rowCount * tabSize + Math.max(0, rowCount - 1) * spacingX;
-          let startX = centerX - rowWidth / 2 + tabSize / 2;
-          let centerY = currentTop + tabSize / 2;
-          textSize(scaledFont(11));
-          for (let i = 0; i < rowTabs.length; i++) {
-            let tab = rowTabs[i];
-            let x = startX + i * (tabSize + spacingX);
+        for (let row of rows) {
+          let startX = centerX - row.width / 2;
+          let centerY = currentTop + tabHeight / 2;
+          let cursorX = startX;
+          for (let descriptor of row.items) {
+            let { tab, width } = descriptor;
+            let x = cursorX + width / 2;
             let active = tab.key === activeMenu;
-            drawNeonButton(x, centerY, tabSize, tabSize, {
+            drawNeonButton(x, centerY, width, tabHeight, {
               active,
               accentColor: '#22d3ee',
               baseColor: '#13213a',
-              radius: Math.min(12, tabSize / 2)
+              radius: Math.max(scaledX(6), Math.min(scaledX(12), tabHeight / 2))
             });
             push();
             textAlign(CENTER, CENTER);
@@ -3882,8 +3905,8 @@
               tab.label,
               x,
               centerY,
-              tabSize - scaledX(12),
-              tabSize - scaledY(12)
+              Math.max(width - scaledX(12), scaledX(20)),
+              Math.max(tabHeight - scaledY(12), scaledY(16))
             );
             pop();
             addButton(
@@ -3892,18 +3915,19 @@
                 key: tab.key,
                 x,
                 y: centerY,
-                w: tabSize,
-                h: tabSize
+                w: width,
+                h: tabHeight
               }
             );
+            cursorX += width + spacingX;
           }
-          currentTop += tabSize + spacingY;
+          currentTop += tabHeight + spacingY;
         }
         if (typeof textWrap === 'function') {
           textWrap('WORD');
         }
         textSize(scaledFont(14));
-        return y + rows * tabSize + Math.max(0, rows - 1) * spacingY;
+        return y + rows.length * tabHeight + Math.max(0, rows.length - 1) * spacingY;
       }
 
       function drawSectionHeader(title, y) {
@@ -4316,8 +4340,8 @@
             description: 'Convert powders whenever possible.'
           }
         ];
-        let btnW = Math.min(scaledX(200), (menuContentArea.width || SCREEN_W) / 2);
-        let btnH = scaledY(52);
+        let btnW = Math.min(scaledX(170), (menuContentArea.width || SCREEN_W) / 2);
+        let btnH = scaledY(40);
         let xs = getRowPositions(controls.length);
         for (let i = 0; i < controls.length; i++) {
           let control = controls[i];
@@ -4328,9 +4352,9 @@
             fill(enabled ? '#66bb6a' : '#455a64');
             rect(x, y, btnW, btnH, 12);
             fill(enabled ? '#0b1120' : '#f8fafc');
-            textSize(scaledFont(12));
-            text(`${control.label}: ${enabled ? 'ON' : 'OFF'}`, x, y - scaledY(12));
             textSize(scaledFont(11));
+            text(`${control.label}: ${enabled ? 'ON' : 'OFF'}`, x, y - scaledY(10));
+            textSize(scaledFont(10));
             text(control.description, x, y + scaledY(6));
             addButton(
               {
@@ -4347,8 +4371,8 @@
             fill('#1e293b');
             rect(x, y, btnW, btnH, 12);
             fill('#64748b');
-            textSize(scaledFont(12));
-            text(`${control.label}: Locked`, x, y - scaledY(12));
+            textSize(scaledFont(11));
+            text(`${control.label}: Locked`, x, y - scaledY(10));
             let milestone = getMilestoneForType(
               control.key === 'autoDrop' ? 'unlockAutoDrop' : 'unlockAutoCompress'
             );
@@ -4367,7 +4391,7 @@
           }
         }
         textSize(scaledFont(14));
-        return y + btnH + scaledY(18);
+        return y + btnH + scaledY(14);
       }
 
       function drawPowderSelectRow(y) {
@@ -4379,7 +4403,7 @@
         let minColumns = indices.length === 1 ? 1 : 2;
         let maxColumns = Math.min(4, indices.length);
         let columns = minColumns;
-        let minSize = scaledX(42);
+        let minSize = Math.max(scaledX(32), scaledY(32));
         for (let c = maxColumns; c >= minColumns; c--) {
           let candidate = (availableWidth - spacingX * (c - 1)) / c;
           if (candidate >= minSize) {
@@ -4387,30 +4411,40 @@
             break;
           }
         }
-        let btnSize = Math.min(
-          scaledX(64),
-          (availableWidth - spacingX * (columns - 1)) / columns
-        );
         let rows = Math.ceil(indices.length / columns);
         let currentTop = y;
         let centerX = menuContentArea.center || SCREEN_W / 2;
+        let totalHeight = 0;
+        textSize(scaledFont(8));
         for (let row = 0; row < rows; row++) {
           let rowIndices = indices.slice(row * columns, row * columns + columns);
           let rowCount = rowIndices.length;
-          let rowWidth = rowCount * btnSize + Math.max(0, rowCount - 1) * spacingX;
-          let startX = centerX - rowWidth / 2 + btnSize / 2;
-          let centerY = currentTop + btnSize / 2;
+          if (rowCount === 0) {
+            continue;
+          }
           textSize(scaledFont(8));
+          let longestLabel = 0;
+          for (let powderIndex of rowIndices) {
+            longestLabel = Math.max(longestLabel, textWidth(powderTypes[powderIndex].name || ''));
+          }
+          let rowSize = Math.min(
+            Math.max(longestLabel + scaledX(16), minSize),
+            Math.max(scaledX(48), scaledY(48))
+          );
+          let rowWidth = rowCount * rowSize + Math.max(0, rowCount - 1) * spacingX;
+          let startX = centerX - rowWidth / 2;
+          let centerY = currentTop + rowSize / 2;
           for (let i = 0; i < rowIndices.length; i++) {
+            textSize(scaledFont(8));
             let powderIndex = rowIndices[i];
-            let x = startX + i * (btnSize + spacingX);
+            let x = startX + rowSize / 2 + i * (rowSize + spacingX);
             let isSelected = powderIndex === selectedPowder;
             let baseColor = powderTypes[powderIndex].color;
-            drawNeonButton(x, centerY, btnSize, btnSize, {
+            drawNeonButton(x, centerY, rowSize, rowSize, {
               active: isSelected,
               accentColor: baseColor,
               baseColor: mixColors(baseColor, '#0b1220', 0.7),
-              radius: Math.min(10, btnSize / 2)
+              radius: Math.min(10, rowSize / 2)
             });
             push();
             textAlign(CENTER, CENTER);
@@ -4419,32 +4453,41 @@
               powderTypes[powderIndex].name,
               x,
               centerY,
-              btnSize - scaledX(10),
-              btnSize - scaledY(10)
+              rowSize - scaledX(12),
+              rowSize - scaledY(12)
             );
             pop();
+            if (tierUpgrades[powderIndex]) {
+              fill('#bef264');
+              textSize(scaledFont(7));
+              text(`x${getPowderMultiplier(powderIndex)}`, x, centerY + rowSize / 2 - scaledY(8));
+            }
             addButton(
               {
                 action: 'selectPowder',
                 index: powderIndex,
                 x,
                 y: centerY,
-                w: btnSize,
-                h: btnSize
+                w: rowSize,
+                h: rowSize
               },
               { scrollAware: true }
             );
           }
-          currentTop += btnSize + spacingY;
+          currentTop += rowSize + spacingY;
+          totalHeight += rowSize + spacingY;
+        }
+        if (rows > 0) {
+          totalHeight -= spacingY;
         }
         textSize(scaledFont(14));
-        return y + rows * btnSize + Math.max(0, rows - 1) * spacingY;
+        return y + Math.max(0, totalHeight);
       }
 
       function drawTierUpgradeRow(y) {
         let availableWidth = menuContentArea.width || SCREEN_W - scaledX(80);
         let centerX = menuContentArea.center || SCREEN_W / 2;
-        let btnSize = Math.min(scaledX(64), availableWidth);
+        let btnSize = Math.min(Math.max(scaledX(48), scaledY(48)), availableWidth);
         let spacingY = scaledY(12);
         textSize(scaledFont(9));
         for (let i = 0; i < tierUnlockCosts.length; i++) {
@@ -4600,10 +4643,10 @@
         }
         let areaWidth = menuContentArea.width || SCREEN_W - scaledX(80);
         let btnW = Math.min(
-          scaledX(140),
-          Math.max(scaledX(90), areaWidth / Math.max(1, configs.length) - scaledX(12))
+          scaledX(120),
+          Math.max(scaledX(80), areaWidth / Math.max(1, configs.length) - scaledX(14))
         );
-        let btnH = scaledY(34);
+        let btnH = scaledY(30);
         let xs = getRowPositions(configs.length);
         textSize(scaledFont(10));
         for (let i = 0; i < configs.length; i++) {
@@ -4636,7 +4679,7 @@
           );
         }
         textSize(scaledFont(14));
-        return y + scaledY(36);
+        return y + btnH + scaledY(12);
       }
 
       function drawModuleUpgradeList(moduleKey, y) {
@@ -4647,10 +4690,11 @@
         let maxWidth = menuContentArea.width || SCREEN_W - scaledX(80);
         let columns = configs.length >= 3 ? 3 : Math.min(2, configs.length);
         let btnW = Math.min(
-          scaledX(180),
-          Math.max(scaledX(130), maxWidth / Math.max(1, columns) - scaledX(16))
+          scaledX(150),
+          Math.max(scaledX(110), maxWidth / Math.max(1, columns) - scaledX(16))
         );
-        let btnH = scaledY(60);
+        let btnH = scaledY(48);
+        let rowSpacing = scaledY(12);
         let rows = Math.ceil(configs.length / columns);
         for (let r = 0; r < rows; r++) {
           let rowConfigs = configs.slice(r * columns, r * columns + columns);
@@ -4660,7 +4704,7 @@
             let level = getUpgradeLevel(config.key);
             let cost = getUpgradeCost(config);
             let canBuy = dust >= cost;
-            let rowY = y + scaledY(r * 68);
+            let rowY = y + r * (btnH + rowSpacing);
             let x = xs[i];
             drawNeonButton(x, rowY, btnW, btnH, {
               active: level > 0,
@@ -4692,7 +4736,8 @@
           }
         }
         textSize(scaledFont(14));
-        return y + scaledY(rows * 68);
+        let totalHeight = rows > 0 ? rows * (btnH + rowSpacing) - rowSpacing : 0;
+        return y + Math.max(0, totalHeight);
       }
 
       function drawCompressionRow(y) {
@@ -4716,10 +4761,10 @@
         }
         let maxWidth = menuContentArea.width || SCREEN_W - scaledX(80);
         let btnW = Math.min(
-          scaledX(160),
-          Math.max(scaledX(120), maxWidth / Math.max(1, availableRecipes.length) - scaledX(12))
+          scaledX(140),
+          Math.max(scaledX(100), maxWidth / Math.max(1, availableRecipes.length) - scaledX(14))
         );
-        let btnH = scaledY(28);
+        let btnH = scaledY(24);
         let xs = getRowPositions(availableRecipes.length);
         textSize(scaledFont(11));
         let efficiency = getCompressorEfficiency();
@@ -4742,25 +4787,25 @@
           );
         }
         textSize(scaledFont(14));
-        return y + scaledY(34);
+        return y + btnH + scaledY(10);
       }
 
       function drawPrestigeRow(y) {
         let areaWidth = menuContentArea.width || SCREEN_W - scaledX(80);
-        let btnW = Math.min(scaledX(220), areaWidth);
-        let btnH = scaledY(38);
+        let btnW = Math.min(scaledX(200), areaWidth);
+        let btnH = scaledY(32);
         let gain = getPrestigeGain();
         let canPrestige = gain > 0;
         let center = menuContentArea.center || SCREEN_W / 2;
         fill(canPrestige ? '#ffca28' : '#8d6e63');
         rect(center, y, btnW, btnH, 10);
         fill('#222');
-        textSize(scaledFont(12));
-        text(`Crystallize (+${gain} cores)`, center, y - scaledY(8));
+        textSize(scaledFont(11));
+        text(`Crystallize (+${gain} cores)`, center, y - scaledY(6));
         text(
           'Resets for permanent dust & gravity boosts.',
           center,
-          y + scaledY(8)
+          y + scaledY(6)
         );
         textSize(scaledFont(14));
         addButton(
