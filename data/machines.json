@@ -69,6 +69,6 @@
     { "key": "sandfall", "label": "Sandfall" },
     { "key": "module", "label": "Module" },
     { "key": "universal", "label": "Universal" },
-    { "key": "achievements", "label": "Achievements", "requiresMilestone": "chronicle" }
+    { "key": "achievements", "label": "Achievements" }
   ]
 }

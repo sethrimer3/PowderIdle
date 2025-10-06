@@ -244,7 +244,7 @@
             { key: 'sandfall', label: 'Sandfall' },
             { key: 'module', label: 'Module' },
             { key: 'universal', label: 'Universal' },
-            { key: 'achievements', label: 'Achievements', requiresMilestone: 'chronicle' }
+            { key: 'achievements', label: 'Achievements' }
           ]
         },
         upgrades: {
@@ -4369,14 +4369,6 @@
         ctx.fill();
         ctx.stroke();
         ctx.restore();
-
-        push();
-        rectMode(CENTER);
-        noFill();
-        stroke(MENU_THEME.innerBorder);
-        strokeWeight(Math.max(1, scaledX(1)));
-        rect(centerX, centerY, width - scaledX(18), height - scaledY(24));
-        pop();
       }
 
       function drawGlassCard(centerX, centerY, width, height, accentColor = MENU_THEME.accent) {
@@ -4398,14 +4390,6 @@
         ctx.fill();
         ctx.stroke();
         ctx.restore();
-
-        push();
-        rectMode(CENTER);
-        stroke(mixColors(accentColor, MENU_THEME.cardBorder, 0.25));
-        strokeWeight(Math.max(1, scaledX(1)));
-        noFill();
-        rect(centerX, centerY, width - scaledX(12), height - scaledY(12));
-        pop();
       }
 
       function drawNeonButton(x, y, w, h, options = {}) {
@@ -4452,16 +4436,6 @@
         ctx.fill();
         ctx.stroke();
         ctx.restore();
-
-        if (enabled) {
-          push();
-          rectMode(CENTER);
-          noFill();
-          stroke(`rgba(148, 163, 184, ${active ? 0.55 : 0.35})`);
-          strokeWeight(Math.max(1, scaledX(1)));
-          rect(x, y, w - scaledX(6), h - scaledY(6));
-          pop();
-        }
       }
 
       function drawMenu() {
