@@ -28,11 +28,23 @@
         'singularity'
       ];
       const DEFAULT_MENU_TABS = [
-        { key: 'sandfall', label: 'Sandfall' },
-        { key: 'module', label: 'Module' },
-        { key: 'universal', label: 'Universal' },
-        { key: 'achievements', label: 'Achievements', requiresMilestone: 'chronicle' }
+        { key: 'sandfall', label: 'Sandfall', iconColor: '#facc15' },
+        { key: 'module', label: 'Module', iconColor: '#38bdf8' },
+        { key: 'universal', label: 'Universal', iconColor: '#a855f7' },
+        {
+          key: 'achievements',
+          label: 'Achievements',
+          requiresMilestone: 'chronicle',
+          iconColor: '#fb7185'
+        }
       ];
+
+      const TAB_ICON_THEME = {
+        sandfall: '#facc15',
+        module: '#38bdf8',
+        universal: '#a855f7',
+        achievements: '#fb7185'
+      };
 
       const MENU_THEME = {
         panelTop: '#010409',
@@ -1052,7 +1064,8 @@
         menuTabs = (tabsFromData.length > 0 ? tabsFromData : DEFAULT_MENU_TABS.slice()).map(
           (tab) => ({
             ...tab,
-            label: tab.label || tab.key
+            label: tab.label || tab.key,
+            iconColor: tab.iconColor || TAB_ICON_THEME[tab.key] || MENU_THEME.accent
           })
         );
 
@@ -4662,7 +4675,6 @@
           let x = startX + i * (tabWidth + spacing);
           let active = tab.key === activeMenu;
           let baseColor = active ? MENU_THEME.tabActive : MENU_THEME.tabInactive;
-          let textColor = active ? MENU_THEME.invertedText : MENU_THEME.text;
           let ctx = drawingContext;
           ctx.save();
           ctx.fillStyle = baseColor;
@@ -4683,10 +4695,21 @@
           }
 
           push();
-          textAlign(CENTER, CENTER);
-          textSize(scaledFont(10));
-          fill(textColor);
-          text(tab.label, x + tabWidth / 2, top + height / 2);
+          rectMode(CENTER);
+          let iconSize = Math.min(tabWidth, height) * 0.42;
+          let iconFill = color(tab.iconColor || MENU_THEME.accent);
+          iconFill.setAlpha(active ? 255 : 200);
+          fill(iconFill);
+          stroke(active ? MENU_THEME.invertedText : MENU_THEME.mutedText);
+          strokeWeight(Math.max(1, scaledX(1.2)));
+          rect(x + tabWidth / 2, top + height / 2, iconSize, iconSize, scaledX(4));
+          if (active) {
+            let innerSize = iconSize * 0.55;
+            let innerFill = color(MENU_THEME.invertedText);
+            innerFill.setAlpha(220);
+            noStroke();
+            rect(x + tabWidth / 2, top + height / 2, innerSize, innerSize, scaledX(2));
+          }
           pop();
 
           addButton({
