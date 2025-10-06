@@ -17,6 +17,22 @@
       const SAND_RELEASE_HEIGHT = 30;
       const SAND_RELEASE_OPEN_DURATION = 0.6;
       const MIN_GRAINS_FOR_RELEASE = 400;
+      const MODULE_UNLOCK_ORDER = [
+        'conveyor',
+        'rocket',
+        'asteroid',
+        'planet',
+        'forge',
+        'galaxy',
+        'universe',
+        'singularity'
+      ];
+      const DEFAULT_MENU_TABS = [
+        { key: 'sandfall', label: 'Sandfall' },
+        { key: 'module', label: 'Module' },
+        { key: 'universal', label: 'Universal' },
+        { key: 'achievements', label: 'Achievements', requiresMilestone: 'chronicle' }
+      ];
 
       const MENU_THEME = {
         panelTop: '#f8f1e1',
@@ -209,16 +225,10 @@
             { from: 'universe', to: 'singularity' }
           ],
           menuTabs: [
-            { key: 'jar', label: 'Sandfall', machine: 'jar' },
-            { key: 'conveyor', label: 'Conveyor', machine: 'conveyor' },
-            { key: 'rocket', label: 'Launch Bay', machine: 'rocket' },
-            { key: 'asteroid', label: 'Asteroids', machine: 'asteroid' },
-            { key: 'planet', label: 'Planets', machine: 'planet' },
-            { key: 'forge', label: 'Star Forge', machine: 'forge' },
-            { key: 'galaxy', label: 'Galaxies', machine: 'galaxy' },
-            { key: 'universe', label: 'Universe', machine: 'universe' },
-            { key: 'singularity', label: 'Singularity', machine: 'singularity' },
-            { key: 'codex', label: 'Codex', requiresMilestone: 'chronicle' }
+            { key: 'sandfall', label: 'Sandfall' },
+            { key: 'module', label: 'Module' },
+            { key: 'universal', label: 'Universal' },
+            { key: 'achievements', label: 'Achievements', requiresMilestone: 'chronicle' }
           ]
         },
         upgrades: {
@@ -953,15 +963,15 @@
         let machineData = machinesDataRaw || {};
         machineDefinitions = machineData.definitions || [];
         machineConnections = machineData.connections || [];
-        menuTabs = machineData.menuTabs || [];
-        if (!menuTabs.some((tab) => tab.key === 'jar')) {
-          menuTabs.unshift({ key: 'jar', label: 'Sandfall', machine: 'jar' });
-        }
-        if (!menuTabs.some((tab) => tab.key === 'developer')) {
-          let codexIndex = menuTabs.findIndex((tab) => tab.key === 'codex');
-          let insertIndex = codexIndex >= 0 ? codexIndex : menuTabs.length;
-          menuTabs.splice(insertIndex, 0, { key: 'developer', label: 'Developer' });
-        }
+        let tabsFromData = Array.isArray(machineData.menuTabs)
+          ? machineData.menuTabs.filter((tab) => tab && tab.key)
+          : [];
+        menuTabs = (tabsFromData.length > 0 ? tabsFromData : DEFAULT_MENU_TABS.slice()).map(
+          (tab) => ({
+            ...tab,
+            label: tab.label || tab.key
+          })
+        );
 
         let upgradeData = upgradesDataRaw || {};
         upgradeConfigs = upgradeData.upgrades || [];
@@ -1026,9 +1036,9 @@
         milestoneBonuses.core = 0;
         milestoneMessage = null;
         milestoneMessageTimer = 0;
-        activeMenu = menuTabs.length > 0 ? menuTabs[0].key : 'jar';
+        activeMenu = menuTabs.length > 0 ? menuTabs[0].key : 'sandfall';
         codexUnlocked = false;
-        selectedModule = activeMenu === 'jar' ? 'jar' : null;
+        selectedModule = 'jar';
         moduleStates = createDefaultModuleStates();
         menuScroll = 0;
         menuScrollMax = 0;
@@ -1376,6 +1386,19 @@
         pop();
       }
 
+      function drawSelectionGlow(x, y, width, height, radius) {
+        push();
+        rectMode(CENTER);
+        drawingContext.save();
+        drawingContext.shadowBlur = Math.max(scaledX(16), scaledY(16));
+        drawingContext.shadowColor = 'rgba(250, 204, 21, 0.6)';
+        noStroke();
+        fill(withAlpha('#facc15', 70));
+        rect(x, y, width, height, radius || Math.max(12, Math.min(width, height) * 0.18));
+        drawingContext.restore();
+        pop();
+      }
+
       function drawMachinePanel(machine) {
         let rectInfo = getMachineRect(machine);
         let center = getMachineCenter(rectInfo);
@@ -1383,29 +1406,75 @@
         let panelSize = Math.min(rectInfo.width, rectInfo.height) * 0.8;
         let panelW = panelSize;
         let panelH = panelSize;
+        let interactButton = null;
+        let unlockButton = null;
         push();
         rectMode(CENTER);
         if (selectedModule === machine.key) {
-          stroke('#facc15');
-          strokeWeight(4);
-          noFill();
-          rect(center.x, center.y, panelW + scaledX(18), panelH + scaledY(18));
+          let glowRadius = Math.max(scaledX(12), Math.min(panelW, panelH) * 0.18);
+          drawSelectionGlow(center.x, center.y, panelW, panelH, glowRadius);
         }
         stroke(unlocked ? '#1e3a8a' : '#1e293b');
         strokeWeight(2);
         fill(unlocked ? '#0b1220' : '#040810');
-        rect(center.x, center.y, panelW, panelH);
+        rect(center.x, center.y, panelW, panelH, Math.max(12, panelH * 0.08));
         noStroke();
-        let interactButton = null;
         if (!unlocked) {
+          let innerRadius = Math.max(10, panelH * 0.1);
           fill(withAlpha('#020617', 220));
-          rect(center.x, center.y, panelW - scaledX(8), panelH - scaledY(8));
+          rect(center.x, center.y, panelW - scaledX(10), panelH - scaledY(10), innerRadius);
+          push();
+          textAlign(CENTER, CENTER);
           fill('#334155');
           textSize(scaledFont(10));
-          text('Locked', center.x, center.y);
+          text('Locked', center.x, center.y - scaledY(22));
           fill(MENU_THEME.mutedText);
-          textSize(scaledFont(9));
-          text(machine.description, center.x, center.y + scaledY(20));
+          textSize(scaledFont(8));
+          text(
+            machine.description,
+            center.x,
+            center.y - scaledY(4),
+            panelW - scaledX(28),
+            scaledY(46)
+          );
+          pop();
+          let tierIndex = getTierIndexForModule(machine.key);
+          let nextIndex = getNextTierToUnlock();
+          if (tierIndex >= 0 && tierIndex === nextIndex) {
+            let cost = tierUnlockCosts[tierIndex] || 0;
+            let resourceName = powderTypes[tierIndex]
+              ? powderTypes[tierIndex].name
+              : 'Powder';
+            let have = Math.floor(powderCounts[tierIndex] || 0);
+            let btnW = Math.max(panelW - scaledX(24), scaledX(96));
+            let btnH = Math.max(scaledY(28), panelH * 0.24);
+            let btnY = center.y + panelH / 2 - btnH / 2 - scaledY(12);
+            drawNeonButton(center.x, btnY, btnW, btnH, {
+              active: false,
+              enabled: have >= cost,
+              accentColor: MENU_THEME.accent,
+              baseColor: MENU_THEME.buttonBase,
+              radius: Math.max(10, btnH / 2.4)
+            });
+            push();
+            textAlign(CENTER, CENTER);
+            fill(have >= cost ? MENU_THEME.invertedText : MENU_THEME.mutedText);
+            textSize(scaledFont(9));
+            text(`Unlock for ${cost.toLocaleString()} ${resourceName}`, center.x, btnY - scaledY(4));
+            fill(MENU_THEME.mutedText);
+            textSize(scaledFont(8));
+            text(`Held: ${have.toLocaleString()} ${resourceName}`, center.x, btnY + scaledY(12));
+            pop();
+            unlockButton = {
+              action: 'unlockModule',
+              key: machine.key,
+              index: tierIndex,
+              x: center.x,
+              y: btnY,
+              w: btnW,
+              h: btnH
+            };
+          }
         } else {
           drawPanelPixelBackdrop(center, panelW, panelH);
           updateModuleState(machine.key, {
@@ -1444,12 +1513,23 @@
         }
         fill('#a5b4fc');
         textSize(scaledFont(11));
-        text(machine.name, center.x, center.y - panelH / 2 + scaledY(14));
+        text(machine.name, center.x, center.y - panelH / 2 + scaledY(16));
         pop();
         drawFullscreenToggle(rectInfo, machine.key, unlocked);
+        if (unlockButton) {
+          addButton(unlockButton);
+        }
         if (interactButton) {
           addButton(interactButton);
         }
+        addButton({
+          action: 'focusModule',
+          key: machine.key,
+          x: center.x,
+          y: center.y,
+          w: panelW,
+          h: panelH
+        });
       }
 
       function drawModuleScene(key, context) {
@@ -3437,10 +3517,8 @@
         push();
         rectMode(CENTER);
         if (selectedModule === machine.key) {
-          stroke('#facc15');
-          strokeWeight(4);
-          noFill();
-          rect(center.x, center.y, panelW + scaledX(18), panelH + scaledY(18));
+          let glowRadius = Math.max(scaledX(12), Math.min(panelW, panelH) * 0.18);
+          drawSelectionGlow(center.x, center.y, panelW, panelH, glowRadius);
         }
         stroke('#1d4ed8');
         strokeWeight(2);
@@ -3691,6 +3769,19 @@
           default:
             return false;
         }
+      }
+
+      function getTierIndexForModule(key) {
+        return MODULE_UNLOCK_ORDER.indexOf(key);
+      }
+
+      function getNextTierToUnlock() {
+        for (let i = 0; i < tierUpgrades.length; i++) {
+          if (!tierUpgrades[i]) {
+            return i;
+          }
+        }
+        return -1;
       }
 
       function isInsideJar(x, y) {
@@ -4327,17 +4418,33 @@
         let panelCenter = panelLeft + panelWidth / 2;
         drawMenuPanelBackground(panelCenter, SCREEN_H / 2, panelWidth, SCREEN_H);
 
-        menuContentArea.left = panelLeft + scaledX(22);
-        menuContentArea.right = panelRight - scaledX(22);
-        menuContentArea.width = Math.max(
-          0,
-          menuContentArea.right - menuContentArea.left
-        );
-        menuContentArea.center =
-          (menuContentArea.left + menuContentArea.right) / 2;
+        let tabRailInset = scaledX(14);
+        let tabRailWidth = Math.max(scaledX(54), panelWidth * 0.2);
+        let tabRailLeft = panelLeft + tabRailInset;
+        let tabRailRight = tabRailLeft + tabRailWidth;
+        let contentLeft = tabRailRight + scaledX(14);
+        let contentRight = panelRight - scaledX(22);
 
-        let headerBottom = drawResourceHeader(panelCenter);
+        menuContentArea.left = contentLeft;
+        menuContentArea.right = contentRight;
+        menuContentArea.width = Math.max(0, contentRight - contentLeft);
+        menuContentArea.center = menuContentArea.width > 0
+          ? (contentLeft + contentRight) / 2
+          : panelCenter;
+
+        let headerBottom = drawResourceHeader(
+          menuContentArea.center,
+          menuContentArea.width
+        );
         let tabs = getUnlockedMenuTabs();
+        drawMenuTabs({
+          tabs,
+          left: tabRailLeft,
+          right: tabRailRight,
+          top: scaledY(40),
+          bottom: SCREEN_H - scaledY(40)
+        });
+
         if (tabs.length === 0) {
           menuContentArea.top = headerBottom + scaledY(12);
           menuContentArea.bottom = SCREEN_H - scaledY(32);
@@ -4349,24 +4456,25 @@
           textSize(scaledFont(11));
           text(
             'Unlock a module to access its controls.',
-            panelCenter,
+            menuContentArea.center,
             menuContentArea.top + scaledY(32)
           );
           menuScroll = 0;
           menuScrollMax = 0;
           return;
         }
+
         if (!tabs.some((tab) => tab.key === activeMenu)) {
-          activeMenu = tabs[tabs.length - 1].key;
+          activeMenu = tabs[0].key;
         }
-        let tabsBottom = drawMenuTabs(headerBottom + scaledY(8), tabs);
-        let contentTop = tabsBottom + scaledY(14);
+
+        let contentTop = headerBottom + scaledY(18);
         let contentBottom = SCREEN_H - scaledY(48);
         menuContentArea.top = contentTop;
         menuContentArea.bottom = contentBottom;
         menuContentArea.height = Math.max(0, contentBottom - contentTop);
 
-        let visibleHeight = Math.max(0, menuContentArea.bottom - menuContentArea.top);
+        let visibleHeight = Math.max(0, menuContentArea.height);
         let contentStart = menuContentArea.top - menuScroll;
         let contentEnd = contentStart;
         let clipWidth = menuContentArea.width;
@@ -4393,24 +4501,30 @@
         menuScroll = constrain(menuScroll, 0, menuScrollMax);
       }
 
-      function drawResourceHeader(panelCenter) {
-        let cardWidth = MENU_W - scaledX(60);
+      function drawResourceHeader(centerX, availableWidth) {
+        let fallbackWidth = MENU_W - scaledX(72);
+        let usableWidth = typeof availableWidth === 'number' && availableWidth > 0
+          ? Math.min(availableWidth, fallbackWidth)
+          : fallbackWidth;
+        if (usableWidth <= 0) {
+          usableWidth = Math.min(fallbackWidth, scaledX(240));
+        }
         let cardHeight = scaledY(122);
-        let cardCenterY = scaledY(70);
-        drawGlassCard(panelCenter, cardCenterY, cardWidth, cardHeight, MENU_THEME.accent);
+        let cardCenterY = scaledY(74);
+        drawGlassCard(centerX, cardCenterY, usableWidth, cardHeight, MENU_THEME.accent);
 
         let summaryY = cardCenterY - cardHeight / 2 + scaledY(26);
         fill(MENU_THEME.text);
         textSize(scaledFont(12));
         text(
           `Dust ${Math.floor(dust)}  •  Cores ${crystalCores}  •  Powder ${totalPowderCollected}`,
-          panelCenter,
+          centerX,
           summaryY
         );
         if (milestoneMessage) {
           fill(MENU_THEME.mutedText);
           textSize(scaledFont(10));
-          text(milestoneMessage, panelCenter, summaryY + scaledY(18));
+          text(milestoneMessage, centerX, summaryY + scaledY(18));
         }
         let countersStart = summaryY + (milestoneMessage ? scaledY(38) : scaledY(28));
         let nextY = drawPowderCounters(countersStart);
@@ -4452,119 +4566,74 @@
             return false;
           }
         }
-        if (!tab.machine || tab.machine === 'jar') return true;
-        return isMachineUnlocked(tab.machine);
+        if (tab.requiresModule) {
+          return isMachineUnlocked(tab.requiresModule);
+        }
+        return true;
       }
 
       function getUnlockedMenuTabs() {
-        let available = [];
-        for (let tab of menuTabs) {
-          if (!isMenuTabUnlocked(tab.key)) {
-            break;
-          }
-          available.push(tab);
-        }
-        return available;
+        return menuTabs.filter((tab) => isMenuTabUnlocked(tab.key));
       }
 
-      function drawMenuTabs(y, tabs) {
-        if (!tabs || tabs.length === 0) {
-          return y;
+      function drawMenuTabs(area) {
+        let tabs = (area && area.tabs) || [];
+        if (tabs.length === 0) {
+          return;
         }
-        let availableWidth = menuContentArea.width || SCREEN_W - scaledX(80);
-        if (availableWidth <= 0) {
-          availableWidth = SCREEN_W - scaledX(80);
-        }
-        let spacingX = scaledX(8);
-        let spacingY = scaledY(8);
-        let paddingX = scaledX(18);
-        let paddingY = scaledY(12);
-        textSize(scaledFont(11));
-        let lineHeight = typeof textAscent === 'function'
-          ? textAscent() + textDescent()
-          : scaledY(12);
-        let tabHeight = Math.max(scaledY(28), lineHeight + paddingY);
-        let minWidth = scaledX(48);
-        let maxWidth = Math.max(minWidth, Math.min(availableWidth, scaledX(160)));
-        let descriptors = tabs.map((tab) => {
-          let labelWidth = textWidth(tab.label || '');
-          let width = constrain(labelWidth + paddingX, minWidth, maxWidth);
-          return { tab, width };
-        });
-        let rows = [];
-        let currentRow = [];
-        let currentWidth = 0;
-        for (let descriptor of descriptors) {
-          let projected =
-            currentWidth +
-            (currentRow.length > 0 ? spacingX : 0) +
-            descriptor.width;
-          if (currentRow.length > 0 && projected > availableWidth) {
-            rows.push({ items: currentRow, width: currentWidth });
-            currentRow = [];
-            currentWidth = 0;
-          }
-          if (currentRow.length > 0) {
-            currentWidth += spacingX;
-          }
-          currentRow.push(descriptor);
-          currentWidth += descriptor.width;
-        }
-        if (currentRow.length > 0) {
-          rows.push({ items: currentRow, width: currentWidth });
-        }
-        if (rows.length === 0) {
-          return y;
-        }
-        let currentTop = y;
-        let centerX = menuContentArea.center || SCREEN_W / 2;
-        if (typeof textWrap === 'function') {
-          textWrap('WORD');
-        }
-        for (let row of rows) {
-          let startX = centerX - row.width / 2;
-          let centerY = currentTop + tabHeight / 2;
-          let cursorX = startX;
-          for (let descriptor of row.items) {
-            let { tab, width } = descriptor;
-            let x = cursorX + width / 2;
-            let active = tab.key === activeMenu;
-            drawNeonButton(x, centerY, width, tabHeight, {
-              active,
-              accentColor: MENU_THEME.accent,
-              baseColor: MENU_THEME.buttonBase,
-              radius: Math.max(scaledX(6), Math.min(scaledX(12), tabHeight / 2))
-            });
-            push();
-            textAlign(CENTER, CENTER);
-            fill(active ? MENU_THEME.invertedText : MENU_THEME.text);
-            text(
-              tab.label,
-              x,
+        let left = area.left !== undefined ? area.left : scaledX(12);
+        let right = area.right !== undefined ? area.right : left + scaledX(54);
+        let width = Math.max(scaledX(40), right - left);
+        let top = area.top !== undefined ? area.top : scaledY(40);
+        let bottom = area.bottom !== undefined ? area.bottom : SCREEN_H - scaledY(40);
+        let availableHeight = Math.max(0, bottom - top);
+        let maxTabHeight = Math.max(scaledY(50), availableHeight / Math.max(1, tabs.length));
+        let tabHeight = Math.min(maxTabHeight, scaledY(64));
+        tabHeight = Math.max(tabHeight, scaledY(38));
+        let spacing = Math.max(scaledY(8), tabHeight * 0.25);
+        let totalHeight = tabs.length * tabHeight + Math.max(0, tabs.length - 1) * spacing;
+        let startY = top + Math.max(0, (availableHeight - totalHeight) / 2);
+        let centerX = left + width / 2;
+        for (let i = 0; i < tabs.length; i++) {
+          let tab = tabs[i];
+          let centerY = startY + tabHeight / 2 + i * (tabHeight + spacing);
+          let active = tab.key === activeMenu;
+          let baseColor = active ? MENU_THEME.accentSoft : MENU_THEME.buttonBase;
+          let borderColor = active ? MENU_THEME.accent : MENU_THEME.buttonBorder;
+          push();
+          rectMode(CENTER);
+          stroke(borderColor);
+          strokeWeight(Math.max(1, scaledX(1.2)));
+          fill(baseColor);
+          let radius = Math.max(scaledX(10), tabHeight / 2.6);
+          rect(centerX, centerY, width, tabHeight, radius);
+          if (active) {
+            noStroke();
+            fill(MENU_THEME.accent);
+            rect(
+              centerX - width / 2 + scaledX(5),
               centerY,
-              Math.max(width - scaledX(12), scaledX(20)),
-              Math.max(tabHeight - scaledY(12), scaledY(16))
+              scaledX(4),
+              tabHeight - scaledY(10),
+              Math.max(2, scaledX(2))
             );
-            pop();
-            addButton(
-              {
-                action: 'switchMenu',
-                key: tab.key,
-                x,
-                y: centerY,
-                w: width,
-                h: tabHeight
-              }
-            );
-            cursorX += width + spacingX;
           }
-          currentTop += tabHeight + spacingY;
+          textAlign(CENTER, CENTER);
+          textSize(scaledFont(10));
+          fill(active ? MENU_THEME.text : MENU_THEME.mutedText);
+          let textW = Math.max(width - scaledX(12), scaledX(24));
+          let textH = tabHeight - scaledY(10);
+          text(tab.label, centerX, centerY, textW, textH);
+          pop();
+          addButton({
+            action: 'switchMenu',
+            key: tab.key,
+            x: centerX,
+            y: centerY,
+            w: width,
+            h: tabHeight
+          });
         }
-        if (typeof textWrap === 'function') {
-          textWrap('WORD');
-        }
-        textSize(scaledFont(14));
-        return y + rows.length * tabHeight + Math.max(0, rows.length - 1) * spacingY;
       }
 
       function drawSectionHeader(title, y) {
@@ -4597,17 +4666,186 @@
         return y + scaledY(32);
       }
 
-      function drawJarMenu(y) {
+      function drawSandfallMenu(y) {
         y = drawSectionHeader('Powder Selection', y);
         y = drawPowderSelectRow(y + scaledY(8));
-        y = drawSectionHeader('Tier Unlocks', y + scaledY(10));
-        y = drawTierUpgradeRow(y + scaledY(8));
-        y = drawSectionHeader('Gravity Upgrades', y + scaledY(12));
-        y = drawSpecificUpgradeRow(['gravity'], y + scaledY(10));
-        y = drawSectionHeader('Geologic Layers', y + scaledY(12));
-        for (let i = 0; i < strataLayers.length; i++) {
-          y = drawLayerCard(strataLayers[i], layerStates[i], y);
+        y = drawSectionHeader('Sandfall Metrics', y + scaledY(12));
+        y = drawSandfallStats(y + scaledY(18));
+        return y;
+      }
+
+      function drawSandfallStats(y) {
+        let cardW = menuContentArea.width || SCREEN_W - scaledX(60);
+        let cardH = scaledY(138);
+        let x = menuContentArea.center || SCREEN_W / 2;
+        drawGlassCard(x, y, cardW, cardH, MENU_THEME.accentSoft);
+        let topY = y - cardH / 2 + scaledY(26);
+        let selected = powderTypes[selectedPowder] || {};
+        let selectedName = selected.name || 'Unknown';
+        let selectedCount = Math.floor(powderCounts[selectedPowder] || 0).toLocaleString();
+        push();
+        textAlign(CENTER, CENTER);
+        fill(MENU_THEME.text);
+        textSize(scaledFont(11));
+        text(`Selected Powder: ${selectedName}`, x, topY);
+        fill(MENU_THEME.mutedText);
+        textSize(scaledFont(10));
+        text(`Inventory: ${selectedCount}`, x, topY + scaledY(18));
+        let autoDropStatus = automationSettings.autoDrop ? 'Auto Drop ON' : 'Auto Drop OFF';
+        let autoCompressStatus = automationSettings.autoCompress ? 'Auto Compress ON' : 'Auto Compress OFF';
+        text(`${autoDropStatus} • ${autoCompressStatus}`, x, topY + scaledY(36));
+        let duneText = `Dune Multiplier: x${duneDustMultiplier.toFixed(2)}`;
+        text(duneText, x, topY + scaledY(54));
+        let nextIndex = getNextTierToUnlock();
+        if (nextIndex >= 0) {
+          let moduleKey = MODULE_UNLOCK_ORDER[nextIndex];
+          let module = machineDefinitions.find((m) => m.key === moduleKey);
+          let cost = tierUnlockCosts[nextIndex] || 0;
+          let resource = powderTypes[nextIndex] ? powderTypes[nextIndex].name : 'Powder';
+          text(
+            `Next Unlock: ${module ? module.name : moduleKey} — ${cost.toLocaleString()} ${resource}`,
+            x,
+            topY + scaledY(72)
+          );
+        } else {
+          text('All modules unlocked', x, topY + scaledY(72));
         }
+        pop();
+        return y + cardH / 2 + scaledY(14);
+      }
+
+      function drawModuleSummaryCard(machine, y) {
+        let cardW = menuContentArea.width || SCREEN_W - scaledX(60);
+        let cardH = scaledY(120);
+        let x = menuContentArea.center || SCREEN_W / 2;
+        let unlocked = isMachineUnlocked(machine.key);
+        let accent = unlocked ? MENU_THEME.accent : MENU_THEME.cardBorder;
+        drawGlassCard(x, y, cardW, cardH, accent);
+        push();
+        textAlign(CENTER, CENTER);
+        fill(MENU_THEME.text);
+        textSize(scaledFont(12));
+        text(machine.name, x, y - scaledY(32));
+        fill(MENU_THEME.mutedText);
+        textSize(scaledFont(10));
+        text(machine.description, x, y - scaledY(10), cardW - scaledX(36), scaledY(44));
+        fill(unlocked ? MENU_THEME.success : MENU_THEME.mutedText);
+        textSize(scaledFont(10));
+        text(unlocked ? 'Status: Online' : 'Status: Locked', x, y + scaledY(12));
+        if (!unlocked) {
+          let tierIndex = getTierIndexForModule(machine.key);
+          if (tierIndex >= 0) {
+            let cost = tierUnlockCosts[tierIndex] || 0;
+            let have = Math.floor(powderCounts[tierIndex] || 0);
+            let resource = powderTypes[tierIndex] ? powderTypes[tierIndex].name : 'Powder';
+            fill(MENU_THEME.mutedText);
+            textSize(scaledFont(9));
+            text(
+              `Requires ${cost.toLocaleString()} ${resource} (have ${have.toLocaleString()})`,
+              x,
+              y + scaledY(30)
+            );
+          }
+        }
+        pop();
+        return y + cardH / 2 + scaledY(12);
+      }
+
+      function drawSelectedModuleMenu(y) {
+        let moduleKey = selectedModule || 'jar';
+        let machine = machineDefinitions.find((m) => m.key === moduleKey);
+        if (!machine) {
+          machine = machineDefinitions.find((m) => m.key === 'jar');
+        }
+        if (!machine) {
+          fill(MENU_THEME.mutedText);
+          textSize(scaledFont(11));
+          text(
+            'Select a module in the workshop to view its upgrades.',
+            menuContentArea.center || SCREEN_W / 2,
+            y + scaledY(24)
+          );
+          return y + scaledY(48);
+        }
+        y = drawSectionHeader('Module Overview', y);
+        y = drawModuleSummaryCard(machine, y + scaledY(14));
+        if (machine.key === 'jar') {
+          fill(MENU_THEME.mutedText);
+          textSize(scaledFont(11));
+          text(
+            'The Sandfall Jar hums along on its own. Use the Sandfall and Universal tabs to tune its flow.',
+            menuContentArea.center || SCREEN_W / 2,
+            y + scaledY(20),
+            menuContentArea.width || SCREEN_W - scaledX(80),
+            scaledY(60)
+          );
+          return y + scaledY(64);
+        }
+        if (!isMachineUnlocked(machine.key)) {
+          fill(MENU_THEME.mutedText);
+          textSize(scaledFont(11));
+          text(
+            'Unlock this module from the workshop to access its controls.',
+            menuContentArea.center || SCREEN_W / 2,
+            y + scaledY(20)
+          );
+          return y + scaledY(44);
+        }
+        switch (machine.key) {
+          case 'conveyor':
+            return drawConveyorMenu(y + scaledY(12));
+          case 'rocket':
+            return drawRocketMenu(y + scaledY(12));
+          case 'asteroid':
+            return drawAsteroidMenu(y + scaledY(12));
+          case 'planet':
+            return drawPlanetMenu(y + scaledY(12));
+          case 'forge':
+            return drawForgeMenu(y + scaledY(12));
+          case 'galaxy':
+            return drawGalaxyMenu(y + scaledY(12));
+          case 'universe':
+            return drawUniverseMenu(y + scaledY(12));
+          case 'singularity':
+            return drawSingularityMenu(y + scaledY(12));
+          default:
+            return y;
+        }
+      }
+
+      function drawUniversalMenu(y) {
+        y = drawSectionHeader('Gravity & Flow', y);
+        y = drawSpecificUpgradeRow(['gravity'], y + scaledY(10));
+        y = drawSectionHeader('Refinement', y + scaledY(12));
+        y = drawSpecificUpgradeRow(['refinery', 'compressor'], y + scaledY(10));
+        y = drawSectionHeader('Luminous Resonance', y + scaledY(12));
+        y = drawSpecificUpgradeRow(['lanterns', 'harmonics'], y + scaledY(10));
+        y = drawSectionHeader('Research Archives', y + scaledY(12));
+        y = drawResearchRows(y + scaledY(10));
+        y = drawSectionHeader('Geologic Layers', y + scaledY(16));
+        for (let i = 0; i < strataLayers.length; i++) {
+          y = drawLayerCard(strataLayers[i], layerStates[i], y + scaledY(6));
+        }
+        return y;
+      }
+
+      function drawAchievementsMenu(y) {
+        y = drawSectionHeader('Epoch Milestones', y);
+        if (!codexUnlocked) {
+          fill(MENU_THEME.mutedText);
+          textSize(scaledFont(11));
+          text(
+            'Record your discoveries to unlock the codex.',
+            menuContentArea.center || SCREEN_W / 2,
+            y + scaledY(16)
+          );
+          return y + scaledY(44);
+        }
+        for (let i = 0; i < milestoneConfigs.length; i++) {
+          y = drawMilestoneCard(milestoneConfigs[i], milestoneStates[i], y + scaledY(6));
+        }
+        y = drawSectionHeader('Development Roadmap', y + scaledY(18));
+        y = drawDevelopmentNotes(y + scaledY(10));
         return y;
       }
 
@@ -4687,115 +4925,16 @@
         return y;
       }
 
-      function drawCodexMenu(y) {
-        y = drawSectionHeader('Epoch Milestones', y);
-        for (let i = 0; i < milestoneConfigs.length; i++) {
-          y = drawMilestoneCard(milestoneConfigs[i], milestoneStates[i], y + scaledY(6));
-        }
-        y = drawSectionHeader('Development Roadmap', y + scaledY(18));
-        y = drawDevelopmentNotes(y + scaledY(10));
-        return y;
-      }
-
-      function drawDeveloperMenu(y) {
-        y = drawSectionHeader('Grain Tools', y);
-        let centerX = menuContentArea.center || SCREEN_W / 2;
-        let cardWidth = menuContentArea.width || SCREEN_W - scaledX(80);
-        let cardHeight = scaledY(176);
-        let topY = y + scaledY(12);
-        let cardCenterY = topY + cardHeight / 2;
-        drawGlassCard(centerX, cardCenterY, cardWidth, cardHeight, '#38bdf8');
-
-        let grainCount = powderCounts.length > 0 ? powderCounts[0] : 0;
-        let titleY = cardCenterY - cardHeight / 2 + scaledY(28);
-        fill(MENU_THEME.text);
-        textSize(scaledFont(12));
-        text(`Grains on hand: ${grainCount}`, centerX, titleY);
-        fill(MENU_THEME.mutedText);
-        textSize(scaledFont(10));
-        text('Grant grains instantly to accelerate testing builds.', centerX, titleY + scaledY(18));
-
-        let quickAmounts = [100, 1000, 10000];
-        let quickY = cardCenterY - scaledY(10);
-        let btnW = Math.min(scaledX(110), Math.max(scaledX(90), cardWidth / quickAmounts.length - scaledX(24)));
-        let btnH = scaledY(34);
-        let xs = getRowPositions(quickAmounts.length);
-        textSize(scaledFont(11));
-        for (let i = 0; i < quickAmounts.length; i++) {
-          let amount = quickAmounts[i];
-          let x = xs[i];
-          drawNeonButton(x, quickY, btnW, btnH, {
-            active: false,
-            accentColor: MENU_THEME.accent,
-            baseColor: MENU_THEME.buttonBase,
-            radius: 12
-          });
-          fill(MENU_THEME.text);
-          text(`+${amount.toLocaleString()}`, x, quickY);
-          addButton(
-            {
-              action: 'developerAdd',
-              amount,
-              x,
-              y: quickY,
-              w: btnW,
-              h: btnH
-            },
-            { scrollAware: true }
-          );
-        }
-
-        let customY = quickY + scaledY(48);
-        let customW = Math.min(cardWidth - scaledX(40), scaledX(200));
-        let customH = scaledY(36);
-        drawNeonButton(centerX, customY, customW, customH, {
-          active: false,
-          accentColor: MENU_THEME.accent,
-          baseColor: MENU_THEME.buttonBase,
-          radius: 14
-        });
-        fill(MENU_THEME.text);
-        textSize(scaledFont(11));
-        text('Custom amount…', centerX, customY);
-        addButton(
-          {
-            action: 'developerPromptAdd',
-            x: centerX,
-            y: customY,
-            w: customW,
-            h: customH
-          },
-          { scrollAware: true }
-        );
-
-        textSize(scaledFont(14));
-        return cardCenterY + cardHeight / 2 + scaledY(24);
-      }
-
       function drawActiveMenuContent(y) {
         switch (activeMenu) {
-          case 'jar':
-            return drawJarMenu(y);
-          case 'conveyor':
-            return drawConveyorMenu(y);
-          case 'rocket':
-            return drawRocketMenu(y);
-          case 'asteroid':
-            return drawAsteroidMenu(y);
-          case 'planet':
-            return drawPlanetMenu(y);
-          case 'forge':
-            return drawForgeMenu(y);
-          case 'galaxy':
-            return drawGalaxyMenu(y);
-          case 'universe':
-            return drawUniverseMenu(y);
-          case 'singularity':
-            return drawSingularityMenu(y);
-          case 'codex':
-            return drawCodexMenu(y);
-          case 'developer':
-            return drawDeveloperMenu(y);
+          case 'sandfall':
+            return drawSandfallMenu(y);
+          case 'module':
+            return drawSelectedModuleMenu(y);
+          case 'universal':
+            return drawUniversalMenu(y);
+          case 'achievements':
+            return drawAchievementsMenu(y);
           default:
             return y;
         }
@@ -5123,59 +5262,6 @@
         }
         textSize(scaledFont(14));
         return y + Math.max(0, totalHeight);
-      }
-
-      function drawTierUpgradeRow(y) {
-        let availableWidth = menuContentArea.width || SCREEN_W - scaledX(80);
-        let centerX = menuContentArea.center || SCREEN_W / 2;
-        let btnSize = Math.min(Math.max(scaledX(48), scaledY(48)), availableWidth);
-        let spacingY = scaledY(12);
-        textSize(scaledFont(9));
-        for (let i = 0; i < tierUnlockCosts.length; i++) {
-          let cost = tierUnlockCosts[i];
-          let canUpgrade = powderCounts[i] >= cost && !tierUpgrades[i];
-          let centerY = y + btnSize / 2 + i * (btnSize + spacingY);
-          drawNeonButton(centerX, centerY, btnSize, btnSize, {
-            active: tierUpgrades[i],
-            enabled: canUpgrade || tierUpgrades[i],
-            accentColor: MENU_THEME.success,
-            baseColor: MENU_THEME.buttonBase,
-            radius: Math.min(10, btnSize / 2)
-          });
-          fill(tierUpgrades[i] ? MENU_THEME.invertedText : MENU_THEME.text);
-          push();
-          textAlign(CENTER, CENTER);
-          if (tierUpgrades[i]) {
-            textSize(scaledFont(9));
-            text(powderTypes[i + 1].name, centerX, centerY - scaledY(8));
-            textSize(scaledFont(8));
-            text('Unlocked', centerX, centerY + scaledY(6));
-          } else {
-            textSize(scaledFont(8));
-            text('Unlock', centerX, centerY - scaledY(12));
-            textSize(scaledFont(9));
-            text(powderTypes[i + 1].name, centerX, centerY);
-            textSize(scaledFont(8));
-            text(`-${cost}`, centerX, centerY + scaledY(12));
-          }
-          pop();
-          addButton(
-            {
-              action: 'tierUpgrade',
-              index: i,
-              x: centerX,
-              y: centerY,
-              w: btnSize,
-              h: btnSize
-            },
-            { scrollAware: true }
-          );
-        }
-        textSize(scaledFont(14));
-        let totalHeight =
-          tierUnlockCosts.length * btnSize +
-          Math.max(0, tierUnlockCosts.length - 1) * spacingY;
-        return y + totalHeight;
       }
 
       function drawAutoDropperRow(y) {
@@ -5658,9 +5744,6 @@
           case 'selectPowder':
             selectedPowder = btn.index;
             break;
-          case 'tierUpgrade':
-            unlockTier(btn.index);
-            break;
           case 'buyDropper':
             buyDropper(btn.index);
             break;
@@ -5673,12 +5756,6 @@
           case 'compress':
             compressPowder(btn.recipe);
             break;
-          case 'developerAdd':
-            grantDeveloperGrains(btn.amount);
-            break;
-          case 'developerPromptAdd':
-            promptDeveloperAddGrains();
-            break;
           case 'prestige':
             performPrestige();
             break;
@@ -5687,10 +5764,6 @@
               activeMenu = btn.key;
               menuScroll = 0;
               menuScrollMax = 0;
-              let tab = menuTabs.find((t) => t.key === btn.key);
-              if (tab && tab.machine) {
-                selectedModule = tab.machine;
-              }
             }
             break;
           case 'toggleAutomation':
@@ -5698,12 +5771,26 @@
             break;
           case 'moduleInteract':
             selectedModule = btn.key;
-            if (isMenuTabUnlocked(btn.key)) {
-              activeMenu = btn.key;
+            if (isMenuTabUnlocked('module')) {
+              activeMenu = 'module';
               menuScroll = 0;
               menuScrollMax = 0;
             }
-            handleModuleInteraction(btn.key);
+            if (isMachineUnlocked(btn.key)) {
+              handleModuleInteraction(btn.key);
+            }
+            break;
+          case 'focusModule':
+            selectedModule = btn.key;
+            if (isMenuTabUnlocked('module')) {
+              activeMenu = 'module';
+              menuScroll = 0;
+              menuScrollMax = 0;
+            }
+            break;
+          case 'unlockModule':
+            selectedModule = btn.key;
+            unlockTier(btn.index);
             break;
           case 'toggleFullscreen':
             toggleModuleFullscreen(btn.key);

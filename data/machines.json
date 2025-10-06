@@ -66,15 +66,9 @@
     { "from": "universe", "to": "singularity" }
   ],
   "menuTabs": [
-    { "key": "jar", "label": "Sandfall", "machine": "jar" },
-    { "key": "conveyor", "label": "Conveyor", "machine": "conveyor" },
-    { "key": "rocket", "label": "Launch Bay", "machine": "rocket" },
-    { "key": "asteroid", "label": "Asteroids", "machine": "asteroid" },
-    { "key": "planet", "label": "Planets", "machine": "planet" },
-    { "key": "forge", "label": "Star Forge", "machine": "forge" },
-    { "key": "galaxy", "label": "Galaxies", "machine": "galaxy" },
-    { "key": "universe", "label": "Universe", "machine": "universe" },
-    { "key": "singularity", "label": "Singularity", "machine": "singularity" },
-    { "key": "codex", "label": "Codex", "requiresMilestone": "chronicle" }
+    { "key": "sandfall", "label": "Sandfall" },
+    { "key": "module", "label": "Module" },
+    { "key": "universal", "label": "Universal" },
+    { "key": "achievements", "label": "Achievements", "requiresMilestone": "chronicle" }
   ]
 }
