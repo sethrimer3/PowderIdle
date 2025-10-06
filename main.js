@@ -16,6 +16,31 @@
       const CHAIN_REQUIREMENT = 100;
       const SAND_RELEASE_HEIGHT = 30;
       const SAND_RELEASE_OPEN_DURATION = 0.6;
+      const MIN_GRAINS_FOR_RELEASE = 400;
+
+      const MENU_THEME = {
+        panelTop: '#f8f1e1',
+        panelBottom: '#f0e2c7',
+        panelBorder: '#d6c0a3',
+        panelShadow: 'rgba(149, 118, 72, 0.24)',
+        innerBorder: 'rgba(255, 255, 255, 0.5)',
+        cardTop: '#ffffff',
+        cardBottom: '#f6e9d1',
+        cardBorder: '#d9c3a7',
+        cardShadow: 'rgba(149, 118, 72, 0.2)',
+        accent: '#f59e0b',
+        accentHover: '#d97706',
+        accentSoft: '#fde68a',
+        success: '#65a30d',
+        text: '#2f2a1f',
+        mutedText: '#6b6052',
+        invertedText: '#fffaf0',
+        divider: '#e2d4bd',
+        buttonBase: '#f6ecda',
+        buttonBorder: '#d6c0a3',
+        buttonDisabled: '#d5c7b8',
+        progressBg: '#e9ddc9'
+      };
 
       let powderTypes = [];
       let machineDefinitions = [];
@@ -1377,7 +1402,7 @@
           fill('#334155');
           textSize(scaledFont(10));
           text('Locked', center.x, center.y);
-          fill('#64748b');
+          fill(MENU_THEME.mutedText);
           textSize(scaledFont(9));
           text(machine.description, center.x, center.y + scaledY(20));
         } else {
@@ -3822,6 +3847,22 @@
         duneDustMultiplier = 1 + duneHeightUnits * 0.1;
       }
 
+      function getJarPowderCount(typeIndex) {
+        if (!Array.isArray(powders) || powders.length === 0) {
+          return 0;
+        }
+        if (typeof typeIndex !== 'number') {
+          return powders.length;
+        }
+        let total = 0;
+        for (let powder of powders) {
+          if (powder && powder.type === typeIndex) {
+            total += 1;
+          }
+        }
+        return total;
+      }
+
       function updateJarReleaseState() {
         if (!jarReleaseState) {
           jarReleaseState = { open: false, openTimer: 0, cooldown: 0 };
@@ -3838,7 +3879,8 @@
         if (
           !jarReleaseState.open &&
           jarReleaseState.cooldown <= 0 &&
-          duneHeightUnits >= SAND_RELEASE_HEIGHT
+          duneHeightUnits >= SAND_RELEASE_HEIGHT &&
+          getJarPowderCount(0) >= MIN_GRAINS_FOR_RELEASE
         ) {
           triggerJarRelease();
         }
@@ -4081,15 +4123,14 @@
         let left = centerX - width / 2;
         let top = centerY - height / 2;
         let gradient = ctx.createLinearGradient(0, top, 0, top + height);
-        gradient.addColorStop(0, '#142544');
-        gradient.addColorStop(0.55, '#0c172d');
-        gradient.addColorStop(1, '#050914');
+        gradient.addColorStop(0, MENU_THEME.panelTop);
+        gradient.addColorStop(1, MENU_THEME.panelBottom);
         ctx.fillStyle = gradient;
-        ctx.strokeStyle = 'rgba(30, 41, 59, 0.95)';
+        ctx.strokeStyle = MENU_THEME.panelBorder;
         ctx.lineWidth = Math.max(1.5, scaledX(2));
-        ctx.shadowColor = 'rgba(56, 189, 248, 0.18)';
-        ctx.shadowBlur = Math.max(12, scaledX(20));
-        ctx.shadowOffsetY = scaledY(12);
+        ctx.shadowColor = MENU_THEME.panelShadow;
+        ctx.shadowBlur = Math.max(10, scaledX(16));
+        ctx.shadowOffsetY = scaledY(8);
         let radius = Math.max(16, scaledX(20));
         ctx.beginPath();
         if (typeof ctx.roundRect === 'function') {
@@ -4105,25 +4146,31 @@
         push();
         rectMode(CENTER);
         noFill();
-        stroke('rgba(125, 211, 252, 0.18)');
+        stroke(MENU_THEME.innerBorder);
         strokeWeight(Math.max(1, scaledX(1)));
-        rect(centerX, centerY, width - scaledX(16), height - scaledY(20), Math.max(12, scaledX(14)));
+        rect(
+          centerX,
+          centerY,
+          width - scaledX(18),
+          height - scaledY(24),
+          Math.max(12, scaledX(14))
+        );
         pop();
       }
 
-      function drawGlassCard(centerX, centerY, width, height, accentColor = '#38bdf8') {
+      function drawGlassCard(centerX, centerY, width, height, accentColor = MENU_THEME.accent) {
         let ctx = drawingContext;
         ctx.save();
         let left = centerX - width / 2;
         let top = centerY - height / 2;
         let gradient = ctx.createLinearGradient(0, top, 0, top + height);
-        gradient.addColorStop(0, 'rgba(17, 24, 39, 0.9)');
-        gradient.addColorStop(1, 'rgba(8, 11, 24, 0.92)');
+        gradient.addColorStop(0, MENU_THEME.cardTop);
+        gradient.addColorStop(1, MENU_THEME.cardBottom);
         ctx.fillStyle = gradient;
-        ctx.strokeStyle = accentColor;
+        ctx.strokeStyle = mixColors(accentColor, MENU_THEME.cardBorder, 0.5);
         ctx.lineWidth = Math.max(1, scaledX(1.4));
-        ctx.shadowColor = 'rgba(56, 189, 248, 0.18)';
-        ctx.shadowBlur = Math.max(8, scaledX(12));
+        ctx.shadowColor = MENU_THEME.cardShadow;
+        ctx.shadowBlur = Math.max(6, scaledX(12));
         ctx.shadowOffsetY = scaledY(6);
         let radius = Math.max(12, scaledX(14));
         ctx.beginPath();
@@ -4139,38 +4186,44 @@
 
         push();
         rectMode(CENTER);
-        stroke('rgba(148, 163, 184, 0.3)');
+        stroke(mixColors(accentColor, MENU_THEME.cardBorder, 0.25));
         strokeWeight(Math.max(1, scaledX(1)));
         noFill();
-        rect(centerX, centerY, width - scaledX(12), height - scaledY(12), Math.max(10, scaledX(12)));
+        rect(
+          centerX,
+          centerY,
+          width - scaledX(12),
+          height - scaledY(12),
+          Math.max(10, scaledX(12))
+        );
         pop();
       }
 
       function drawNeonButton(x, y, w, h, options = {}) {
         let active = !!options.active;
         let enabled = options.enabled !== false;
-        let accentColor = options.accentColor || '#38bdf8';
-        let baseColor = options.baseColor || '#1f2a44';
+        let accentColor = options.accentColor || MENU_THEME.accent;
+        let baseColor = options.baseColor || MENU_THEME.buttonBase;
         let radius = options.radius || Math.min(14, h / 2);
         let topColor;
         let bottomColor;
         let borderColor;
-        let glow = 'rgba(15, 23, 42, 0.25)';
+        let shadowColor;
         if (!enabled) {
-          topColor = 'rgba(28, 37, 58, 0.8)';
-          bottomColor = 'rgba(12, 19, 35, 0.94)';
-          borderColor = 'rgba(30, 41, 59, 0.85)';
-          glow = 'rgba(15, 23, 42, 0.18)';
+          topColor = mixColors(MENU_THEME.buttonDisabled, '#ffffff', 0.35);
+          bottomColor = MENU_THEME.buttonDisabled;
+          borderColor = MENU_THEME.buttonBorder;
+          shadowColor = 'rgba(90, 64, 31, 0.1)';
         } else if (active) {
-          topColor = mixColors('#ffffff', accentColor, 0.3);
-          bottomColor = mixColors('#020617', accentColor, 0.55);
-          borderColor = mixColors(accentColor, '#1e3a8a', 0.35);
-          glow = 'rgba(56, 189, 248, 0.32)';
+          topColor = mixColors('#ffffff', accentColor, 0.45);
+          bottomColor = mixColors(accentColor, MENU_THEME.accentHover, 0.5);
+          borderColor = MENU_THEME.accentHover;
+          shadowColor = 'rgba(191, 90, 10, 0.3)';
         } else {
-          topColor = mixColors(baseColor, '#1f2937', 0.2);
-          bottomColor = mixColors(baseColor, '#020617', 0.7);
-          borderColor = 'rgba(46, 80, 133, 0.9)';
-          glow = 'rgba(59, 130, 246, 0.2)';
+          topColor = mixColors(baseColor, '#ffffff', 0.6);
+          bottomColor = baseColor;
+          borderColor = MENU_THEME.buttonBorder;
+          shadowColor = 'rgba(122, 97, 63, 0.2)';
         }
 
         let ctx = drawingContext;
@@ -4182,10 +4235,10 @@
         gradient.addColorStop(1, bottomColor);
         ctx.fillStyle = gradient;
         ctx.strokeStyle = borderColor;
-        ctx.lineWidth = Math.max(1, scaledX(1.6));
-        ctx.shadowColor = glow;
-        ctx.shadowBlur = Math.max(6, scaledX(active ? 16 : 10));
-        ctx.shadowOffsetY = scaledY(active ? 5 : 3);
+        ctx.lineWidth = Math.max(1, scaledX(1.4));
+        ctx.shadowColor = shadowColor;
+        ctx.shadowBlur = Math.max(4, scaledX(active ? 12 : 8));
+        ctx.shadowOffsetY = scaledY(active ? 4 : 3);
         ctx.beginPath();
         if (typeof ctx.roundRect === 'function') {
           ctx.roundRect(left, top, w, h, radius);
@@ -4201,7 +4254,7 @@
           push();
           rectMode(CENTER);
           noFill();
-          stroke(`rgba(226, 232, 240, ${active ? 0.45 : 0.25})`);
+          stroke(`rgba(255, 255, 255, ${active ? 0.55 : 0.35})`);
           strokeWeight(Math.max(1, scaledX(1)));
           rect(x, y, w - scaledX(6), h - scaledY(6), Math.max(8, radius - scaledX(3)));
           pop();
@@ -4233,7 +4286,7 @@
             0,
             menuContentArea.bottom - menuContentArea.top
           );
-          fill('#64748b');
+          fill(MENU_THEME.mutedText);
           textSize(scaledFont(11));
           text(
             'Unlock a module to access its controls.',
@@ -4285,10 +4338,10 @@
         let cardWidth = MENU_W - scaledX(60);
         let cardHeight = scaledY(122);
         let cardCenterY = scaledY(70);
-        drawGlassCard(panelCenter, cardCenterY, cardWidth, cardHeight, '#22d3ee');
+        drawGlassCard(panelCenter, cardCenterY, cardWidth, cardHeight, MENU_THEME.accent);
 
         let summaryY = cardCenterY - cardHeight / 2 + scaledY(26);
-        fill('#f8fafc');
+        fill(MENU_THEME.text);
         textSize(scaledFont(12));
         text(
           `Dust ${Math.floor(dust)}  •  Cores ${crystalCores}  •  Powder ${totalPowderCollected}`,
@@ -4296,7 +4349,7 @@
           summaryY
         );
         if (milestoneMessage) {
-          fill('#7dd3fc');
+          fill(MENU_THEME.mutedText);
           textSize(scaledFont(10));
           text(milestoneMessage, panelCenter, summaryY + scaledY(18));
         }
@@ -4307,7 +4360,7 @@
       }
 
       function drawPowderCounters(y) {
-        fill('#c7d2fe');
+        fill(MENU_THEME.mutedText);
         textSize(scaledFont(11));
         let unlocked = getUnlockedIndices();
         if (unlocked.length === 0) {
@@ -4419,13 +4472,13 @@
             let active = tab.key === activeMenu;
             drawNeonButton(x, centerY, width, tabHeight, {
               active,
-              accentColor: '#22d3ee',
-              baseColor: '#13213a',
+              accentColor: MENU_THEME.accent,
+              baseColor: MENU_THEME.buttonBase,
               radius: Math.max(scaledX(6), Math.min(scaledX(12), tabHeight / 2))
             });
             push();
             textAlign(CENTER, CENTER);
-            fill(active ? '#031524' : '#e2f1ff');
+            fill(active ? MENU_THEME.invertedText : MENU_THEME.text);
             text(
               tab.label,
               x,
@@ -4467,20 +4520,15 @@
         push();
         textAlign(LEFT, CENTER);
         textSize(scaledFont(11));
-        fill('#bae6fd');
+        fill(MENU_THEME.headerText);
         text(title.toUpperCase(), left, y);
         let ctx = drawingContext;
         ctx.save();
         let lineLeft = left;
         let lineRight = right;
         let lineY = y + scaledY(14);
-        let gradient = ctx.createLinearGradient(lineLeft, 0, lineRight, 0);
-        gradient.addColorStop(0, 'rgba(34, 211, 238, 0)');
-        gradient.addColorStop(0.2, 'rgba(34, 211, 238, 0.4)');
-        gradient.addColorStop(0.8, 'rgba(59, 130, 246, 0.4)');
-        gradient.addColorStop(1, 'rgba(59, 130, 246, 0)');
-        ctx.strokeStyle = gradient;
-        ctx.lineWidth = Math.max(1, scaledY(1.4));
+        ctx.strokeStyle = MENU_THEME.divider;
+        ctx.lineWidth = Math.max(1, scaledY(1.2));
         ctx.beginPath();
         ctx.moveTo(lineLeft, lineY);
         ctx.lineTo(lineRight, lineY);
@@ -4601,10 +4649,10 @@
 
         let grainCount = powderCounts.length > 0 ? powderCounts[0] : 0;
         let titleY = cardCenterY - cardHeight / 2 + scaledY(28);
-        fill('#e0f2fe');
+        fill(MENU_THEME.text);
         textSize(scaledFont(12));
         text(`Grains on hand: ${grainCount}`, centerX, titleY);
-        fill('#8fbce6');
+        fill(MENU_THEME.mutedText);
         textSize(scaledFont(10));
         text('Grant grains instantly to accelerate testing builds.', centerX, titleY + scaledY(18));
 
@@ -4619,11 +4667,11 @@
           let x = xs[i];
           drawNeonButton(x, quickY, btnW, btnH, {
             active: false,
-            accentColor: '#22d3ee',
-            baseColor: '#11263d',
+            accentColor: MENU_THEME.accent,
+            baseColor: MENU_THEME.buttonBase,
             radius: 12
           });
-          fill('#e6faff');
+          fill(MENU_THEME.text);
           text(`+${amount.toLocaleString()}`, x, quickY);
           addButton(
             {
@@ -4643,11 +4691,11 @@
         let customH = scaledY(36);
         drawNeonButton(centerX, customY, customW, customH, {
           active: false,
-          accentColor: '#a855f7',
-          baseColor: '#2d1b4f',
+          accentColor: MENU_THEME.accent,
+          baseColor: MENU_THEME.buttonBase,
           radius: 14
         });
-        fill('#f5e8ff');
+        fill(MENU_THEME.text);
         textSize(scaledFont(11));
         text('Custom amount…', centerX, customY);
         addButton(
@@ -4704,16 +4752,15 @@
           : 1;
         let achieved = state && state.achieved;
         let unlocked = state && state.unlocked;
-        let baseColor = achieved ? '#0ea5e9' : unlocked ? '#1e3a8a' : '#1e293b';
-        fill(withAlpha(baseColor, achieved ? 230 : unlocked ? 190 : 140));
-        rect(x, y, cardW, cardH, 12);
-        fill('#f8fafc');
+        let accent = achieved ? MENU_THEME.success : MENU_THEME.accent;
+        drawGlassCard(x, y, cardW, cardH, accent);
+        fill(MENU_THEME.text);
         textSize(scaledFont(12));
         text(config.name, x, y - scaledY(22));
-        fill('#cbd5f5');
+        fill(MENU_THEME.mutedText);
         textSize(scaledFont(10));
         text(config.description, x, y - scaledY(6));
-        fill('#94a3b8');
+        fill(MENU_THEME.mutedText);
         textSize(scaledFont(10));
         let resourceLabel =
           config.resource === 'cores'
@@ -4731,10 +4778,10 @@
         let barH = scaledY(8);
         let barX = x - barW / 2;
         let barY = y + scaledY(20);
-        fill('#0f172a');
+        fill(MENU_THEME.progressBg);
         rect(barX, barY, barW, barH, 4);
         let filled = Math.max(0, Math.min(barW, barW * ratio));
-        fill(achieved ? '#22d3ee' : '#3b82f6');
+        fill(achieved ? MENU_THEME.success : MENU_THEME.accent);
         rect(barX, barY, filled, barH, 4);
         pop();
         return y + cardH + scaledY(8);
@@ -4751,7 +4798,7 @@
         push();
         textAlign(LEFT, TOP);
         textSize(scaledFont(10));
-        fill('#cbd5f5');
+        fill(MENU_THEME.mutedText);
         for (let note of notes) {
           text(`• ${note}`, left, y);
           y += scaledY(18);
@@ -4769,12 +4816,11 @@
           : state.unlocked
           ? constrain(state.progress / layer.requirement, 0, 1)
           : 0;
-        fill(withAlpha(layer.color, state.unlocked ? 200 : 90));
-        rect(x, y, cardW, cardH, 12);
-        fill('#f8fafc');
+        drawGlassCard(x, y, cardW, cardH, layer.color);
+        fill(MENU_THEME.text);
         textSize(scaledFont(12));
         text(layer.name, x, y - scaledY(18));
-        fill('#e0e7ff');
+        fill(MENU_THEME.mutedText);
         textSize(scaledFont(11));
         text(layer.description, x, y - scaledY(2));
         let remaining = Math.max(
@@ -4795,20 +4841,20 @@
           layer.color
         );
         textSize(scaledFont(11));
-        fill('#f8fafc');
+        fill(MENU_THEME.text);
         text(statusText, x, y + scaledY(24));
         return y + scaledY(80);
       }
 
       function drawProgressBar(x, y, width, height, progress, fillColor) {
         push();
-        let bg = withAlpha('#0f172a', 200);
+        let bg = MENU_THEME.progressBg;
         fill(bg);
         rect(x, y, width, height, height / 2);
         if (progress > 0) {
           let barWidth = Math.max(4, width * constrain(progress, 0, 1));
           let center = x - width / 2 + barWidth / 2;
-          fill(withAlpha(fillColor, 220));
+          fill(fillColor);
           rect(center, y, barWidth, height, height / 2);
         }
         pop();
@@ -4874,12 +4920,18 @@
           let unlocked = automationUnlocks[control.key];
           let x = xs[i];
           if (unlocked) {
-            fill(enabled ? '#66bb6a' : '#455a64');
-            rect(x, y, btnW, btnH, 12);
-            fill(enabled ? '#0b1120' : '#f8fafc');
+            drawNeonButton(x, y, btnW, btnH, {
+              active: enabled,
+              enabled: true,
+              accentColor: MENU_THEME.accent,
+              baseColor: MENU_THEME.buttonBase,
+              radius: 12
+            });
+            fill(enabled ? MENU_THEME.invertedText : MENU_THEME.text);
             textSize(scaledFont(11));
             text(`${control.label}: ${enabled ? 'ON' : 'OFF'}`, x, y - scaledY(10));
             textSize(scaledFont(10));
+            fill(MENU_THEME.mutedText);
             text(control.description, x, y + scaledY(6));
             addButton(
               {
@@ -4893,9 +4945,14 @@
               { scrollAware: true }
             );
           } else {
-            fill('#1e293b');
-            rect(x, y, btnW, btnH, 12);
-            fill('#64748b');
+            drawNeonButton(x, y, btnW, btnH, {
+              active: false,
+              enabled: false,
+              accentColor: MENU_THEME.accent,
+              baseColor: MENU_THEME.buttonBase,
+              radius: 12
+            });
+            fill(MENU_THEME.mutedText);
             textSize(scaledFont(11));
             text(`${control.label}: Locked`, x, y - scaledY(10));
             let milestone = getMilestoneForType(
@@ -4968,12 +5025,12 @@
             drawNeonButton(x, centerY, rowSize, rowSize, {
               active: isSelected,
               accentColor: baseColor,
-              baseColor: mixColors(baseColor, '#0b1220', 0.7),
+              baseColor: mixColors(baseColor, '#ffffff', 0.85),
               radius: Math.min(10, rowSize / 2)
             });
             push();
             textAlign(CENTER, CENTER);
-            fill(isSelected ? '#041021' : '#f8fafc');
+            fill(isSelected ? MENU_THEME.invertedText : MENU_THEME.text);
             text(
               powderTypes[powderIndex].name,
               x,
@@ -4983,7 +5040,7 @@
             );
             pop();
             if (tierUpgrades[powderIndex]) {
-              fill('#bef264');
+              fill(MENU_THEME.success);
               textSize(scaledFont(7));
               text(`x${getPowderMultiplier(powderIndex)}`, x, centerY + rowSize / 2 - scaledY(8));
             }
@@ -5022,11 +5079,11 @@
           drawNeonButton(centerX, centerY, btnSize, btnSize, {
             active: tierUpgrades[i],
             enabled: canUpgrade || tierUpgrades[i],
-            accentColor: '#34d399',
-            baseColor: '#16323f',
+            accentColor: MENU_THEME.success,
+            baseColor: MENU_THEME.buttonBase,
             radius: Math.min(10, btnSize / 2)
           });
-          fill('#e0f2f1');
+          fill(tierUpgrades[i] ? MENU_THEME.invertedText : MENU_THEME.text);
           push();
           textAlign(CENTER, CENTER);
           if (tierUpgrades[i]) {
@@ -5081,11 +5138,11 @@
           drawNeonButton(x, y, btnW, btnH, {
             active: autoDroppers[i] > 0,
             enabled: canBuy || autoDroppers[i] > 0,
-            accentColor: '#22d3ee',
-            baseColor: '#10243d',
+            accentColor: MENU_THEME.accent,
+            baseColor: MENU_THEME.buttonBase,
             radius: 10
           });
-          fill('#e2f3fb');
+          fill(autoDroppers[i] > 0 ? MENU_THEME.invertedText : MENU_THEME.text);
           text(
             `Auto ${powderTypes[i].name}: ${autoDroppers[i]} (\u2212${cost})`,
             x,
@@ -5132,17 +5189,17 @@
             drawNeonButton(x, rowY, btnW, btnH, {
               active: level > 0,
               enabled: canBuy,
-              accentColor: '#f472b6',
-              baseColor: '#2d1846',
+              accentColor: MENU_THEME.accent,
+              baseColor: MENU_THEME.buttonBase,
               radius: 12
             });
-            fill('#fde2ff');
+            fill(level > 0 ? MENU_THEME.invertedText : MENU_THEME.text);
             text(
               `${config.name} Lv.${level} (\u2212${cost})`,
               x,
               rowY - scaledY(8)
             );
-            fill('#f5d0fe');
+            fill(MENU_THEME.mutedText);
             text(config.description, x, rowY + scaledY(6));
             addButton(
               {
@@ -5183,13 +5240,13 @@
           drawNeonButton(x, y, btnW, btnH, {
             active: level > 0,
             enabled: canBuy,
-            accentColor: '#f472b6',
-            baseColor: '#2d1846',
+            accentColor: MENU_THEME.accent,
+            baseColor: MENU_THEME.buttonBase,
             radius: 12
           });
-          fill('#fde2ff');
+          fill(level > 0 ? MENU_THEME.invertedText : MENU_THEME.text);
           text(`${config.name} Lv.${level} (\u2212${cost})`, x, y - scaledY(8));
-          fill('#f5d0fe');
+          fill(MENU_THEME.mutedText);
           text(config.description, x, y + scaledY(6));
           addButton(
             {
@@ -5234,18 +5291,18 @@
             drawNeonButton(x, rowY, btnW, btnH, {
               active: level > 0,
               enabled: canBuy,
-              accentColor: '#facc15',
-              baseColor: '#3a250b',
+              accentColor: MENU_THEME.accent,
+              baseColor: MENU_THEME.buttonBase,
               radius: 14
             });
-            fill('#fff7cc');
+            fill(level > 0 ? MENU_THEME.invertedText : MENU_THEME.text);
             textSize(scaledFont(11));
             text(`${config.name} Lv.${level}`, x, rowY - scaledY(16));
             textSize(scaledFont(10));
-            fill('#fde68a');
+            fill(MENU_THEME.mutedText);
             text(`Cost: ${cost} dust`, x, rowY - scaledY(2));
             textSize(scaledFont(9));
-            fill('#fef3c7');
+            fill(MENU_THEME.mutedText);
             text(config.description, x, rowY + scaledY(14));
             addButton(
               {
@@ -5268,7 +5325,7 @@
       function drawCompressionRow(y) {
         if (getUpgradeLevel('compressor') <= 0) {
           textSize(scaledFont(11));
-          fill('#b0bec5');
+          fill(MENU_THEME.mutedText);
           text(
             'Purchase the Powder Compressor to unlock conversion recipes.',
             menuContentArea.center || SCREEN_W / 2,
@@ -5298,9 +5355,14 @@
           let cost = Math.max(2, Math.round(recipe.baseCost / efficiency));
           let x = xs[i];
           let canConvert = ensureInventory(recipe.from).length >= cost;
-          fill(canConvert ? '#ff7043' : '#5d4037');
-          rect(x, y, btnW, btnH, 8);
-          fill('#fff');
+          drawNeonButton(x, y, btnW, btnH, {
+            active: false,
+            enabled: canConvert,
+            accentColor: MENU_THEME.accent,
+            baseColor: MENU_THEME.buttonBase,
+            radius: 8
+          });
+          fill(canConvert ? MENU_THEME.invertedText : MENU_THEME.mutedText);
           text(
             `${powderTypes[recipe.from].name} → ${powderTypes[recipe.to].name} (\u2212${cost} +${recipe.output})`,
             x,
@@ -5322,9 +5384,14 @@
         let gain = getPrestigeGain();
         let canPrestige = gain > 0;
         let center = menuContentArea.center || SCREEN_W / 2;
-        fill(canPrestige ? '#ffca28' : '#8d6e63');
-        rect(center, y, btnW, btnH, 10);
-        fill('#222');
+        drawNeonButton(center, y, btnW, btnH, {
+          active: canPrestige,
+          enabled: canPrestige,
+          accentColor: MENU_THEME.accent,
+          baseColor: MENU_THEME.buttonBase,
+          radius: 10
+        });
+        fill(canPrestige ? MENU_THEME.invertedText : MENU_THEME.mutedText);
         textSize(scaledFont(11));
         text(`Crystallize (+${gain} cores)`, center, y - scaledY(6));
         text(
@@ -5342,7 +5409,7 @@
 
       function drawConveyorNotes(y) {
         let center = menuContentArea.center || SCREEN_W / 2;
-        fill('#cbd5f5');
+        fill(MENU_THEME.mutedText);
         textSize(scaledFont(11));
         text('Conveyors catch every grain slipping through the intake.', center, y);
         text(`Every ${CHAIN_REQUIREMENT} grains bundle into a single package square.`, center, y + scaledY(16));
@@ -5354,7 +5421,7 @@
       function drawRocketStatus(y) {
         let state = moduleStates.rocket;
         let center = menuContentArea.center || SCREEN_W / 2;
-        fill('#cbd5f5');
+        fill(MENU_THEME.mutedText);
         textSize(scaledFont(11));
         if (!state || !state.pods) {
           text('Launch pads are still assembling crews.', center, y);
@@ -5380,7 +5447,7 @@
 
       function drawAsteroidStatus(y) {
         let center = menuContentArea.center || SCREEN_W / 2;
-        fill('#cbd5f5');
+        fill(MENU_THEME.mutedText);
         textSize(scaledFont(11));
         text(`Launches awaiting compression: ${powderCounts[2] || 0}`, center, y);
         text(`Asteroids in storage: ${powderCounts[3] || 0}`, center, y + scaledY(16));
@@ -5391,7 +5458,7 @@
 
       function drawPlanetStatus(y) {
         let center = menuContentArea.center || SCREEN_W / 2;
-        fill('#cbd5f5');
+        fill(MENU_THEME.mutedText);
         textSize(scaledFont(11));
         text(`Asteroids swirling: ${powderCounts[3] || 0}`, center, y);
         text(`Planets formed: ${powderCounts[4] || 0}`, center, y + scaledY(16));
@@ -5402,7 +5469,7 @@
 
       function drawSingularityStats(y) {
         let center = menuContentArea.center || SCREEN_W / 2;
-        fill('#cbd5f5');
+        fill(MENU_THEME.mutedText);
         textSize(scaledFont(11));
         text(`Universes awaiting collapse: ${powderCounts[7] || 0}`, center, y);
         text(`Singularities forged: ${powderCounts[8] || 0}`, center, y + scaledY(16));
