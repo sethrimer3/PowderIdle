@@ -35,27 +35,31 @@
       ];
 
       const MENU_THEME = {
-        panelTop: '#f8f1e1',
-        panelBottom: '#f0e2c7',
-        panelBorder: '#d6c0a3',
-        panelShadow: 'rgba(149, 118, 72, 0.24)',
-        innerBorder: 'rgba(255, 255, 255, 0.5)',
-        cardTop: '#ffffff',
-        cardBottom: '#f6e9d1',
-        cardBorder: '#d9c3a7',
-        cardShadow: 'rgba(149, 118, 72, 0.2)',
-        accent: '#f59e0b',
-        accentHover: '#d97706',
-        accentSoft: '#fde68a',
-        success: '#65a30d',
-        text: '#2f2a1f',
-        mutedText: '#6b6052',
-        invertedText: '#fffaf0',
-        divider: '#e2d4bd',
-        buttonBase: '#f6ecda',
-        buttonBorder: '#d6c0a3',
-        buttonDisabled: '#d5c7b8',
-        progressBg: '#e9ddc9'
+        panelTop: '#010409',
+        panelBottom: '#020617',
+        panelBorder: '#1e293b',
+        panelShadow: 'rgba(1, 4, 9, 0.7)',
+        innerBorder: 'rgba(37, 99, 235, 0.35)',
+        cardTop: '#0b1120',
+        cardBottom: '#111827',
+        cardBorder: '#1f2937',
+        cardShadow: 'rgba(2, 6, 23, 0.75)',
+        accent: '#3b82f6',
+        accentHover: '#2563eb',
+        accentSoft: '#60a5fa',
+        success: '#22c55e',
+        text: '#e2e8f0',
+        mutedText: '#94a3b8',
+        invertedText: '#010409',
+        divider: '#1f2937',
+        buttonBase: '#111827',
+        buttonBorder: '#1f2a3d',
+        buttonDisabled: '#1f2937',
+        progressBg: '#0f172a',
+        headerText: '#60a5fa',
+        tabInactive: '#0f172a',
+        tabActive: '#1d4ed8',
+        tabBorder: '#1f2937'
       };
 
       let powderTypes = [];
@@ -122,6 +126,18 @@
       let duneHeightUnits = 0;
       let duneDustMultiplier = 1;
       let jarReleaseState = { open: false, openTimer: 0, cooldown: 0 };
+      const TRACKED_MODULE_KEYS = new Set([
+        'conveyor',
+        'rocket',
+        'asteroid',
+        'planet',
+        'forge',
+        'galaxy',
+        'universe',
+        'singularity'
+      ]);
+      const MODULE_PRODUCTION_WINDOW = 12;
+      let moduleProductionLog = {};
       const moduleInteractionHints = {
         conveyor: 'Click to rush extra cargo.',
         rocket: 'Tap to fuel launches faster.',
@@ -751,6 +767,9 @@
         inventory.push(entity);
         powderCounts[type] = (powderCounts[type] || 0) + 1;
         routeEntityPostCreation(entity);
+        if (entity && entity.origin) {
+          recordModuleProduction(entity.origin, entity.mass != null ? entity.mass : 0);
+        }
         return entity;
       }
 
@@ -758,6 +777,70 @@
         for (let entity of entities || []) {
           gainEntity(type, entity);
         }
+      }
+
+      function recordModuleProduction(origin, amount) {
+        if (!origin || amount <= 0) {
+          return;
+        }
+        let key = String(origin).toLowerCase();
+        if (!TRACKED_MODULE_KEYS.has(key)) {
+          return;
+        }
+        let now = getNowSeconds();
+        if (!moduleProductionLog[key]) {
+          moduleProductionLog[key] = { events: [], rate: 0 };
+        }
+        let entry = moduleProductionLog[key];
+        entry.events.push({ time: now, amount });
+        pruneModuleProduction(entry, now);
+      }
+
+      function getModuleProductionRate(key) {
+        let entry = moduleProductionLog[key];
+        if (!entry) {
+          return 0;
+        }
+        pruneModuleProduction(entry, getNowSeconds());
+        return entry.rate || 0;
+      }
+
+      function getModuleProductionSummaries() {
+        let summaries = [];
+        for (let moduleKey of MODULE_UNLOCK_ORDER) {
+          if (!TRACKED_MODULE_KEYS.has(moduleKey)) {
+            continue;
+          }
+          if (!isMachineUnlocked(moduleKey)) {
+            continue;
+          }
+          let machine = machineDefinitions.find((m) => m.key === moduleKey);
+          summaries.push({
+            key: moduleKey,
+            name: machine ? machine.name : moduleKey,
+            rate: getModuleProductionRate(moduleKey)
+          });
+        }
+        return summaries;
+      }
+
+      function pruneModuleProduction(entry, now) {
+        if (!entry) return;
+        let windowSize = MODULE_PRODUCTION_WINDOW;
+        let cutoff = now - windowSize;
+        entry.events = (entry.events || []).filter((evt) => evt.time >= cutoff);
+        let total = 0;
+        for (let evt of entry.events) {
+          total += evt.amount || 0;
+        }
+        entry.rate = windowSize > 0 ? total / windowSize : 0;
+      }
+
+      function getNowSeconds() {
+        if (typeof performance !== 'undefined' && performance.now) {
+          return performance.now() / 1000;
+        }
+        return Date.now() / 1000;
       }
 
       function routeEntityPostCreation(entity) {
@@ -2233,7 +2316,7 @@
           recalcCompositeMass(asteroidEntity);
           asteroidEntity.lineage = mergeLineage(asteroidEntity.contents, asteroidEntity.id);
           if (fragments.length > 0) {
-            let newAsteroid = createCompositeEntity(3, fragments);
+            let newAsteroid = createCompositeEntity(3, fragments, { origin: 'asteroid' });
             gainEntity(3, newAsteroid);
             state.asteroids = state.asteroids || [];
             let mass = recalcCompositeMass(newAsteroid);
@@ -2854,7 +2937,7 @@
               state.progress = 0;
               break;
             }
-            let singularityEntity = createCompositeEntity(8, consumed);
+          let singularityEntity = createCompositeEntity(8, consumed, { origin: 'singularity' });
             gainEntity(8, singularityEntity);
             let coreGain = 1 + milestoneBonuses.core * getMilestoneBonusScale();
             let wholeCores = Math.floor(coreGain);
@@ -3466,12 +3549,12 @@
         translate(offsetX, offsetY);
         let h = scaledY(10);
         fill(withAlpha('#020617', 200));
-        rect(0, 0, width, h, h / 2);
+        rect(0, 0, width, h);
         if (progress > 0) {
           let clamped = constrain(progress, 0, 1);
           let barWidth = Math.max(4, width * clamped);
           fill(withAlpha(colorHex, 230));
-          rect(-width / 2 + barWidth / 2, 0, barWidth, h, h / 2);
+          rect(-width / 2 + barWidth / 2, 0, barWidth, h);
         }
         pop();
       }
@@ -4281,14 +4364,8 @@
         ctx.shadowColor = MENU_THEME.panelShadow;
         ctx.shadowBlur = Math.max(10, scaledX(16));
         ctx.shadowOffsetY = scaledY(8);
-        let radius = Math.max(16, scaledX(20));
         ctx.beginPath();
-        if (typeof ctx.roundRect === 'function') {
-          ctx.roundRect(left, top, width, height, radius);
-        } else {
-          renderRoundedRectPath(ctx, left, top, width, height, radius);
-          ctx.closePath();
-        }
+        ctx.rect(left, top, width, height);
         ctx.fill();
         ctx.stroke();
         ctx.restore();
@@ -4298,13 +4375,7 @@
         noFill();
         stroke(MENU_THEME.innerBorder);
         strokeWeight(Math.max(1, scaledX(1)));
-        rect(
-          centerX,
-          centerY,
-          width - scaledX(18),
-          height - scaledY(24),
-          Math.max(12, scaledX(14))
-        );
+        rect(centerX, centerY, width - scaledX(18), height - scaledY(24));
         pop();
       }
 
@@ -4322,14 +4393,8 @@
         ctx.shadowColor = MENU_THEME.cardShadow;
         ctx.shadowBlur = Math.max(6, scaledX(12));
         ctx.shadowOffsetY = scaledY(6);
-        let radius = Math.max(12, scaledX(14));
         ctx.beginPath();
-        if (typeof ctx.roundRect === 'function') {
-          ctx.roundRect(left, top, width, height, radius);
-        } else {
-          renderRoundedRectPath(ctx, left, top, width, height, radius);
-          ctx.closePath();
-        }
+        ctx.rect(left, top, width, height);
         ctx.fill();
         ctx.stroke();
         ctx.restore();
@@ -4339,13 +4404,7 @@
         stroke(mixColors(accentColor, MENU_THEME.cardBorder, 0.25));
         strokeWeight(Math.max(1, scaledX(1)));
         noFill();
-        rect(
-          centerX,
-          centerY,
-          width - scaledX(12),
-          height - scaledY(12),
-          Math.max(10, scaledX(12))
-        );
+        rect(centerX, centerY, width - scaledX(12), height - scaledY(12));
         pop();
       }
 
@@ -4354,26 +4413,25 @@
         let enabled = options.enabled !== false;
         let accentColor = options.accentColor || MENU_THEME.accent;
         let baseColor = options.baseColor || MENU_THEME.buttonBase;
-        let radius = options.radius || Math.min(14, h / 2);
         let topColor;
         let bottomColor;
         let borderColor;
         let shadowColor;
         if (!enabled) {
-          topColor = mixColors(MENU_THEME.buttonDisabled, '#ffffff', 0.35);
+          topColor = mixColors(MENU_THEME.buttonDisabled, '#1f2937', 0.5);
           bottomColor = MENU_THEME.buttonDisabled;
           borderColor = MENU_THEME.buttonBorder;
-          shadowColor = 'rgba(90, 64, 31, 0.1)';
+          shadowColor = 'rgba(2, 6, 23, 0.45)';
         } else if (active) {
-          topColor = mixColors('#ffffff', accentColor, 0.45);
-          bottomColor = mixColors(accentColor, MENU_THEME.accentHover, 0.5);
+          topColor = mixColors(accentColor, '#ffffff', 0.2);
+          bottomColor = accentColor;
           borderColor = MENU_THEME.accentHover;
-          shadowColor = 'rgba(191, 90, 10, 0.3)';
+          shadowColor = withAlpha(accentColor, 180);
         } else {
-          topColor = mixColors(baseColor, '#ffffff', 0.6);
+          topColor = mixColors(baseColor, '#1f2937', 0.35);
           bottomColor = baseColor;
           borderColor = MENU_THEME.buttonBorder;
-          shadowColor = 'rgba(122, 97, 63, 0.2)';
+          shadowColor = 'rgba(8, 12, 24, 0.55)';
         }
 
         let ctx = drawingContext;
@@ -4387,15 +4445,10 @@
         ctx.strokeStyle = borderColor;
         ctx.lineWidth = Math.max(1, scaledX(1.4));
         ctx.shadowColor = shadowColor;
-        ctx.shadowBlur = Math.max(4, scaledX(active ? 12 : 8));
-        ctx.shadowOffsetY = scaledY(active ? 4 : 3);
+        ctx.shadowBlur = Math.max(6, scaledX(active ? 16 : 10));
+        ctx.shadowOffsetY = scaledY(active ? 6 : 4);
         ctx.beginPath();
-        if (typeof ctx.roundRect === 'function') {
-          ctx.roundRect(left, top, w, h, radius);
-        } else {
-          renderRoundedRectPath(ctx, left, top, w, h, radius);
-          ctx.closePath();
-        }
+        ctx.rect(left, top, w, h);
         ctx.fill();
         ctx.stroke();
         ctx.restore();
@@ -4404,9 +4457,9 @@
           push();
           rectMode(CENTER);
           noFill();
-          stroke(`rgba(255, 255, 255, ${active ? 0.55 : 0.35})`);
+          stroke(`rgba(148, 163, 184, ${active ? 0.55 : 0.35})`);
           strokeWeight(Math.max(1, scaledX(1)));
-          rect(x, y, w - scaledX(6), h - scaledY(6), Math.max(8, radius - scaledX(3)));
+          rect(x, y, w - scaledX(6), h - scaledY(6));
           pop();
         }
       }
@@ -4418,12 +4471,18 @@
         let panelCenter = panelLeft + panelWidth / 2;
         drawMenuPanelBackground(panelCenter, SCREEN_H / 2, panelWidth, SCREEN_H);
 
-        let tabRailInset = scaledX(14);
-        let tabRailWidth = Math.max(scaledX(54), panelWidth * 0.2);
-        let tabRailLeft = panelLeft + tabRailInset;
-        let tabRailRight = tabRailLeft + tabRailWidth;
-        let contentLeft = tabRailRight + scaledX(14);
-        let contentRight = panelRight - scaledX(22);
+        let horizontalPadding = scaledX(24);
+        let tabs = getUnlockedMenuTabs();
+        let tabBottom = drawMenuTabs({
+          tabs,
+          left: panelLeft + horizontalPadding,
+          right: panelRight - horizontalPadding,
+          top: scaledY(24),
+          height: scaledY(44)
+        });
+
+        let contentLeft = panelLeft + horizontalPadding;
+        let contentRight = panelRight - horizontalPadding;
 
         menuContentArea.left = contentLeft;
         menuContentArea.right = contentRight;
@@ -4434,16 +4493,9 @@
 
         let headerBottom = drawResourceHeader(
           menuContentArea.center,
-          menuContentArea.width
+          menuContentArea.width,
+          tabBottom + scaledY(12)
         );
-        let tabs = getUnlockedMenuTabs();
-        drawMenuTabs({
-          tabs,
-          left: tabRailLeft,
-          right: tabRailRight,
-          top: scaledY(40),
-          bottom: SCREEN_H - scaledY(40)
-        });
 
         if (tabs.length === 0) {
           menuContentArea.top = headerBottom + scaledY(12);
@@ -4468,8 +4520,8 @@
           activeMenu = tabs[0].key;
         }
 
-        let contentTop = headerBottom + scaledY(18);
-        let contentBottom = SCREEN_H - scaledY(48);
+        let contentTop = headerBottom + scaledY(16);
+        let contentBottom = SCREEN_H - scaledY(32);
         menuContentArea.top = contentTop;
         menuContentArea.bottom = contentBottom;
         menuContentArea.height = Math.max(0, contentBottom - contentTop);
@@ -4501,44 +4553,56 @@
         menuScroll = constrain(menuScroll, 0, menuScrollMax);
       }
 
-      function drawResourceHeader(centerX, availableWidth) {
-        let fallbackWidth = MENU_W - scaledX(72);
+      function drawResourceHeader(centerX, availableWidth, topOffset) {
+        let fallbackWidth = MENU_W - scaledX(60);
         let usableWidth = typeof availableWidth === 'number' && availableWidth > 0
           ? Math.min(availableWidth, fallbackWidth)
           : fallbackWidth;
         if (usableWidth <= 0) {
           usableWidth = Math.min(fallbackWidth, scaledX(240));
         }
-        let cardHeight = scaledY(122);
-        let cardCenterY = scaledY(74);
-        drawGlassCard(centerX, cardCenterY, usableWidth, cardHeight, MENU_THEME.accent);
+        let cardHeight = scaledY(118);
+        let cardTop = typeof topOffset === 'number' ? topOffset : scaledY(24);
+        let cardCenterY = cardTop + cardHeight / 2;
+        drawGlassCard(centerX, cardCenterY, usableWidth, cardHeight, MENU_THEME.accentSoft);
 
+        let left = centerX - usableWidth / 2 + scaledX(16);
         let summaryY = cardCenterY - cardHeight / 2 + scaledY(26);
+        push();
+        textAlign(LEFT, CENTER);
         fill(MENU_THEME.text);
         textSize(scaledFont(12));
+        text(`Dust: ${Math.floor(dust).toLocaleString()}`, left, summaryY);
+        text(`Cores: ${crystalCores.toLocaleString()}`, left, summaryY + scaledY(18));
         text(
-          `Dust ${Math.floor(dust)}  •  Cores ${crystalCores}  •  Powder ${totalPowderCollected}`,
-          centerX,
-          summaryY
+          `Total Grains: ${totalPowderCollected.toLocaleString()}`,
+          left,
+          summaryY + scaledY(36)
         );
         if (milestoneMessage) {
           fill(MENU_THEME.mutedText);
           textSize(scaledFont(10));
-          text(milestoneMessage, centerX, summaryY + scaledY(18));
+          text(milestoneMessage, left, summaryY + scaledY(54));
         }
-        let countersStart = summaryY + (milestoneMessage ? scaledY(38) : scaledY(28));
+        pop();
+        let countersStart = summaryY + (milestoneMessage ? scaledY(72) : scaledY(56));
         let nextY = drawPowderCounters(countersStart);
         textSize(scaledFont(14));
-        return Math.max(nextY + scaledY(12), cardCenterY + cardHeight / 2 + scaledY(8));
+        return Math.max(nextY + scaledY(10), cardCenterY + cardHeight / 2 + scaledY(6));
       }
 
       function drawPowderCounters(y) {
+        let left = (menuContentArea.left || scaledX(40)) + scaledX(16);
+        let lineSpacing = scaledY(18);
+        push();
         fill(MENU_THEME.mutedText);
+        textAlign(LEFT, CENTER);
         textSize(scaledFont(11));
         let unlocked = getUnlockedIndices();
         if (unlocked.length === 0) {
-          text('No powders unlocked yet.', menuContentArea.center || SCREEN_W / 2, y);
-          return y + scaledY(20);
+          text('No powders unlocked yet.', left, y);
+          pop();
+          return y + lineSpacing;
         }
         let split = Math.ceil(unlocked.length / 2);
         let firstLine = unlocked
@@ -4549,12 +4613,14 @@
           .slice(split)
           .map((i) => `${powderTypes[i].name}: ${powderCounts[i].toLocaleString()}`)
           .join('   ');
-        text(firstLine, menuContentArea.center || SCREEN_W / 2, y);
+        text(firstLine, left, y);
         if (secondLine.length > 0) {
-          text(secondLine, menuContentArea.center || SCREEN_W / 2, y + scaledY(16));
-          return y + scaledY(32);
+          text(secondLine, left, y + lineSpacing);
+          pop();
+          return y + lineSpacing * 2;
         }
-        return y + scaledY(20);
+        pop();
+        return y + lineSpacing;
       }
 
       function isMenuTabUnlocked(key) {
@@ -4578,62 +4644,61 @@
 
       function drawMenuTabs(area) {
         let tabs = (area && area.tabs) || [];
+        let left = area && area.left !== undefined ? area.left : scaledX(16);
+        let right = area && area.right !== undefined ? area.right : MENU_W - scaledX(16);
+        let width = Math.max(scaledX(80), right - left);
+        let top = area && area.top !== undefined ? area.top : scaledY(20);
+        let height = area && area.height !== undefined ? area.height : scaledY(42);
         if (tabs.length === 0) {
-          return;
+          return top + height;
         }
-        let left = area.left !== undefined ? area.left : scaledX(12);
-        let right = area.right !== undefined ? area.right : left + scaledX(54);
-        let width = Math.max(scaledX(40), right - left);
-        let top = area.top !== undefined ? area.top : scaledY(40);
-        let bottom = area.bottom !== undefined ? area.bottom : SCREEN_H - scaledY(40);
-        let availableHeight = Math.max(0, bottom - top);
-        let maxTabHeight = Math.max(scaledY(50), availableHeight / Math.max(1, tabs.length));
-        let tabHeight = Math.min(maxTabHeight, scaledY(64));
-        tabHeight = Math.max(tabHeight, scaledY(38));
-        let spacing = Math.max(scaledY(8), tabHeight * 0.25);
-        let totalHeight = tabs.length * tabHeight + Math.max(0, tabs.length - 1) * spacing;
-        let startY = top + Math.max(0, (availableHeight - totalHeight) / 2);
-        let centerX = left + width / 2;
+        let spacing = Math.max(scaledX(8), width * 0.02);
+        let totalSpacing = Math.max(0, (tabs.length - 1) * spacing);
+        let tabWidth = Math.max(scaledX(68), (width - totalSpacing) / tabs.length);
+        let actualWidth = tabWidth * tabs.length + totalSpacing;
+        let startX = left + Math.max(0, (width - actualWidth) / 2);
         for (let i = 0; i < tabs.length; i++) {
           let tab = tabs[i];
-          let centerY = startY + tabHeight / 2 + i * (tabHeight + spacing);
+          let x = startX + i * (tabWidth + spacing);
           let active = tab.key === activeMenu;
-          let baseColor = active ? MENU_THEME.accentSoft : MENU_THEME.buttonBase;
-          let borderColor = active ? MENU_THEME.accent : MENU_THEME.buttonBorder;
-          push();
-          rectMode(CENTER);
-          stroke(borderColor);
-          strokeWeight(Math.max(1, scaledX(1.2)));
-          fill(baseColor);
-          let radius = Math.max(scaledX(10), tabHeight / 2.6);
-          rect(centerX, centerY, width, tabHeight, radius);
+          let baseColor = active ? MENU_THEME.tabActive : MENU_THEME.tabInactive;
+          let textColor = active ? MENU_THEME.invertedText : MENU_THEME.text;
+          let ctx = drawingContext;
+          ctx.save();
+          ctx.fillStyle = baseColor;
+          ctx.strokeStyle = MENU_THEME.tabBorder;
+          ctx.lineWidth = Math.max(1, scaledX(1.2));
+          ctx.beginPath();
+          ctx.rect(x, top, tabWidth, height);
+          ctx.fill();
+          ctx.stroke();
+          ctx.restore();
+
           if (active) {
-            noStroke();
-            fill(MENU_THEME.accent);
-            rect(
-              centerX - width / 2 + scaledX(5),
-              centerY,
-              scaledX(4),
-              tabHeight - scaledY(10),
-              Math.max(2, scaledX(2))
-            );
+            push();
+            stroke(MENU_THEME.accentHover);
+            strokeWeight(Math.max(2, scaledY(2)));
+            line(x, top + height - scaledY(2), x + tabWidth, top + height - scaledY(2));
+            pop();
           }
+
+          push();
           textAlign(CENTER, CENTER);
           textSize(scaledFont(10));
-          fill(active ? MENU_THEME.text : MENU_THEME.mutedText);
-          let textW = Math.max(width - scaledX(12), scaledX(24));
-          let textH = tabHeight - scaledY(10);
-          text(tab.label, centerX, centerY, textW, textH);
+          fill(textColor);
+          text(tab.label, x + tabWidth / 2, top + height / 2);
           pop();
+
           addButton({
             action: 'switchMenu',
             key: tab.key,
-            x: centerX,
-            y: centerY,
-            w: width,
-            h: tabHeight
+            x: x + tabWidth / 2,
+            y: top + height / 2,
+            w: tabWidth,
+            h: height
           });
         }
+        return top + height;
       }
 
       function drawSectionHeader(title, y) {
@@ -4667,10 +4732,11 @@
       }
 
       function drawSandfallMenu(y) {
-        y = drawSectionHeader('Powder Selection', y);
+        y = drawSectionHeader('Grain Selection', y);
         y = drawPowderSelectRow(y + scaledY(8));
-        y = drawSectionHeader('Sandfall Metrics', y + scaledY(12));
-        y = drawSandfallStats(y + scaledY(18));
+        y = drawSectionHeader('Production Statistics', y + scaledY(16));
+        y = drawSandfallStats(y + scaledY(12));
+        y = drawModuleProductionStats(y + scaledY(12));
         return y;
       }
 
@@ -4678,25 +4744,31 @@
         let cardW = menuContentArea.width || SCREEN_W - scaledX(60);
         let cardH = scaledY(138);
         let x = menuContentArea.center || SCREEN_W / 2;
-        drawGlassCard(x, y, cardW, cardH, MENU_THEME.accentSoft);
+        drawGlassCard(x, y, cardW, cardH, MENU_THEME.accent);
+        let left = x - cardW / 2 + scaledX(16);
         let topY = y - cardH / 2 + scaledY(26);
         let selected = powderTypes[selectedPowder] || {};
         let selectedName = selected.name || 'Unknown';
         let selectedCount = Math.floor(powderCounts[selectedPowder] || 0).toLocaleString();
         push();
-        textAlign(CENTER, CENTER);
+        textAlign(LEFT, CENTER);
         fill(MENU_THEME.text);
-        textSize(scaledFont(11));
-        text(`Selected Powder: ${selectedName}`, x, topY);
+        textSize(scaledFont(12));
+        text(`Selected Powder: ${selectedName}`, left, topY);
         fill(MENU_THEME.mutedText);
         textSize(scaledFont(10));
-        text(`Inventory: ${selectedCount}`, x, topY + scaledY(18));
-        let autoDropStatus = automationSettings.autoDrop ? 'Auto Drop ON' : 'Auto Drop OFF';
-        let autoCompressStatus = automationSettings.autoCompress ? 'Auto Compress ON' : 'Auto Compress OFF';
-        text(`${autoDropStatus} • ${autoCompressStatus}`, x, topY + scaledY(36));
+        text(`Inventory: ${selectedCount}`, left, topY + scaledY(18));
+        let autoDropStatus = automationSettings.autoDrop ? 'ON' : 'OFF';
+        let autoCompressStatus = automationSettings.autoCompress ? 'ON' : 'OFF';
+        text(
+          `Auto Drop: ${autoDropStatus}  •  Auto Compress: ${autoCompressStatus}`,
+          left,
+          topY + scaledY(36)
+        );
         let duneText = `Dune Multiplier: x${duneDustMultiplier.toFixed(2)}`;
-        text(duneText, x, topY + scaledY(54));
+        text(duneText, left, topY + scaledY(54));
         let nextIndex = getNextTierToUnlock();
+        let infoY = topY + scaledY(72);
         if (nextIndex >= 0) {
           let moduleKey = MODULE_UNLOCK_ORDER[nextIndex];
           let module = machineDefinitions.find((m) => m.key === moduleKey);
@@ -4704,14 +4776,68 @@
           let resource = powderTypes[nextIndex] ? powderTypes[nextIndex].name : 'Powder';
           text(
             `Next Unlock: ${module ? module.name : moduleKey} — ${cost.toLocaleString()} ${resource}`,
-            x,
-            topY + scaledY(72)
+            left,
+            infoY
           );
         } else {
-          text('All modules unlocked', x, topY + scaledY(72));
+          text('All modules unlocked', left, infoY);
         }
         pop();
-        return y + cardH / 2 + scaledY(14);
+        return y + cardH / 2 + scaledY(10);
+      }
+
+      function formatGrainRate(value) {
+        if (!Number.isFinite(value) || value <= 0) {
+          return '0';
+        }
+        if (value >= 1000) {
+          return Math.round(value).toLocaleString();
+        }
+        if (value >= 100) {
+          return value.toFixed(0);
+        }
+        if (value >= 10) {
+          return value.toFixed(1);
+        }
+        return value.toFixed(2);
+      }
+
+      function drawModuleProductionStats(y) {
+        let modules = getModuleProductionSummaries();
+        let cardW = menuContentArea.width || SCREEN_W - scaledX(60);
+        let rows = Math.max(1, modules.length);
+        let rowHeight = scaledY(18);
+        let cardH = scaledY(90) + rows * rowHeight;
+        let x = menuContentArea.center || SCREEN_W / 2;
+        drawGlassCard(x, y, cardW, cardH, MENU_THEME.accentSoft);
+        let left = x - cardW / 2 + scaledX(16);
+        let right = x + cardW / 2 - scaledX(16);
+        let topY = y - cardH / 2 + scaledY(24);
+        push();
+        textAlign(LEFT, CENTER);
+        fill(MENU_THEME.text);
+        textSize(scaledFont(12));
+        text('Module Grain Flow', left, topY);
+        let rowY = topY + scaledY(24);
+        textSize(scaledFont(10));
+        if (modules.length === 0) {
+          fill(MENU_THEME.mutedText);
+          text('Unlock modules to track production.', left, rowY);
+          pop();
+          return y + cardH / 2 + scaledY(10);
+        }
+        for (let entry of modules) {
+          fill(MENU_THEME.mutedText);
+          text(entry.name || entry.key, left, rowY);
+          push();
+          textAlign(RIGHT, CENTER);
+          fill(MENU_THEME.text);
+          text(`${formatGrainRate(entry.rate)} grains/s`, right, rowY);
+          pop();
+          rowY += rowHeight;
+        }
+        pop();
+        return y + cardH / 2 + scaledY(10);
       }
 
       function drawModuleSummaryCard(machine, y) {
@@ -4977,10 +5103,10 @@
         let barX = x - barW / 2;
         let barY = y + scaledY(20);
         fill(MENU_THEME.progressBg);
-        rect(barX, barY, barW, barH, 4);
+        rect(barX, barY, barW, barH);
         let filled = Math.max(0, Math.min(barW, barW * ratio));
         fill(achieved ? MENU_THEME.success : MENU_THEME.accent);
-        rect(barX, barY, filled, barH, 4);
+        rect(barX, barY, filled, barH);
         pop();
         return y + cardH + scaledY(8);
       }
@@ -5046,14 +5172,15 @@
 
       function drawProgressBar(x, y, width, height, progress, fillColor) {
         push();
+        rectMode(CENTER);
         let bg = MENU_THEME.progressBg;
         fill(bg);
-        rect(x, y, width, height, height / 2);
+        rect(x, y, width, height);
         if (progress > 0) {
           let barWidth = Math.max(4, width * constrain(progress, 0, 1));
           let center = x - width / 2 + barWidth / 2;
           fill(fillColor);
-          rect(center, y, barWidth, height, height / 2);
+          rect(center, y, barWidth, height);
         }
         pop();
       }
@@ -5071,15 +5198,24 @@
           let cost = Math.floor(project.baseCost * Math.pow(project.costMult, level));
           let canBuy = dust >= cost;
           let x = xs[i];
-          fill(canBuy ? '#9575cd' : '#4a3f6b');
-          rect(x, y, btnW, btnH, 12);
-          fill('#f8f9ff');
+          drawNeonButton(x, y, btnW, btnH, {
+            active: level > 0,
+            enabled: canBuy,
+            accentColor: MENU_THEME.accent,
+            baseColor: MENU_THEME.buttonBase
+          });
+          push();
+          textAlign(CENTER, CENTER);
           textSize(scaledFont(12));
+          fill(canBuy ? MENU_THEME.invertedText : MENU_THEME.text);
           text(`${project.name} R${level}`, x, y - scaledY(12));
           textSize(scaledFont(11));
+          fill(MENU_THEME.mutedText);
           text(project.description, x, y + scaledY(2));
           textSize(scaledFont(11));
+          fill(MENU_THEME.text);
           text(`Cost: ${cost}`, x, y + scaledY(16));
+          pop();
           addButton(
             {
               action: 'buyResearch',
