@@ -28,10 +28,10 @@
         'singularity'
       ];
       const DEFAULT_MENU_TABS = [
-        { key: 'sandfall', label: 'Sandfall' },
-        { key: 'module', label: 'Module' },
-        { key: 'universal', label: 'Universal' },
-        { key: 'achievements', label: 'Achievements', requiresMilestone: 'chronicle' }
+        { key: 'sandfall', label: 'Sandfall', icon: '🜃' },
+        { key: 'module', label: 'Module', icon: '⚙️' },
+        { key: 'universal', label: 'Universal', icon: '🌌' },
+        { key: 'achievements', label: 'Achievements', icon: '📜' }
       ];
 
       const MENU_THEME = {
@@ -4471,14 +4471,14 @@
         let panelCenter = panelLeft + panelWidth / 2;
         drawMenuPanelBackground(panelCenter, SCREEN_H / 2, panelWidth, SCREEN_H);
 
-        let horizontalPadding = scaledX(24);
+        let horizontalPadding = scaledX(16);
         let tabs = getUnlockedMenuTabs();
         let tabBottom = drawMenuTabs({
           tabs,
           left: panelLeft + horizontalPadding,
           right: panelRight - horizontalPadding,
           top: scaledY(24),
-          height: scaledY(44)
+          height: scaledY(88)
         });
 
         let contentLeft = panelLeft + horizontalPadding;
@@ -4648,18 +4648,39 @@
         let right = area && area.right !== undefined ? area.right : MENU_W - scaledX(16);
         let width = Math.max(scaledX(80), right - left);
         let top = area && area.top !== undefined ? area.top : scaledY(20);
-        let height = area && area.height !== undefined ? area.height : scaledY(42);
+        let requestedHeight = area && area.height !== undefined ? area.height : scaledY(80);
         if (tabs.length === 0) {
-          return top + height;
+          return top + requestedHeight;
         }
-        let spacing = Math.max(scaledX(8), width * 0.02);
+
+        let spacingCandidate = Math.max(scaledX(4), Math.min(scaledX(12), width * 0.04));
+        let spacingLimit = width / Math.max(1, tabs.length * 2.5);
+        let spacing = Math.min(spacingCandidate, spacingLimit);
         let totalSpacing = Math.max(0, (tabs.length - 1) * spacing);
-        let tabWidth = Math.max(scaledX(68), (width - totalSpacing) / tabs.length);
-        let actualWidth = tabWidth * tabs.length + totalSpacing;
+        if (totalSpacing >= width) {
+          spacing = width / Math.max(1, tabs.length * 3);
+          totalSpacing = Math.max(0, (tabs.length - 1) * spacing);
+        }
+
+        let labelGap = scaledY(8);
+        let labelHeight = scaledY(16);
+        let iconMaxHeight = Math.max(scaledY(28), requestedHeight - labelGap - labelHeight);
+        let availableWidth = Math.max(0, width - totalSpacing);
+        let rawSize = tabs.length > 0 ? availableWidth / tabs.length : 0;
+        let tabSize = Math.min(iconMaxHeight, rawSize);
+        if (!isFinite(tabSize) || tabSize <= 0) {
+          tabSize = Math.min(iconMaxHeight, width / Math.max(1, tabs.length));
+        }
+
+        let actualWidth = tabSize * tabs.length + Math.max(0, (tabs.length - 1) * spacing);
         let startX = left + Math.max(0, (width - actualWidth) / 2);
+        let labelY = top + tabSize + labelGap + labelHeight / 2;
+        let blockHeight = tabSize + labelGap + labelHeight;
+
         for (let i = 0; i < tabs.length; i++) {
           let tab = tabs[i];
-          let x = startX + i * (tabWidth + spacing);
+          let x = startX + i * (tabSize + spacing);
+          let centerX = x + tabSize / 2;
           let active = tab.key === activeMenu;
           let baseColor = active ? MENU_THEME.tabActive : MENU_THEME.tabInactive;
           let textColor = active ? MENU_THEME.invertedText : MENU_THEME.text;
@@ -4669,7 +4690,7 @@
           ctx.strokeStyle = MENU_THEME.tabBorder;
           ctx.lineWidth = Math.max(1, scaledX(1.2));
           ctx.beginPath();
-          ctx.rect(x, top, tabWidth, height);
+          ctx.rect(x, top, tabSize, tabSize);
           ctx.fill();
           ctx.stroke();
           ctx.restore();
@@ -4678,27 +4699,37 @@
             push();
             stroke(MENU_THEME.accentHover);
             strokeWeight(Math.max(2, scaledY(2)));
-            line(x, top + height - scaledY(2), x + tabWidth, top + height - scaledY(2));
+            line(x, top + tabSize - scaledY(2), x + tabSize, top + tabSize - scaledY(2));
             pop();
           }
 
+          let icon = typeof tab.icon === 'string' && tab.icon.length > 0
+            ? tab.icon
+            : (tab.label ? tab.label.charAt(0).toUpperCase() : '?');
           push();
           textAlign(CENTER, CENTER);
-          textSize(scaledFont(10));
+          textSize(Math.min(tabSize * 0.6, scaledFont(22)));
           fill(textColor);
-          text(tab.label, x + tabWidth / 2, top + height / 2);
+          text(icon, centerX, top + tabSize / 2 + scaledY(1));
+          pop();
+
+          push();
+          textAlign(CENTER, CENTER);
+          textSize(Math.min(scaledFont(9), tabSize * 0.32));
+          fill(MENU_THEME.mutedText);
+          text(tab.label, centerX, labelY);
           pop();
 
           addButton({
             action: 'switchMenu',
             key: tab.key,
-            x: x + tabWidth / 2,
-            y: top + height / 2,
-            w: tabWidth,
-            h: height
+            x: centerX,
+            y: top + blockHeight / 2,
+            w: tabSize,
+            h: blockHeight
           });
         }
-        return top + height;
+        return top + blockHeight;
       }
 
       function drawSectionHeader(title, y) {
