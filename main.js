@@ -914,8 +914,9 @@
             refreshPowderGrid(true);
             gameInitialized = true;
             if (fallbackUsed) {
-              milestoneMessage = 'Running with bundled data (local JSON unavailable).';
-              milestoneMessageTimer = 5600;
+              milestoneMessage =
+                'Browser blocked local data files; loaded bundled schematics instead.';
+              milestoneMessageTimer = 6400;
             }
           })
           .catch((err) => {
@@ -3439,21 +3440,22 @@
           stroke('#facc15');
           strokeWeight(4);
           noFill();
-          rect(center.x, center.y, panelW + scaledX(18), panelH + scaledY(18), 28);
+          rect(center.x, center.y, panelW + scaledX(18), panelH + scaledY(18));
         }
         stroke('#1d4ed8');
         strokeWeight(2);
         fill(withAlpha('#030b18', 210));
-        rect(center.x, center.y, panelW, panelH, 22);
+        rect(center.x, center.y, panelW, panelH);
         noStroke();
         fill('#0f1e36');
-        rect(center.x, center.y - panelH * 0.34, panelW * 0.92, panelH * 0.16, 18);
+        rect(center.x, center.y - panelH * 0.34, panelW * 0.92, panelH * 0.16);
         fill('#122b4b');
-        rect(center.x, center.y + panelH * 0.12, panelW * 0.96, panelH * 0.18, 18);
+        rect(center.x, center.y + panelH * 0.12, panelW * 0.96, panelH * 0.18);
         fill('#a5b4fc');
         textSize(scaledFont(12));
         text('Powder Intake', center.x, center.y - panelH / 2 + scaledY(14));
         pop();
+        drawJarConveyorLink({ rectInfo, center, panelW, panelH });
         drawFullscreenToggle(rectInfo, machine.key, true);
       }
 
@@ -3461,18 +3463,18 @@
         if (jarRect.width <= 0 || jarRect.height <= 0) return;
         let centerX = jarRect.left + jarRect.width / 2;
         let centerY = jarRect.top + jarRect.height / 2;
-        let corner = Math.min(jarRect.width, jarRect.height) * 0.18;
         let innerW = jarRect.width * 0.88;
         let innerH = jarRect.height * 0.82;
         let baseHeight = innerH * 0.12;
         let baseY = centerY + innerH / 2 - baseHeight / 2;
+        let conveyorUnlocked = isMachineUnlocked('conveyor');
         push();
         rectMode(CENTER);
         noStroke();
         fill('#061225');
-        rect(centerX, centerY, jarRect.width, jarRect.height, corner * 0.75);
+        rect(centerX, centerY, jarRect.width, jarRect.height);
         fill('#020912');
-        rect(centerX, centerY, innerW, innerH, corner * 0.58);
+        rect(centerX, centerY, innerW, innerH);
         let totalLayers = strataLayers.length;
         if (totalLayers > 0) {
           let segmentHeight = innerH / totalLayers;
@@ -3488,17 +3490,75 @@
             let alpha = 60 + ratio * 160;
             fill(withAlpha(layer.color, alpha));
             let y = centerY - innerH / 2 + segmentHeight * (i + 0.5);
-            rect(centerX, y, innerW * 0.82, segmentHeight + 2, corner * 0.45);
+            rect(centerX, y, innerW * 0.82, segmentHeight + 2);
           }
         }
         let baseColor = jarReleaseState.open
-          ? withAlpha('#38bdf8', 180)
+          ? withAlpha('#38bdf8', 200)
           : '#0a172a';
         fill(baseColor);
-        rect(centerX, baseY, innerW * 0.9, baseHeight, corner * 0.4);
-        if (!jarReleaseState.open) {
+        rect(centerX, baseY, innerW * 0.9, baseHeight);
+        if (conveyorUnlocked) {
+          let channelWidth = innerW * 0.46;
+          fill(withAlpha('#19304c', jarReleaseState.open ? 220 : 160));
+          rect(centerX, baseY, innerW * 0.9, baseHeight * 0.32);
+          fill(withAlpha('#38bdf8', jarReleaseState.open ? 200 : 140));
+          rect(centerX, baseY, channelWidth, baseHeight * 0.64);
+        } else {
           fill('#132b47');
-          rect(centerX, baseY - baseHeight * 0.25, innerW * 0.84, baseHeight * 0.4, corner * 0.35);
+          rect(centerX, baseY - baseHeight * 0.25, innerW * 0.84, baseHeight * 0.4);
+        }
+        pop();
+      }
+
+      function drawJarConveyorLink(context) {
+        if (fullscreenModule === 'jar') return;
+        let conveyorMachine = machineDefinitions.find((m) => m.key === 'conveyor');
+        if (!conveyorMachine) return;
+        let conveyorRect = getMachineRect(conveyorMachine);
+        let conveyorCenter = getMachineCenter(conveyorRect);
+        let conveyorPanelSize = Math.min(conveyorRect.width, conveyorRect.height) * 0.8;
+        let conveyorTop = conveyorCenter.y - conveyorPanelSize / 2;
+        let jarBottom = context.center.y + context.panelH / 2;
+        let gapTop = jarBottom + scaledY(6);
+        let gapBottom = conveyorTop - scaledY(6);
+        if (gapBottom <= gapTop) return;
+        push();
+        rectMode(CORNERS);
+        if (isMachineUnlocked('conveyor')) {
+          let walkwayWidth = Math.min(context.panelW * 0.68, conveyorPanelSize * 0.78);
+          let glowWidth = walkwayWidth + scaledX(24);
+          let left = context.center.x - walkwayWidth / 2;
+          let right = context.center.x + walkwayWidth / 2;
+          noStroke();
+          fill(withAlpha('#09213d', 240));
+          rect(
+            context.center.x - glowWidth / 2,
+            gapTop - scaledY(10),
+            glowWidth,
+            gapBottom - gapTop + scaledY(20)
+          );
+          fill(withAlpha('#155e9a', 220));
+          rect(left - scaledX(4), gapTop, right + scaledX(4), gapBottom);
+          fill(withAlpha('#38bdf8', 230));
+          rect(left + scaledX(4), gapTop, right - scaledX(4), gapBottom);
+          fill(withAlpha('#e0f2fe', 220));
+          rect(
+            left + walkwayWidth * 0.18,
+            gapTop,
+            walkwayWidth * 0.64,
+            gapBottom - gapTop
+          );
+        } else {
+          let barrierWidth = context.panelW * 0.7;
+          let left = context.center.x - barrierWidth / 2;
+          let right = context.center.x + barrierWidth / 2;
+          noStroke();
+          fill('#030b18');
+          rect(left, gapTop - scaledY(4), right, gapTop + scaledY(10));
+          stroke('#1e293b');
+          strokeWeight(2);
+          line(left, gapTop + scaledY(2), right, gapTop + scaledY(2));
         }
         pop();
       }
@@ -3507,7 +3567,6 @@
         if (jarRect.width <= 0 || jarRect.height <= 0) return;
         let centerX = jarRect.left + jarRect.width / 2;
         let centerY = jarRect.top + jarRect.height / 2;
-        let corner = Math.min(jarRect.width, jarRect.height) * 0.18;
         let innerW = jarRect.width * 0.88;
         let innerH = jarRect.height * 0.82;
         let baseHeight = innerH * 0.12;
@@ -3517,14 +3576,14 @@
         noFill();
         stroke('#38bdf8');
         strokeWeight(2);
-        rect(centerX, centerY, jarRect.width, jarRect.height, corner);
+        rect(centerX, centerY, jarRect.width, jarRect.height);
         noStroke();
         if (jarReleaseState.open) {
           fill(withAlpha('#38bdf8', 80));
-          rect(centerX, baseY, innerW * 0.9, baseHeight, corner * 0.35);
+          rect(centerX, baseY, innerW * 0.9, baseHeight);
         } else {
           fill(withAlpha('#22d3ee', 50));
-          rect(centerX, baseY, innerW * 0.9, baseHeight * 0.45, corner * 0.35);
+          rect(centerX, baseY, innerW * 0.9, baseHeight * 0.45);
         }
         textAlign(CENTER, CENTER);
         fill('#e2e8f0');
@@ -6001,8 +6060,58 @@
       }
 
       function withAlpha(hex, alpha) {
-        let c = color(hex);
-        return color(red(c), green(c), blue(c), alpha);
+        if (hex instanceof p5.Color) {
+          return color(red(hex), green(hex), blue(hex), alpha);
+        }
+        if (Array.isArray(hex)) {
+          let [r = 0, g = 0, b = 0] = hex;
+          return color(r, g, b, alpha);
+        }
+        if (hex && typeof hex === 'object') {
+          if (typeof hex[0] === 'string') {
+            hex = hex[0];
+          } else if (typeof hex.value === 'string') {
+            hex = hex.value;
+          } else if (typeof hex.hex === 'string') {
+            hex = hex.hex;
+          } else if (typeof hex.toString === 'function') {
+            hex = hex.toString();
+          }
+        }
+        if (typeof hex !== 'string') {
+          hex = '#000000';
+        }
+        let raw = hex.trim();
+        let r = 0;
+        let g = 0;
+        let b = 0;
+        if (raw.startsWith('#')) {
+          raw = raw.slice(1);
+        }
+        if (raw.length === 3) {
+          raw = raw
+            .split('')
+            .map((ch) => ch + ch)
+            .join('');
+        }
+        if (raw.length === 6 && /^[0-9a-fA-F]+$/.test(raw)) {
+          let value = parseInt(raw, 16);
+          r = (value >> 16) & 255;
+          g = (value >> 8) & 255;
+          b = value & 255;
+        } else if (/^rgba?\(/i.test(raw)) {
+          let match = raw.match(/rgba?\(([^)]+)\)/i);
+          if (match) {
+            let parts = match[1]
+              .split(',')
+              .map((part) => parseFloat(part.trim()))
+              .filter((n) => !Number.isNaN(n));
+            if (parts.length >= 3) {
+              [r, g, b] = parts;
+            }
+          }
+        }
+        return color(r, g, b, alpha);
       }
 
       function getLayerDustBonus() {
