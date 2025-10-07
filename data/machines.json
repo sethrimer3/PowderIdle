@@ -9,7 +9,7 @@
     {
       "key": "conveyor",
       "name": "Grain Conveyor",
-      "description": "Collects grains for packaging.",
+      "description": "Drops grains into a holding bin.",
       "grid": { "col": 1, "row": 2, "width": 1, "height": 1 }
     },
     {
