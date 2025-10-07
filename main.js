@@ -4731,6 +4731,27 @@
           : 1 + getUpgradeLevel('compressor') * 0.35;
       }
 
+      function getPowderMultiplier(index) {
+        if (!Array.isArray(powderTypes) || powderTypes.length === 0) {
+          return 1;
+        }
+        if (typeof index !== 'number' || index < 0 || index >= powderTypes.length) {
+          return 1;
+        }
+        if (index === 0) {
+          return CHAIN_REQUIREMENT;
+        }
+        let recipe = compressionRecipes.find((entry) => entry && entry.from === index);
+        if (!recipe) {
+          return 1;
+        }
+        let efficiency = getCompressorEfficiency();
+        if (efficiency <= 0) {
+          return Math.max(1, Math.round(recipe.baseCost || 1));
+        }
+        return Math.max(1, Math.round((recipe.baseCost || 1) / efficiency));
+      }
+
       function updateAutoDroppers() {
         for (let i = 0; i < autoDroppers.length; i++) {
           if (autoDroppers[i] <= 0) continue;
@@ -6301,7 +6322,10 @@
           }
         }
         if (!activeButton && jarVisible && isInsideJar(mouseX, mouseY)) {
-          dropPowder(selectedPowder, mouseX);
+          let dropped = dropPowder(selectedPowder, mouseX);
+          if (dropped && selectedPowder === 0) {
+            grantManualDropDustReward();
+          }
         }
       }
 
@@ -6572,7 +6596,7 @@
 
       function dropPowder(type, spawnX) {
         if (!(type === 0 || tierUpgrades[type - 1])) {
-          return;
+          return false;
         }
         if (gridRows <= 0 || gridCols <= 0) {
           refreshPowderGrid();
@@ -6583,7 +6607,7 @@
         }
         let size = getPowderSizeByType(type);
         if (gridCols < size || gridRows < size) {
-          return;
+          return false;
         }
         let halfWidth = (size * cellPixelSize) / 2;
         let jarLeft = jarRect.left;
@@ -6608,7 +6632,7 @@
         let col = Math.round(centerCol - size / 2);
         col = Math.max(0, Math.min(gridCols - size, col));
         if (!canOccupy(0, col, size)) {
-          return;
+          return false;
         }
         let powder = {
           col,
@@ -6620,6 +6644,13 @@
         };
         powders.push(powder);
         occupyPowderCells(powder);
+        return true;
+      }
+
+      function grantManualDropDustReward() {
+        let bonus = Math.max(1, Math.ceil(duneDustMultiplier));
+        dust += bonus;
+        totalDustEarned += bonus;
       }
 
       function unlockTier(index) {
