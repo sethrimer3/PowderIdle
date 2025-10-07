@@ -5,7 +5,8 @@
       let SCREEN_H = BASE_SCREEN_H;
       let MENU_W = Math.round(SCREEN_W * 0.34);
       let PLAY_AREA_W = SCREEN_W - MENU_W;
-      let cellPixelSize = 6;
+      const BASE_CELL_PIXEL_SIZE = 6;
+      let cellPixelSize = BASE_CELL_PIXEL_SIZE;
       let layoutScaleX = 1;
       let layoutScaleY = 1;
       let canvas;
@@ -151,17 +152,80 @@
       const FALLBACK_DATA = {
         powders: {
           types: [
-            { key: 'grain', name: 'Grains', color: '#e7c97a', size: 1 },
-            { key: 'package', name: 'Packages', color: '#f2b066', size: 2 },
-            { key: 'launch', name: 'Launches', color: '#4ade80', size: 3 },
-            { key: 'asteroid', name: 'Asteroids', color: '#94a3b8', size: 4 },
-            { key: 'planet', name: 'Planets', color: '#38bdf8', size: 5 },
-            { key: 'star', name: 'Stars', color: '#fde68a', size: 6 },
-            { key: 'galaxy', name: 'Galaxies', color: '#c084fc', size: 7 },
-            { key: 'universe', name: 'Universes', color: '#22d3ee', size: 8 },
-            { key: 'singularity', name: 'Singularities', color: '#f8fafc', size: 9 }
+            {
+              key: 'sand',
+              name: 'Sand',
+              color: '#d7c59a',
+              size: 1,
+              dustValue: 1
+            },
+            {
+              key: 'stone',
+              name: 'Stone',
+              color: '#7f8a91',
+              size: 2,
+              dustValue: 10
+            },
+            {
+              key: 'copper',
+              name: 'Copper',
+              color: '#b87333',
+              size: 3,
+              dustValue: 100
+            },
+            {
+              key: 'silver',
+              name: 'Silver',
+              color: '#c0c5cf',
+              size: 4,
+              dustValue: 1000
+            },
+            {
+              key: 'gold',
+              name: 'Gold',
+              color: '#ffd700',
+              size: 5,
+              dustValue: 10000
+            },
+            {
+              key: 'diamond',
+              name: 'Diamond',
+              color: '#b9f2ff',
+              size: 6,
+              dustValue: 100000
+            },
+            {
+              key: 'galaxy',
+              name: 'Galaxies',
+              color: '#c084fc',
+              size: 7,
+              dustValue: 1000000
+            },
+            {
+              key: 'universe',
+              name: 'Universes',
+              color: '#22d3ee',
+              size: 8,
+              dustValue: 10000000
+            },
+            {
+              key: 'singularity',
+              name: 'Singularities',
+              color: '#f8fafc',
+              size: 9,
+              dustValue: 100000000
+            }
           ],
-          tierUnlockCosts: [10, 60, 260, 1100, 4600, 19000, 78000, 320000],
+          tierUnlockCosts: [
+            100,
+            10000,
+            1000000,
+            100000000,
+            10000000000,
+            1000000000000,
+            100000000000000,
+            10000000000000000
+          ],
           compressionRecipes: [
             { from: 0, to: 1, baseCost: 18, output: 1 },
             { from: 1, to: 2, baseCost: 14, output: 1 },
@@ -1270,10 +1334,18 @@
 
       function initializeGameData() {
         let powderData = powdersDataRaw || {};
-        powderTypes = (powderData.types || []).map((type) => ({
-          ...type,
-          dustValue: Math.pow(type.size || 1, 2)
-        }));
+        powderTypes = (powderData.types || []).map((type, index) => {
+          let dustValue;
+          if (typeof type.dustValue === 'number' && !Number.isNaN(type.dustValue)) {
+            dustValue = type.dustValue;
+          } else {
+            dustValue = Math.pow(10, index);
+          }
+          return {
+            ...type,
+            dustValue
+          };
+        });
         tierUnlockCosts = powderData.tierUnlockCosts || [];
         compressionRecipes = powderData.compressionRecipes || [];
         MAX_POWDER_SIZE = powderTypes.reduce(
@@ -6727,7 +6799,8 @@
         PLAY_AREA_W = SCREEN_W - MENU_W;
         layoutScaleX = SCREEN_W / BASE_SCREEN_W;
         layoutScaleY = SCREEN_H / BASE_SCREEN_H;
-        cellPixelSize = 1;
+        let pixelScale = Math.min(layoutScaleX, layoutScaleY);
+        cellPixelSize = Math.max(1, Math.floor(BASE_CELL_PIXEL_SIZE * pixelScale));
         updateCollageLayout();
         menuScroll = constrain(menuScroll, 0, menuScrollMax);
         if (resize && canvas) {
