@@ -4544,9 +4544,35 @@
           spawnRatio = constrain(centerCol / gridCols, 0, 1);
         }
         let grains = [];
-        for (let i = 0; i < powderGain; i++) {
-          let entity = createBaseEntity(type, {
-            origin: i === 0 ? 'jar' : 'quantum',
+        let storedEntities = Array.isArray(powder.entities)
+          ? powder.entities.filter(Boolean)
+          : [];
+        if (storedEntities.length === 0) {
+          let fallbackEntity = createBaseEntity(type, {
+            origin: 'jar',
+            metadata: { size }
+          });
+          storedEntities.push(fallbackEntity);
+        }
+        for (let entity of storedEntities) {
+          if (!entity.metadata) {
+            entity.metadata = {};
+          }
+          entity.metadata.spawnRatio = spawnRatio;
+          entity.metadata.jarCol = powder.col;
+          entity.metadata.jarRow = powder.row;
+          entity.metadata.size = size;
+          if (!entity.origin) {
+            entity.origin = 'jar';
+          }
+          gainEntity(type, entity);
+          totalPowderCollected += 1;
+          grains.push(entity);
+        }
+        let additional = Math.max(0, powderGain - grains.length);
+        for (let i = 0; i < additional; i++) {
+          let bonusEntity = createBaseEntity(type, {
+            origin: 'quantum',
             metadata: {
               spawnRatio,
               jarCol: powder.col,
@@ -4554,9 +4580,9 @@
               size
             }
           });
-          gainEntity(type, entity);
+          gainEntity(type, bonusEntity);
           totalPowderCollected += 1;
-          grains.push(entity);
+          grains.push(bonusEntity);
         }
         let baseValue = powderTypes[type].dustValue;
         let dustGain = Math.round(
@@ -4569,6 +4595,7 @@
           enqueueConveyorGrains(powder, grains);
         }
         powder.collected = true;
+        powder.entities = [];
       }
 
       function enqueueConveyorGrains(powder, grains) {
@@ -6733,13 +6760,23 @@
         if (!canOccupy(0, col, size)) {
           return false;
         }
+        let powderEntity = createBaseEntity(type, {
+          origin: 'jar',
+          metadata: {
+            size,
+            jarCol: col,
+            jarRow: 0,
+            spawnRatio: gridCols > 0 ? constrain((col + size / 2) / gridCols, 0, 1) : 0.5
+          }
+        });
         let powder = {
           col,
           row: 0,
           type: type,
           fallProgress: 0,
           collected: false,
-          settled: false
+          settled: false,
+          entities: [powderEntity]
         };
         powders.push(powder);
         occupyPowderCells(powder);
