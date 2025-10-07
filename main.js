@@ -3423,176 +3423,38 @@
         dust += Math.max(1, Math.round((14 + level * 7) * getDustMultiplier()));
       }
 
-      function drawConveyorModule(context) {
+      function drawModuleShell(context, accentColor = '#1d4ed8') {
         let { center, panelW, panelH } = context;
-        let state = moduleStates.conveyor;
+        let outerW = panelW * 0.92;
+        let outerH = panelH * 0.72;
         push();
         translate(center.x, center.y);
         rectMode(CENTER);
         fill('#051225');
-        rect(0, 0, panelW * 0.92, panelH * 0.72, 14);
-        if (state && state.geometry) {
-          let scaleX = panelW * 0.52;
-          let scaleY = panelH * 0.4;
-          let beltPixelY = panelH * 0.06;
-          let offsetY = beltPixelY - (state.geometry.beltY || 0) * scaleY;
-          let px = (x) => x * scaleX;
-          let py = (y) => y * scaleY + offsetY;
-          noStroke();
-          fill('#071324');
-          rect(0, panelH * 0.06, panelW * 0.9, panelH * 0.1, 12);
-          fill('#091a30');
-          rect(0, panelH * 0.08, panelW * 0.84, panelH * 0.05, 8);
-
-          push();
-          translate(0, py(state.geometry.holeTop) - panelH * 0.06);
-          fill('#0b1629');
-          rect(0, 0, panelW * 0.44, panelH * 0.14, 12);
-          fill('#01070e');
-          rect(0, panelH * 0.016, panelW * 0.32, panelH * 0.09, 10);
-          pop();
-
-          let thickness = panelH * 0.08;
-          for (let i = 0; i < state.geometry.beltSegments.length; i++) {
-            let segment = state.geometry.beltSegments[i];
-            let fromPix = createVector(px(segment.from.x), py(segment.from.y));
-            let toPix = createVector(px(segment.to.x), py(segment.to.y));
-            let centerPix = p5.Vector.add(fromPix, toPix).mult(0.5);
-            let delta = p5.Vector.sub(toPix, fromPix);
-            let angle = Math.atan2(delta.y, delta.x);
-            let length = Math.max(8, delta.mag());
-            push();
-            translate(centerPix.x, centerPix.y);
-            rotate(angle);
-            noStroke();
-            let baseColor = segment.type === 'drop' ? '#0c1627' : '#132b47';
-            fill(baseColor);
-            rect(0, 0, length + thickness * 0.36, thickness, thickness * 0.45);
-            let overlay = segment.type === 'drop' ? '#19304c' : '#1f3f66';
-            fill(withAlpha(overlay, 220));
-            rect(0, 0, length, thickness * 0.58, thickness * 0.34);
-            if (segment.type === 'drop') {
-              fill(withAlpha('#01070f', 200));
-              rect(0, 0, thickness * 0.32, length + thickness * 0.1, thickness * 0.2);
-              fill(withAlpha('#22d3ee', 90 + (state.deliveryPulse || 0) * 90));
-              rect(0, 0, thickness * 0.16, length + thickness * 0.08, thickness * 0.16);
-            } else if ((state.deliveryPulse || 0) > 0.01 && i === state.geometry.beltSegments.length - 1) {
-              fill(withAlpha('#38bdf8', 140 * (state.deliveryPulse || 0)));
-              rect(0, 0, length, thickness * 0.46, thickness * 0.28);
-            }
-            pop();
-          }
-
-          let packageSpot = state.geometry.packageSpot || { x: 0.4, y: 0.42 };
-          let packageExit = state.geometry.packageExit || {
-            x: -0.74,
-            y: packageSpot.y - 0.08
-          };
-          if (state.fallers) {
-            for (let faller of state.fallers) {
-              let fx = px(faller.x);
-              let fy = py(faller.y);
-              let size = Math.max(3, panelW * 0.045);
-              push();
-              translate(fx, fy);
-              rotate(Math.sin(frameCount * 0.04 + (faller.vx || 0)) * 0.1);
-              let fallerColor =
-                faller.color || (faller.entity && faller.entity.color) || '#f8e3a2';
-              fill(fallerColor);
-              rect(0, 0, size, size, 3);
-              stroke('#0f172a');
-              strokeWeight(1);
-              noFill();
-              rect(0, 0, size * 1.08, size * 1.08, 3);
-              pop();
-            }
-          }
-
-          if (state.modules) {
-            for (let carrier of state.modules) {
-              let gx = px(carrier.x || 0);
-              let gy = py(carrier.y || 0);
-              let size = Math.max(4, panelW * 0.048);
-              push();
-              translate(gx, gy);
-              rotate(Math.sin(carrier.wobble || 0) * 0.08);
-              let carrierColor =
-                (carrier.particle && carrier.particle.color) || '#f5d18c';
-              fill(carrierColor);
-              rect(0, 0, size, size, 3);
-              noStroke();
-              fill(withAlpha('#f8fafc', 60));
-              rect(0, -size * 0.15, size * 0.65, size * 0.18, 2);
-              pop();
-            }
-          }
-
-          if (state.departures && state.departures.length > 0) {
-            for (let pkg of state.departures) {
-              let progress = constrain(pkg.progress || 0, 0, 1);
-              let eased = smoothStep(progress);
-              let arc = Math.sin(eased * Math.PI) * 0.12;
-              let pathX = lerp(packageSpot.x, packageExit.x, eased);
-              let pathY =
-                lerp(packageSpot.y, packageExit.y, eased) - arc * (pkg.rocket ? 0.6 : 0.4);
-              let drawX = px(pathX);
-              let drawY = py(pathY);
-              let size = panelW * 0.16 * (1 - eased * 0.2);
-              drawPackageSprite(pkg, drawX, drawY, size);
-            }
-          }
-
-          let pkgX = px(packageSpot.x);
-          let pkgY = py(packageSpot.y);
-          let pkgSize = panelW * 0.18;
-          push();
-          translate(pkgX, pkgY);
-          rectMode(CENTER);
-          fill('#0a172a');
-          rect(0, 0, pkgSize * 1.16, pkgSize * 1.16, 12);
-          fill('#122742');
-          rect(0, 0, pkgSize, pkgSize, 10);
-          let progress = constrain(state.packageProgress || 0, 0, 1);
-          if (progress > 0) {
-            fill(withAlpha('#38bdf8', 140));
-            rect(0, pkgSize * (0.5 - progress / 2), pkgSize * 0.78, pkgSize * progress, 8);
-          }
-          stroke('#38bdf8');
-          strokeWeight(1.5 + (state.packagePulse || 0) * 2);
-          noFill();
-          rect(0, 0, pkgSize, pkgSize, 10);
-          pop();
-
-          let bufferRatio = Math.min(
-            1,
-            (state.packageBuffer ? state.packageBuffer.length : 0) / CHAIN_REQUIREMENT
-          );
-          push();
-          translate(pkgX + panelW * 0.14, pkgY - panelH * 0.16);
-          fill('#0a1424');
-          rect(0, panelH * 0.08, panelW * 0.07, panelH * 0.26, 8);
-          fill('#22d3ee');
-          rect(
-            0,
-            panelH * 0.08 + panelH * 0.13 * (1 - bufferRatio),
-            panelW * 0.052,
-            panelH * 0.26 * bufferRatio,
-            6
-          );
-          pop();
-
-          if (state.packageHistory && state.packageHistory.length > 0) {
-            let display = state.packageHistory.slice(-2);
-            for (let i = 0; i < display.length; i++) {
-              let pkg = display[display.length - 1 - i];
-              let x = pkgX - panelW * 0.32;
-              let y = pkgY - i * panelH * 0.2;
-              drawPackageSprite(pkg, x, y, panelW * 0.16);
-            }
-          }
-        }
+        rect(0, 0, outerW, outerH, 12);
+        fill('#020912');
+        rect(0, 0, outerW * 0.92, outerH * 0.82, 8);
+        stroke(withAlpha(accentColor, 180));
+        strokeWeight(2);
+        noFill();
+        rect(0, 0, outerW, outerH, 12);
+        stroke(withAlpha(accentColor, 90));
+        rect(0, 0, outerW * 0.92, outerH * 0.82, 8);
+        noStroke();
         pop();
       }
+
+      function drawConveyorModule(context) {
+        drawModuleShell(context, '#38bdf8');
+        let state = moduleStates.conveyor;
+        if (!state) return;
+        let progress = typeof state.packageProgress === 'number' ? state.packageProgress : 0;
+        push();
+        translate(context.center.x, context.center.y);
+        drawModuleProgressBar(0, context.panelH * 0.3, context.panelW * 0.6, progress, '#38bdf8');
+        pop();
+      }
+
 
       function drawPackageSprite(pkg, x, y, size) {
         push();
@@ -3621,383 +3483,88 @@
       }
 
       function drawRocketModule(context) {
-        let { center, panelW, panelH } = context;
+        drawModuleShell(context, '#f97316');
         let state = moduleStates.rocket;
-        if (!state || !state.pods) return;
+        if (!state) return;
+        let progress = typeof state.progress === 'number' ? state.progress : 0;
         push();
-        translate(center.x, center.y);
-        fill('#0d1628');
-        rect(0, panelH * 0.28, panelW * 0.9, panelH * 0.18, 8);
-        if (state.successPulse > 0) {
-          fill(withAlpha('#22c55e', 60 + state.successPulse * 120));
-          rect(0, -panelH * 0.12, panelW * 0.96, panelH * 0.36, 12);
-        }
-        let spacing = panelW * 0.3;
-        if (state.incoming && state.incoming.length > 0) {
-          for (let pkg of state.incoming) {
-            let laneCount = Math.max(1, state.pods.length || 1);
-            let lane = Math.min(laneCount - 1, Math.max(0, pkg.lane || 0));
-            let startX = -panelW * 0.52;
-            let startY = panelH * 0.26;
-            let targetX = -spacing + spacing * lane;
-            let targetY = -panelH * 0.02;
-            let progress = constrain(pkg.progress || 0, 0, 1);
-            let eased = smoothStep(progress);
-            let arc = Math.sin(eased * Math.PI) * panelH * 0.08;
-            let drawX = lerp(startX, targetX, eased);
-            let drawY = lerp(startY, targetY, eased) - arc;
-            drawPackageSprite(pkg, drawX, drawY, panelW * 0.18 * (1 - eased * 0.1));
-          }
-        }
-        for (let i = 0; i < state.pods.length; i++) {
-          let pod = state.pods[i];
-          push();
-          translate(-spacing + spacing * i, 0);
-          let bodyW = panelW * 0.18;
-          let bodyH = panelH * 0.42;
-          fill('#1f2a40');
-          rect(0, 0, bodyW, bodyH, 6);
-          let fueling = pod.fueling && pod.launch === 0;
-          fill(fueling ? '#2563eb' : '#334c7a');
-          rect(0, -bodyH * 0.2, bodyW * 0.78, bodyH * 0.48, 4);
-          let fuelHeight = constrain(pod.progress, 0, 1) * bodyH * 0.6;
-          fill('#f59e0b');
-          rect(0, bodyH * 0.12 - fuelHeight / 2, bodyW * 0.6, fuelHeight, 2);
-          fill('#9ca3af');
-          rect(0, -bodyH * 0.55, bodyW * 0.52, bodyH * 0.26, 4);
-          if (fueling) {
-            push();
-            translate(0, -bodyH * 0.18);
-            rotate(frameCount / 14 + i);
-            stroke('#fcd34d');
-            strokeWeight(2);
-            noFill();
-            rect(0, 0, bodyW * 0.46, bodyW * 0.46, 6);
-            pop();
-          }
-          if (pod.launch > 0) {
-            let flame = (Math.sin(frameCount / 3 + i) * 0.2 + 1) * bodyH * 0.22;
-            fill('#fb923c');
-            rect(0, bodyH * 0.38 + flame / 2, bodyW * 0.46, flame, 3);
-          } else {
-            fill('#1f2937');
-            rect(0, bodyH * 0.38, bodyW * 0.46, bodyH * 0.14, 3);
-          }
-          pop();
-        }
-        if (state.explosions) {
-          noStroke();
-          for (let blast of state.explosions) {
-            let index = blast.index || 0;
-            let life = Math.max(0, Math.min(1, blast.life || 0));
-            let x = -spacing + spacing * index;
-            let radius = panelW * 0.3 * (1.2 - life * 0.6);
-            fill(withAlpha('#f87171', 180 * life));
-            ellipse(x, panelH * 0.1, radius, radius * 0.7);
-            fill(withAlpha('#fde68a', 200 * life));
-            ellipse(x, panelH * 0.12, radius * 0.6, radius * 0.4);
-          }
-        }
-        let queue = Math.min(6, Math.floor((ensureInventory(1).length || 0) / 5));
-        for (let i = 0; i < queue; i++) {
-          let qx = -panelW * 0.48;
-          let qy = panelH * 0.24 - i * panelH * 0.08;
-          fill('#f2b066');
-          rect(qx, qy, panelW * 0.14, panelH * 0.08, 4);
-          fill('#c08457');
-          rect(qx, qy - panelH * 0.02, panelW * 0.08, panelH * 0.04, 3);
-        }
+        translate(context.center.x, context.center.y);
+        drawModuleProgressBar(0, context.panelH * 0.3, context.panelW * 0.6, progress, '#f97316');
         pop();
       }
+
 
       function drawAsteroidModule(context) {
-        let { center, panelW, panelH } = context;
+        drawModuleShell(context, '#94a3b8');
         let state = moduleStates.asteroid;
         if (!state) return;
+        let progress = typeof state.progress === 'number' ? state.progress : 0;
         push();
-        translate(center.x, center.y);
-        rectMode(CENTER);
-        fill('#0d1527');
-        rect(0, 0, panelW * 0.88, panelH * 0.7, 12);
-        let scaleX = panelW * 0.36;
-        let scaleY = panelH * 0.3;
-        let ring = state.ring || 0;
-        let pulse = 1 + Math.sin(ring * 1.8) * 0.05 + (state.ringPulse || 0) * 0.12;
-        noFill();
-        stroke(withAlpha('#1e293b', 200));
-        strokeWeight(2);
-        ellipse(0, 0, panelW * 0.7, panelH * 0.48);
-        stroke(withAlpha('#0f1a2c', 220));
-        ellipse(0, 0, panelW * 0.54, panelH * 0.36);
-        stroke(withAlpha('#38bdf8', 140 + (state.ringPulse || 0) * 80));
-        ellipse(0, 0, panelW * 0.42 * pulse, panelH * 0.3 * pulse);
-        noStroke();
-        fill(withAlpha('#0b1220', 220));
-        rect(0, 0, panelW * 0.28, panelW * 0.28, 12);
-        fill(withAlpha('#1e3a8a', 200));
-        rect(0, 0, panelW * 0.12, panelW * 0.12, 8);
-        if (state.powderBits) {
-          for (let bit of state.powderBits) {
-            let x = bit.x * scaleX;
-            let y = bit.y * scaleY;
-            let size = Math.max(3, bit.size * panelW * 0.22);
-            let alpha = 160 + Math.sin((bit.life || 1) * TAU + frameCount / 6) * 40;
-            fill(withAlpha('#cbd5f5', alpha));
-            rect(x, y, size, size * 0.7, 3);
-          }
-        }
-        if (state.asteroids) {
-          for (let asteroid of state.asteroids) {
-            let x = asteroid.x * scaleX;
-            let y = asteroid.y * scaleY;
-            let size = Math.max(8, asteroid.radius * panelW * 0.5);
-            if (asteroid.mergeGlow > 0) {
-              fill(withAlpha('#38bdf8', asteroid.mergeGlow * 120));
-              ellipse(x, y, size * 1.5, size * 1.3);
-            }
-            let hueT = constrain((asteroid.hue - 0.1) / 0.4, 0, 1);
-            let bodyColor = lerpColor(color('#475569'), color('#e2e8f0'), hueT);
-            fill(bodyColor);
-            ellipse(x, y, size, size * 0.78);
-            fill(withAlpha('#020617', 140));
-            ellipse(x + size * 0.16, y - size * 0.12, size * 0.46, size * 0.38);
-            fill(withAlpha('#94a3b8', 200));
-            ellipse(x - size * 0.12, y + size * 0.08, size * 0.24, size * 0.2);
-          }
-        }
-        if (state.coreMass && state.coreMass > 7) {
-          let coreSize = panelW * (0.12 + Math.sqrt(state.coreMass - 6) * 0.02);
-          fill(withAlpha('#1d4ed8', 200));
-          ellipse(0, 0, coreSize, coreSize * 0.78);
-          fill(withAlpha('#60a5fa', 180));
-          ellipse(0, 0, coreSize * 0.6, coreSize * 0.55);
-        }
-        drawModuleProgressBar(0, panelH * 0.3, panelW * 0.6, state.progress || 0, '#94a3b8');
+        translate(context.center.x, context.center.y);
+        drawModuleProgressBar(0, context.panelH * 0.3, context.panelW * 0.6, progress, '#94a3b8');
         pop();
       }
+
 
       function drawPlanetModule(context) {
-        let { center, panelW, panelH } = context;
+        drawModuleShell(context, '#38bdf8');
         let state = moduleStates.planet;
         if (!state) return;
+        let progress = typeof state.progress === 'number' ? state.progress : 0;
         push();
-        translate(center.x, center.y);
-        rectMode(CENTER);
-        fill('#0c1729');
-        rect(0, 0, panelW * 0.9, panelH * 0.7, 12);
-        let scaleX = panelW * 0.38;
-        let scaleY = panelH * 0.32;
-        let spin = state.spin || 0;
-        if (state.moonPulse > 0) {
-          fill(withAlpha('#fde68a', 80 + state.moonPulse * 90));
-          ellipse(0, 0, panelW * 0.82, panelH * 0.58);
-        }
-        stroke(withAlpha('#12304c', 220));
-        strokeWeight(2);
-        noFill();
-        ellipse(0, 0, panelW * 0.78, panelH * 0.52);
-        stroke(withAlpha('#1f6feb', 120));
-        ellipse(0, 0, panelW * 0.58, panelH * 0.4);
-        noStroke();
-        if (state.planetesimals) {
-          for (let body of state.planetesimals) {
-            let x = body.x * scaleX;
-            let y = body.y * scaleY;
-            let size = Math.max(4, body.radius * panelW * 0.42);
-            let twinkle = (Math.sin(body.phase || 0) + 1) / 2;
-            let colorA = lerpColor(color('#22d3ee'), color('#bae6fd'), twinkle);
-            fill(colorA);
-            ellipse(x, y, size, size * 0.9);
-            fill(withAlpha('#0f172a', 160));
-            ellipse(x + size * 0.18, y - size * 0.18, size * 0.45, size * 0.4);
-          }
-        }
-        let core = state.planetCore || { mass: 6, radius: planetRadius(6), angle: 0 };
-        let planetSize = core.radius * panelW * 0.9;
-        let glow = 1 + (state.coreGlow || 0) * 0.3;
-        push();
-        rotate(spin * 0.4);
-        fill(withAlpha('#1d4ed8', 200));
-        ellipse(0, 0, planetSize * glow, planetSize * 0.82 * glow);
-        fill(withAlpha('#60a5fa', 200));
-        ellipse(0, 0, planetSize * 0.72 * glow, planetSize * 0.64 * glow);
-        fill(withAlpha('#f8fafc', 160));
-        ellipse(-planetSize * 0.12, -planetSize * 0.06, planetSize * 0.32, planetSize * 0.28);
-        pop();
-        if (state.moons) {
-          stroke(withAlpha('#334155', 180));
-          strokeWeight(1.5);
-          noFill();
-          for (let moon of state.moons) {
-            let orbitW = moon.radius * scaleX * 2;
-            let orbitH = moon.radius * scaleY * 2;
-            ellipse(0, 0, orbitW, orbitH);
-          }
-          noStroke();
-          for (let moon of state.moons) {
-            let x = Math.cos(moon.angle) * moon.radius * scaleX;
-            let y = Math.sin(moon.angle) * moon.radius * scaleY;
-            let size = Math.max(4, moon.size * panelW * 0.28);
-            push();
-            translate(x, y);
-            rotate(Math.sin(moon.wobble) * 0.15);
-            fill('#e2e8f0');
-            ellipse(0, 0, size, size * 0.82);
-            fill(withAlpha('#94a3b8', 180));
-            ellipse(size * 0.14, -size * 0.12, size * 0.4, size * 0.34);
-            pop();
-          }
-        }
-        drawModuleProgressBar(0, panelH * 0.32, panelW * 0.6, state.progress || 0, '#38bdf8');
+        translate(context.center.x, context.center.y);
+        drawModuleProgressBar(0, context.panelH * 0.3, context.panelW * 0.6, progress, '#38bdf8');
         pop();
       }
+
 
       function drawForgeModule(context) {
-        let { center, panelW, panelH } = context;
+        drawModuleShell(context, '#f59e0b');
         let state = moduleStates.forge;
+        if (!state) return;
+        let progress = typeof state.progress === 'number' ? state.progress : 0;
         push();
-        translate(center.x, center.y);
-        fill('#120b1f');
-        rect(0, panelH * 0.24, panelW * 0.82, panelH * 0.28, 10);
-        let corona = 1 + Math.sin((state && state.corona) || 0) * 0.08;
-        fill('#fde68a');
-        rect(0, -panelH * 0.04, panelW * 0.32 * corona, panelW * 0.32 * corona, 12);
-        fill('#fcd34d');
-        rect(0, -panelH * 0.04, panelW * 0.2 * corona, panelW * 0.2 * corona, 8);
-        if (state) {
-          for (let pulse of state.pulses) {
-            let radius = panelW * 0.18 + (1 - pulse.life) * panelW * 0.28;
-            let size = Math.max(6, panelW * 0.08 * pulse.life);
-            let x = Math.cos(pulse.angle) * radius;
-            let y = Math.sin(pulse.angle) * radius * 0.6;
-            fill(withAlpha('#fbbf24', pulse.life * 220));
-            rect(x, y, size, size, 4);
-          }
-          drawModuleProgressBar(0, panelH * 0.3, panelW * 0.6, state.progress || 0, '#fde68a');
-        }
+        translate(context.center.x, context.center.y);
+        drawModuleProgressBar(0, context.panelH * 0.3, context.panelW * 0.6, progress, '#f59e0b');
         pop();
       }
+
 
       function drawGalaxyModule(context) {
-        let { center, panelW, panelH } = context;
+        drawModuleShell(context, '#c084fc');
         let state = moduleStates.galaxy;
         if (!state) return;
+        let progress = typeof state.progress === 'number' ? state.progress : 0;
         push();
-        translate(center.x, center.y);
-        rectMode(CENTER);
-        fill('#0f172a');
-        rect(0, 0, panelW * 0.92, panelH * 0.72, 14);
-        let scaleX = panelW * 0.42;
-        let scaleY = panelH * 0.34;
-        let baseColors = [color('#38bdf8'), color('#c084fc'), color('#f472b6')];
-        if (state.bursts) {
-          for (let burst of state.bursts) {
-            let angle = burst.angle + state.angle * 0.6;
-            let radius = burst.radius;
-            let x = Math.cos(angle) * radius * scaleX;
-            let y = Math.sin(angle) * radius * scaleY;
-            let glowSize = panelW * 0.24 * burst.life;
-            fill(withAlpha('#f0abfc', burst.life * 160));
-            ellipse(x, y, glowSize, glowSize * 0.7);
-            fill(withAlpha('#bae6fd', burst.life * 140));
-            ellipse(x, y, glowSize * 0.5, glowSize * 0.4);
-          }
-        }
-        if (state.particles) {
-          for (let particle of state.particles) {
-            let angle = particle.angle + state.angle * 0.25;
-            let radius = particle.radius;
-            let x = Math.cos(angle) * radius * scaleX;
-            let y = Math.sin(angle) * radius * scaleY;
-            let twinkle = (Math.sin(particle.twinkle) + 1) / 2;
-            let base = baseColors[particle.band % baseColors.length];
-            let shade = lerpColor(base, color('#f8fafc'), twinkle * 0.6 + 0.2);
-            let size = panelW * (0.02 + particle.band * 0.008);
-            fill(shade);
-            ellipse(x, y, size, size * 0.86);
-            fill(withAlpha('#0b1120', 120));
-            ellipse(x + size * 0.16, y - size * 0.16, size * 0.45, size * 0.4);
-          }
-        }
-        if (state.vortices) {
-          for (let vortex of state.vortices) {
-            let angle = vortex.angle + state.angle * 0.5;
-            let x = Math.cos(angle) * vortex.radius * scaleX;
-            let y = Math.sin(angle) * vortex.radius * scaleY;
-            fill('#fdf2f8');
-            ellipse(x, y, panelW * 0.05, panelW * 0.05);
-            fill('#fb7185');
-            ellipse(x, y, panelW * 0.028, panelW * 0.028);
-          }
-        }
-        fill('#f8fafc');
-        ellipse(0, 0, panelW * 0.16, panelW * 0.16);
-        fill('#c084fc');
-        ellipse(0, 0, panelW * 0.08, panelW * 0.08);
-        drawModuleProgressBar(0, panelH * 0.32, panelW * 0.6, state.progress, '#38bdf8');
+        translate(context.center.x, context.center.y);
+        drawModuleProgressBar(0, context.panelH * 0.3, context.panelW * 0.6, progress, '#c084fc');
         pop();
       }
+
 
       function drawUniverseModule(context) {
-        let { center, panelW, panelH } = context;
+        drawModuleShell(context, '#22d3ee');
         let state = moduleStates.universe;
         if (!state) return;
+        let progress = typeof state.progress === 'number' ? state.progress : 0;
         push();
-        translate(center.x, center.y);
-        fill('#0b1220');
-        rect(0, 0, panelW * 0.9, panelH * 0.72, 14);
-        stroke('#1d4ed8');
-        strokeWeight(2);
-        noFill();
-        ellipse(0, 0, panelW * 0.74, panelH * 0.52);
-        ellipse(0, 0, panelW * 0.52, panelH * 0.36);
-        noStroke();
-        for (let node of state.nodes || []) {
-          let angle = state.angle + node.offset;
-          let x = Math.cos(angle) * panelW * node.radius;
-          let y = Math.sin(angle) * panelH * node.radius * 0.6;
-          let size = Math.max(4, panelW * node.size * 0.4);
-          fill(withAlpha('#38bdf8', 210));
-          rect(x, y, size, size, 3);
-        }
-        fill('#fde68a');
-        rect(0, 0, panelW * 0.14, panelW * 0.14, 4);
-        drawModuleProgressBar(0, panelH * 0.34, panelW * 0.6, state.progress, '#22d3ee');
+        translate(context.center.x, context.center.y);
+        drawModuleProgressBar(0, context.panelH * 0.3, context.panelW * 0.6, progress, '#22d3ee');
         pop();
       }
 
+
       function drawSingularityModule(context) {
-        let { center, panelW, panelH } = context;
+        drawModuleShell(context, '#fb7185');
         let state = moduleStates.singularity;
         if (!state) return;
+        let progress = typeof state.progress === 'number' ? state.progress : 0;
         push();
-        translate(center.x, center.y);
-        fill('#050910');
-        rect(0, 0, panelW * 0.86, panelH * 0.7, 14);
-        let halo = 1 + Math.sin((state.halo || 0)) * 0.08;
-        stroke('#fb7185');
-        strokeWeight(2);
-        noFill();
-        ellipse(0, 0, panelW * 0.64 * halo, panelH * 0.46 * halo);
-        stroke('#38bdf8');
-        ellipse(0, 0, panelW * 0.5 * halo, panelH * 0.36 * halo);
-        noStroke();
-        fill('#0f172a');
-        rect(0, 0, panelW * 0.24, panelW * 0.24, 6);
-        fill('#f8fafc');
-        rect(0, 0, panelW * 0.08, panelW * 0.08, 4);
-        for (let shard of state.shards) {
-          let radius = panelW * 0.32 + (1 - shard.life) * panelW * 0.16;
-          let size = Math.max(4, panelW * 0.08 * shard.life);
-          let angle = shard.angle + state.orbit;
-          let x = Math.cos(angle) * radius;
-          let y = Math.sin(angle) * radius * 0.6;
-          fill(withAlpha('#fde68a', shard.life * 220));
-          rect(x, y, size, size, 3);
-        }
-        drawModuleProgressBar(0, panelH * 0.34, panelW * 0.6, state.progress || 0, '#fb7185');
+        translate(context.center.x, context.center.y);
+        drawModuleProgressBar(0, context.panelH * 0.3, context.panelW * 0.6, progress, '#fb7185');
         pop();
       }
+
 
       function drawModuleProgressBar(offsetX, offsetY, width, progress, colorHex) {
         push();
@@ -4081,8 +3648,14 @@
         let centerY = jarRect.top + jarRect.height / 2;
         let innerW = jarRect.width * 0.88;
         let innerH = jarRect.height * 0.82;
-        let baseHeight = innerH * 0.12;
-        let baseY = centerY + innerH / 2 - baseHeight / 2;
+        let bottomY = centerY + innerH / 2;
+        let funnelBottomY = bottomY - innerH * 0.14;
+        let funnelTopY = funnelBottomY - innerH * 0.28;
+        let funnelTopWidth = innerW * 0.94;
+        let funnelBottomWidth = innerW * 0.28;
+        let chuteHeight = bottomY - funnelBottomY + innerH * 0.04;
+        let chuteWidth = funnelBottomWidth * 0.92;
+        let chuteCenterY = funnelBottomY + chuteHeight / 2;
         let conveyorUnlocked = isMachineUnlocked('conveyor');
         push();
         rectMode(CENTER);
@@ -4109,23 +3682,46 @@
             rect(centerX, y, innerW * 0.82, segmentHeight + 2);
           }
         }
-        let baseColor = jarReleaseState.open
-          ? withAlpha('#38bdf8', 200)
-          : '#0a172a';
-        fill(baseColor);
-        rect(centerX, baseY, innerW * 0.9, baseHeight);
+        stroke(withAlpha('#1d4ed8', 90));
+        noFill();
+        rect(centerX, centerY, innerW, innerH, 12);
+        noStroke();
+        let funnelFill = jarReleaseState.open
+          ? withAlpha('#1d4ed8', 190)
+          : withAlpha('#0b1629', 220);
+        fill(funnelFill);
+        beginShape();
+        vertex(centerX - funnelTopWidth / 2, funnelTopY);
+        vertex(centerX + funnelTopWidth / 2, funnelTopY);
+        vertex(centerX + funnelBottomWidth / 2, funnelBottomY);
+        vertex(centerX - funnelBottomWidth / 2, funnelBottomY);
+        endShape(CLOSE);
+        let chuteBase = conveyorUnlocked
+          ? withAlpha('#38bdf8', jarReleaseState.open ? 220 : 140)
+          : withAlpha('#132b47', 220);
+        fill(chuteBase);
+        rect(centerX, chuteCenterY, chuteWidth, chuteHeight, 6);
         if (conveyorUnlocked) {
-          let channelWidth = innerW * 0.46;
-          fill(withAlpha('#19304c', jarReleaseState.open ? 220 : 160));
-          rect(centerX, baseY, innerW * 0.9, baseHeight * 0.32);
-          fill(withAlpha('#38bdf8', jarReleaseState.open ? 200 : 140));
-          rect(centerX, baseY, channelWidth, baseHeight * 0.64);
-        } else {
-          fill('#132b47');
-          rect(centerX, baseY - baseHeight * 0.25, innerW * 0.84, baseHeight * 0.4);
+          fill(withAlpha('#e0f2fe', jarReleaseState.open ? 160 : 90));
+          rect(centerX, chuteCenterY, chuteWidth * 0.6, chuteHeight * 0.72, 4);
         }
+        stroke(withAlpha('#38bdf8', 140));
+        strokeWeight(2);
+        noFill();
+        beginShape();
+        vertex(centerX - funnelTopWidth / 2, funnelTopY);
+        vertex(centerX - funnelBottomWidth / 2, funnelBottomY);
+        vertex(centerX - chuteWidth / 2, chuteCenterY + chuteHeight / 2);
+        endShape();
+        beginShape();
+        vertex(centerX + funnelTopWidth / 2, funnelTopY);
+        vertex(centerX + funnelBottomWidth / 2, funnelBottomY);
+        vertex(centerX + chuteWidth / 2, chuteCenterY + chuteHeight / 2);
+        endShape();
+        noStroke();
         pop();
       }
+
 
       function drawJarConveyorLink(context) {
         if (fullscreenModule === 'jar') return;
@@ -4142,31 +3738,30 @@
         push();
         rectMode(CORNERS);
         if (isMachineUnlocked('conveyor')) {
-          let walkwayWidth = Math.min(context.panelW * 0.68, conveyorPanelSize * 0.78);
-          let glowWidth = walkwayWidth + scaledX(24);
+          let walkwayWidth = Math.min(context.panelW * 0.42, conveyorPanelSize * 0.5);
+          let glowWidth = walkwayWidth + scaledX(18);
           let left = context.center.x - walkwayWidth / 2;
           let right = context.center.x + walkwayWidth / 2;
           noStroke();
-          fill(withAlpha('#09213d', 240));
+          fill(withAlpha('#09213d', 230));
           rect(
             context.center.x - glowWidth / 2,
             gapTop - scaledY(10),
             context.center.x + glowWidth / 2,
             gapBottom + scaledY(10)
           );
-          fill(withAlpha('#155e9a', 220));
-          rect(left - scaledX(4), gapTop, right + scaledX(4), gapBottom);
-          fill(withAlpha('#38bdf8', 230));
-          rect(left + scaledX(4), gapTop, right - scaledX(4), gapBottom);
-          fill(withAlpha('#e0f2fe', 220));
+          let walkwayColor = jarReleaseState.open ? '#38bdf8' : '#1d4ed8';
+          fill(withAlpha(walkwayColor, jarReleaseState.open ? 220 : 150));
+          rect(left - scaledX(3), gapTop, right + scaledX(3), gapBottom);
+          fill(withAlpha('#e0f2fe', jarReleaseState.open ? 160 : 70));
           rect(
-            left + walkwayWidth * 0.18,
-            gapTop,
-            right - walkwayWidth * 0.18,
-            gapBottom
+            left + walkwayWidth * 0.2,
+            gapTop + scaledY(2),
+            right - walkwayWidth * 0.2,
+            gapBottom - scaledY(2)
           );
         } else {
-          let barrierWidth = context.panelW * 0.7;
+          let barrierWidth = context.panelW * 0.45;
           let left = context.center.x - barrierWidth / 2;
           let right = context.center.x + barrierWidth / 2;
           noStroke();
@@ -4179,14 +3774,21 @@
         pop();
       }
 
+
       function drawJarOverlay() {
         if (jarRect.width <= 0 || jarRect.height <= 0) return;
         let centerX = jarRect.left + jarRect.width / 2;
         let centerY = jarRect.top + jarRect.height / 2;
         let innerW = jarRect.width * 0.88;
         let innerH = jarRect.height * 0.82;
-        let baseHeight = innerH * 0.12;
-        let baseY = centerY + innerH / 2 - baseHeight / 2;
+        let bottomY = centerY + innerH / 2;
+        let funnelBottomY = bottomY - innerH * 0.14;
+        let funnelTopY = funnelBottomY - innerH * 0.28;
+        let funnelTopWidth = innerW * 0.94;
+        let funnelBottomWidth = innerW * 0.28;
+        let chuteHeight = bottomY - funnelBottomY + innerH * 0.04;
+        let chuteWidth = funnelBottomWidth * 0.92;
+        let chuteCenterY = funnelBottomY + chuteHeight / 2;
         push();
         rectMode(CENTER);
         noFill();
@@ -4194,13 +3796,21 @@
         strokeWeight(2);
         rect(centerX, centerY, jarRect.width, jarRect.height);
         noStroke();
-        if (jarReleaseState.open) {
-          fill(withAlpha('#38bdf8', 80));
-          rect(centerX, baseY, innerW * 0.9, baseHeight);
-        } else {
-          fill(withAlpha('#22d3ee', 50));
-          rect(centerX, baseY, innerW * 0.9, baseHeight * 0.45);
-        }
+        let funnelOverlay = jarReleaseState.open
+          ? withAlpha('#38bdf8', 70)
+          : withAlpha('#22d3ee', 40);
+        fill(funnelOverlay);
+        beginShape();
+        vertex(centerX - funnelTopWidth / 2, funnelTopY);
+        vertex(centerX + funnelTopWidth / 2, funnelTopY);
+        vertex(centerX + funnelBottomWidth / 2, funnelBottomY);
+        vertex(centerX - funnelBottomWidth / 2, funnelBottomY);
+        endShape(CLOSE);
+        let chuteOverlay = jarReleaseState.open
+          ? withAlpha('#38bdf8', 90)
+          : withAlpha('#22d3ee', 60);
+        fill(chuteOverlay);
+        rect(centerX, chuteCenterY, chuteWidth, chuteHeight, 6);
         textAlign(CENTER, CENTER);
         fill('#e2e8f0');
         textSize(scaledFont(12));
@@ -4210,12 +3820,13 @@
         fill('#94a3b8');
         textSize(scaledFont(9));
         text(
-          'Unlocked conveyors scoop grains straight from the intake.',
+          'Unlocked conveyors draw grains through the funnel toward the belt.',
           centerX,
-          jarRect.top + jarRect.height + scaledY(18)
+          jarRect.bottom + scaledY(12)
         );
         pop();
       }
+
 
       function updateCollageLayout() {
         let horizontalPadding = Math.max(scaledX(18), PLAY_AREA_W * 0.02);
