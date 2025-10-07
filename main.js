@@ -136,6 +136,7 @@
         'singularity'
       ]);
       const MODULE_PRODUCTION_WINDOW = 12;
+      const JAR_TUBE_PIXEL_WIDTH = 5;
       let moduleProductionLog = {};
       const moduleInteractionHints = {
         conveyor: 'Click to rush extra cargo.',
@@ -3655,33 +3656,17 @@
         let innerH = jarRect.height * 0.82;
         let innerTop = centerY - innerH / 2;
         let innerBottom = centerY + innerH / 2;
-        let noseCells =
-          jarFunnelMetrics.noseWidth || (jarNeckSpan.end - jarNeckSpan.start);
-        if (!(noseCells > 0)) {
-          noseCells = Math.max(1, Math.round(gridCols * 0.12));
-        }
-        let topCells = Math.max(noseCells, jarFunnelMetrics.topWidth || gridCols);
-        let noseRatio = gridCols > 0 ? noseCells / gridCols : 0.18;
-        let topRatio = gridCols > 0 ? topCells / gridCols : 0.82;
-        noseRatio = Math.max(0.05, Math.min(0.85, noseRatio));
-        topRatio = Math.max(noseRatio, Math.min(1, topRatio));
-        let startRatio = gridRows > 0 ? jarFunnelMetrics.startRow / gridRows : 0.18;
-        let throatRatio = gridRows > 0 ? jarFunnelMetrics.throatRow / gridRows : 0.88;
-        let funnelTopRatio = Math.max(0.2, Math.min(0.48, startRatio + 0.05));
-        let funnelBottomRatio = Math.max(
-          funnelTopRatio + 0.08,
-          Math.min(0.94, throatRatio + 0.04)
-        );
-        let funnelTopY = innerTop + innerH * funnelTopRatio;
-        let funnelBottomY = innerTop + innerH * funnelBottomRatio;
-        let funnelTopWidth = innerW * topRatio;
-        let funnelBottomWidth = innerW * noseRatio;
-        let chuteHeight = innerBottom - funnelBottomY + innerH * 0.08;
-        let chuteWidth = Math.max(
-          Math.min(innerW * 0.68, funnelBottomWidth * 1.25),
-          scaledX(14)
-        );
-        let chuteCenterY = funnelBottomY + chuteHeight / 2;
+        let tubeWidth = Math.max(JAR_TUBE_PIXEL_WIDTH, scaledX(JAR_TUBE_PIXEL_WIDTH));
+        let floorHeight = Math.max(innerH * 0.08, scaledY(12));
+        let floorTopY = innerBottom - floorHeight;
+        let shaftHeight = Math.max(innerH * 0.32, scaledY(56));
+        let tubeTopY = Math.max(innerTop + innerH * 0.08, innerBottom - shaftHeight);
+        let tubeBottomY = innerBottom + Math.max(innerH * 0.08, scaledY(24));
+        let chuteHeight = tubeBottomY - tubeTopY;
+        let chuteWidth = tubeWidth;
+        let chuteCenterY = tubeTopY + chuteHeight / 2;
+        let tubeRadius = Math.max(3, tubeWidth / 2);
+        let noseRatio = innerW > 0 ? tubeWidth / innerW : 0.18;
         return {
           centerX,
           centerY,
@@ -3689,10 +3674,12 @@
           innerH,
           innerTop,
           innerBottom,
-          funnelTopY,
-          funnelBottomY,
-          funnelTopWidth,
-          funnelBottomWidth,
+          tubeWidth,
+          tubeTopY,
+          tubeBottomY,
+          tubeRadius,
+          floorTopY,
+          floorHeight,
           chuteHeight,
           chuteWidth,
           chuteCenterY,
@@ -3710,21 +3697,13 @@
           innerH,
           innerTop,
           innerBottom,
-          funnelTopY,
-          funnelBottomY,
-          funnelTopWidth,
-          funnelBottomWidth,
-          chuteHeight,
-          chuteWidth,
-          chuteCenterY
+          tubeWidth,
+          tubeTopY,
+          tubeBottomY,
+          tubeRadius,
+          floorTopY,
+          floorHeight
         } = metrics;
-        jarChuteExit = {
-          x: centerX,
-          y: chuteCenterY + chuteHeight / 2,
-          width: chuteWidth,
-          left: centerX - chuteWidth / 2,
-          right: centerX + chuteWidth / 2
-        };
         let conveyorUnlocked = isMachineUnlocked('conveyor');
         push();
         rectMode(CENTER);
@@ -3755,45 +3734,57 @@
         noFill();
         rect(centerX, centerY, innerW, innerH, 12);
         noStroke();
-        let funnelFill = jarReleaseState.open
-          ? withAlpha('#1d4ed8', 190)
-          : withAlpha('#0b1629', 220);
-        fill(funnelFill);
-        beginShape();
-        vertex(centerX - funnelTopWidth / 2, funnelTopY);
-        vertex(centerX + funnelTopWidth / 2, funnelTopY);
-        vertex(centerX + funnelBottomWidth / 2, funnelBottomY);
-        vertex(centerX - funnelBottomWidth / 2, funnelBottomY);
-        endShape(CLOSE);
-        let chuteColor = conveyorUnlocked
+        if (floorHeight > 0) {
+          fill('#071427');
+          rect(
+            centerX,
+            floorTopY + floorHeight / 2,
+            innerW * 0.88,
+            floorHeight,
+            12,
+            12,
+            6,
+            6
+          );
+        }
+        let tubeColor = conveyorUnlocked
           ? withAlpha('#38bdf8', jarReleaseState.open ? 220 : 160)
           : withAlpha('#000000', 240);
-        fill(chuteColor);
-        rect(centerX, chuteCenterY, chuteWidth, chuteHeight, 6);
+        let tubeHeight = tubeBottomY - tubeTopY;
+        fill(tubeColor);
+        rect(centerX, tubeTopY + tubeHeight / 2, tubeWidth, tubeHeight, tubeRadius);
         if (conveyorUnlocked) {
-          fill(withAlpha('#e0f2fe', jarReleaseState.open ? 160 : 90));
-          rect(centerX, chuteCenterY, Math.max(chuteWidth * 0.55, scaledX(6)), chuteHeight * 0.72, 4);
+          let innerTubeWidth = Math.max(tubeWidth * 0.55, Math.min(tubeWidth - scaledX(1), tubeWidth));
+          let innerTubeHeight = tubeHeight * 0.65;
+          fill(withAlpha('#e0f2fe', jarReleaseState.open ? 140 : 80));
+          rect(
+            centerX,
+            tubeTopY + tubeHeight / 2,
+            innerTubeWidth,
+            innerTubeHeight,
+            Math.max(2, tubeRadius * 0.6)
+          );
         }
         jarChuteExit = {
           x: centerX,
-          y: chuteCenterY + chuteHeight / 2,
-          width: chuteWidth,
-          left: centerX - chuteWidth / 2,
-          right: centerX + chuteWidth / 2
+          y: tubeBottomY,
+          width: tubeWidth,
+          left: centerX - tubeWidth / 2,
+          right: centerX + tubeWidth / 2
         };
         stroke(withAlpha('#38bdf8', 140));
-        strokeWeight(2);
+        strokeWeight(Math.max(1.5, scaledX(1.6)));
         noFill();
-        beginShape();
-        vertex(centerX - funnelTopWidth / 2, funnelTopY);
-        vertex(centerX - funnelBottomWidth / 2, funnelBottomY);
-        vertex(centerX - chuteWidth / 2, chuteCenterY + chuteHeight / 2);
-        endShape();
-        beginShape();
-        vertex(centerX + funnelTopWidth / 2, funnelTopY);
-        vertex(centerX + funnelBottomWidth / 2, funnelBottomY);
-        vertex(centerX + chuteWidth / 2, chuteCenterY + chuteHeight / 2);
-        endShape();
+        rect(
+          centerX,
+          tubeTopY + (tubeBottomY - tubeTopY) / 2,
+          tubeWidth + scaledX(4),
+          tubeBottomY - tubeTopY,
+          tubeRadius + 2
+        );
+        stroke(withAlpha('#0f1e36', 180));
+        strokeWeight(Math.max(1, scaledY(1.4)));
+        line(centerX - innerW * 0.32, floorTopY, centerX + innerW * 0.32, floorTopY);
         noStroke();
         pop();
       }
@@ -3808,10 +3799,12 @@
         if (metrics) {
           jarChuteExit = {
             x: metrics.centerX,
-            y: metrics.chuteCenterY + metrics.chuteHeight / 2,
-            width: metrics.chuteWidth,
-            left: metrics.centerX - metrics.chuteWidth / 2,
-            right: metrics.centerX + metrics.chuteWidth / 2
+            y: metrics.tubeBottomY || metrics.chuteCenterY + metrics.chuteHeight / 2,
+            width: metrics.tubeWidth || metrics.chuteWidth,
+            left:
+              metrics.centerX - (metrics.tubeWidth || metrics.chuteWidth) / 2,
+            right:
+              metrics.centerX + (metrics.tubeWidth || metrics.chuteWidth) / 2
           };
         }
         let channelTop = jarChuteExit ? jarChuteExit.y : context.center.y + context.panelH / 2;
@@ -3819,51 +3812,55 @@
         if (channelBottom <= channelTop) {
           channelBottom = Math.max(channelBottom, channelTop + scaledY(6));
         }
-        let channelWidth = jarChuteExit ? jarChuteExit.width : context.panelW * 0.42;
+        let channelWidth = jarChuteExit
+          ? jarChuteExit.width
+          : Math.max(scaledX(JAR_TUBE_PIXEL_WIDTH), scaledX(5));
         let channelCenter = jarChuteExit ? jarChuteExit.x : context.center.x;
-        let left = channelCenter - channelWidth / 2;
-        let right = channelCenter + channelWidth / 2;
         let gapTop = channelTop;
         let gapBottom = channelBottom;
-        let conveyorPanelSize = Math.min(conveyorRect.width, conveyorRect.height);
-        let noseRatio =
-          metrics && typeof metrics.noseRatio === 'number'
-            ? metrics.noseRatio
-            : 0.26;
         push();
         rectMode(CORNERS);
         if (isMachineUnlocked('conveyor')) {
-          let walkwayBase = context.panelW * Math.max(0.26, noseRatio);
-          let walkwayWidth = Math.min(
-            conveyorPanelSize * 0.55,
-            Math.max(context.panelW * 0.28, walkwayBase)
+          let walkwayWidth = Math.max(
+            channelWidth,
+            Math.max(scaledX(JAR_TUBE_PIXEL_WIDTH), scaledX(5))
           );
-          let glowWidth = walkwayWidth + scaledX(18);
-          let left = context.center.x - walkwayWidth / 2;
-          let right = context.center.x + walkwayWidth / 2;
-          let innerLeft = left + walkwayWidth * 0.2;
-          let innerRight = right - walkwayWidth * 0.2;
-          let innerTop = gapTop + scaledY(2);
-          let innerBottom = gapBottom - scaledY(2);
+          let walkwayCenter = channelCenter;
+          let walkwayLeft = walkwayCenter - walkwayWidth / 2;
+          let walkwayRight = walkwayCenter + walkwayWidth / 2;
+          let glowWidth = walkwayWidth + scaledX(12);
+          let glowLeft = walkwayCenter - glowWidth / 2;
+          let glowRight = walkwayCenter + glowWidth / 2;
+          let innerInset = Math.min(walkwayWidth * 0.35, Math.max(1, scaledX(1.2)));
+          let innerLeft = walkwayLeft + innerInset;
+          let innerRight = walkwayRight - innerInset;
+          if (innerRight <= innerLeft) {
+            let innerMid = (walkwayLeft + walkwayRight) / 2;
+            let halfSpan = Math.max(0.5, walkwayWidth * 0.15);
+            innerLeft = innerMid - halfSpan;
+            innerRight = innerMid + halfSpan;
+          }
+          let innerTop = gapTop + scaledY(3);
+          let innerBottom = gapBottom - scaledY(3);
           noFill();
           stroke(withAlpha('#0b1f3a', 220));
-          strokeWeight(Math.max(2, scaledX(2)));
-          rect(
-            context.center.x - glowWidth / 2,
-            gapTop - scaledY(6),
-            context.center.x + glowWidth / 2,
-            gapBottom + scaledY(6)
-          );
+          strokeWeight(Math.max(1.5, scaledX(2)));
+          rect(glowLeft, gapTop - scaledY(6), glowRight, gapBottom + scaledY(6));
           stroke(
             withAlpha(jarReleaseState.open ? '#38bdf8' : '#1d4ed8', jarReleaseState.open ? 200 : 140)
           );
-          strokeWeight(Math.max(2, scaledX(3)));
-          line(left, gapTop, left, gapBottom);
-          line(right, gapTop, right, gapBottom);
-          strokeWeight(Math.max(1, scaledX(2)));
+          strokeWeight(Math.max(1.2, scaledX(2.2)));
+          line(walkwayLeft, gapTop, walkwayLeft, gapBottom);
+          line(walkwayRight, gapTop, walkwayRight, gapBottom);
+          strokeWeight(Math.max(0.8, scaledX(1.4)));
           line(innerLeft, innerTop, innerLeft, innerBottom);
           line(innerRight, innerTop, innerRight, innerBottom);
           noStroke();
+          let shaftFill = withAlpha('#020912', 235);
+          fill(shaftFill);
+          rect(walkwayLeft, gapTop, walkwayRight, gapBottom);
+          let lumenFill = withAlpha('#38bdf8', jarReleaseState.open ? 150 : 100);
+          rect(innerLeft, innerTop, innerRight, innerBottom);
           let conveyorState = moduleStates && moduleStates.conveyor;
           if (conveyorState && conveyorState.geometry) {
             let geometry = conveyorState.geometry;
@@ -3933,7 +3930,10 @@
                       entitySize = Math.max(1, getPowderSizeByType(particle.entity.type));
                     }
                   }
-                  let pixelSize = Math.max(1, Math.round(cellPixelSize * entitySize));
+                  let pixelSize = Math.max(
+                    1,
+                    Math.min(innerWidth * 0.9, Math.round(cellPixelSize * entitySize))
+                  );
                   fill(colorHex);
                   rect(drawX, drawY, pixelSize, pixelSize);
                 }
@@ -3942,9 +3942,9 @@
             }
           }
         } else {
-          let barrierWidth = context.panelW * 0.45;
-          let left = context.center.x - barrierWidth / 2;
-          let right = context.center.x + barrierWidth / 2;
+          let barrierWidth = Math.max(channelWidth + scaledX(8), scaledX(18));
+          let left = channelCenter - barrierWidth / 2;
+          let right = channelCenter + barrierWidth / 2;
           noStroke();
           fill('#030b18');
           rect(left, gapTop - scaledY(4), right, gapTop + scaledY(10));
@@ -3966,13 +3966,12 @@
           innerH,
           innerTop,
           innerBottom,
-          funnelTopY,
-          funnelBottomY,
-          funnelTopWidth,
-          funnelBottomWidth,
-          chuteHeight,
-          chuteWidth,
-          chuteCenterY
+          tubeWidth,
+          tubeTopY,
+          tubeBottomY,
+          tubeRadius,
+          floorTopY,
+          floorHeight
         } = metrics;
         push();
         rectMode(CENTER);
@@ -3981,21 +3980,33 @@
         strokeWeight(2);
         rect(centerX, centerY, jarRect.width, jarRect.height);
         noStroke();
-        let funnelOverlay = jarReleaseState.open
-          ? withAlpha('#38bdf8', 70)
-          : withAlpha('#22d3ee', 40);
-        fill(funnelOverlay);
-        beginShape();
-        vertex(centerX - funnelTopWidth / 2, funnelTopY);
-        vertex(centerX + funnelTopWidth / 2, funnelTopY);
-        vertex(centerX + funnelBottomWidth / 2, funnelBottomY);
-        vertex(centerX - funnelBottomWidth / 2, funnelBottomY);
-        endShape(CLOSE);
-        let chuteOverlay = jarReleaseState.open
+        if (floorHeight > 0) {
+          let floorOverlay = jarReleaseState.open
+            ? withAlpha('#1d4ed8', 70)
+            : withAlpha('#0b1629', 110);
+          fill(floorOverlay);
+          rect(
+            centerX,
+            floorTopY + floorHeight / 2,
+            innerW * 0.9,
+            floorHeight,
+            12,
+            12,
+            6,
+            6
+          );
+        }
+        let tubeOverlay = jarReleaseState.open
           ? withAlpha('#38bdf8', 90)
-          : withAlpha('#000000', 140);
-        fill(chuteOverlay);
-        rect(centerX, chuteCenterY, chuteWidth, chuteHeight, 6);
+          : withAlpha('#000000', 160);
+        fill(tubeOverlay);
+        rect(
+          centerX,
+          tubeTopY + (tubeBottomY - tubeTopY) / 2,
+          tubeWidth + scaledX(2),
+          tubeBottomY - tubeTopY,
+          tubeRadius
+        );
         pop();
       }
 
