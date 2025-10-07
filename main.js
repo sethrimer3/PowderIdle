@@ -3570,10 +3570,243 @@
         drawModuleShell(context, '#38bdf8');
         let state = moduleStates.conveyor;
         if (!state) return;
+        drawConveyorInterior(context, state);
         let progress = typeof state.packageProgress === 'number' ? state.packageProgress : 0;
         push();
         translate(context.center.x, context.center.y);
         drawModuleProgressBar(0, context.panelH * 0.3, context.panelW * 0.6, progress, '#38bdf8');
+        pop();
+      }
+
+      function drawConveyorInterior(context, state) {
+        if (!state) return;
+        if (!state.geometry) {
+          setupConveyorGeometry(state);
+        }
+        let geometry = state.geometry;
+        if (!geometry) return;
+        let projection = createConveyorProjection(context, geometry);
+        if (!projection) return;
+        let bounds = projection.bounds;
+        let baseRadius = Math.max(
+          4,
+          Math.min(context.panelW || 0, context.panelH || 0) * 0.08
+        );
+        push();
+        rectMode(CORNERS);
+        noStroke();
+        let topLeft = projectConveyorPoint(projection, {
+          x: bounds.minX,
+          y: bounds.minY
+        });
+        let bottomRight = projectConveyorPoint(projection, {
+          x: bounds.maxX,
+          y: bounds.maxY
+        });
+        if (topLeft && bottomRight) {
+          fill(withAlpha('#030b18', 235));
+          rect(
+            topLeft.x,
+            topLeft.y,
+            bottomRight.x,
+            bottomRight.y,
+            Math.max(10, context.panelW * 0.08)
+          );
+        }
+        pop();
+        if (geometry.packageSpot) {
+          let packagePoint = projectConveyorPoint(projection, geometry.packageSpot);
+          if (packagePoint) {
+            let pulse = 1 + Math.max(0, state.packagePulse || 0) * 0.35;
+            push();
+            noStroke();
+            fill(withAlpha('#38bdf8', 80 + (state.packagePulse || 0) * 120));
+            circle(packagePoint.x, packagePoint.y, baseRadius * 3.2 * pulse);
+            pop();
+          }
+        }
+        if (geometry.packageExit) {
+          let exitPoint = projectConveyorPoint(projection, geometry.packageExit);
+          if (exitPoint) {
+            let pulse = 0.7 + Math.max(0, state.deliveryPulse || 0) * 0.45;
+            push();
+            noStroke();
+            fill(withAlpha('#1e3a8a', 120 + (state.deliveryPulse || 0) * 90));
+            circle(exitPoint.x, exitPoint.y, baseRadius * 2.4 * pulse);
+            pop();
+          }
+        }
+        if (geometry.entryRange && geometry.entryRange.length >= 2) {
+          let entryLeft = projectConveyorPoint(projection, {
+            x: geometry.entryRange[0],
+            y: geometry.holeTop
+          });
+          let entryRight = projectConveyorPoint(projection, {
+            x: geometry.entryRange[1],
+            y: geometry.holeTop
+          });
+          if (entryLeft && entryRight) {
+            let queueStrength = Math.min(
+              1,
+              ((state.queue ? state.queue.length : 0) || 0) / 24
+            );
+            push();
+            stroke(withAlpha('#38bdf8', 160 + queueStrength * 60));
+            strokeWeight(Math.max(2, baseRadius * 0.45));
+            strokeCap(ROUND);
+            line(entryLeft.x, entryLeft.y, entryRight.x, entryRight.y);
+            pop();
+          }
+        }
+        if (Array.isArray(geometry.beltSegments)) {
+          push();
+          strokeCap(ROUND);
+          for (let segment of geometry.beltSegments) {
+            if (!segment) continue;
+            let fromPoint = projectConveyorPoint(projection, segment.from);
+            let toPoint = projectConveyorPoint(projection, segment.to);
+            if (!fromPoint || !toPoint) continue;
+            let isBelt = segment.type === 'belt';
+            let thickness = Math.max(3, baseRadius * (isBelt ? 0.9 : 0.7));
+            stroke(
+              withAlpha(isBelt ? '#38bdf8' : '#60a5fa', isBelt ? 220 : 190)
+            );
+            strokeWeight(thickness);
+            line(fromPoint.x, fromPoint.y, toPoint.x, toPoint.y);
+            if (isBelt) {
+              stroke(withAlpha('#0f172a', 140));
+              strokeWeight(thickness * 0.45);
+              line(fromPoint.x, fromPoint.y, toPoint.x, toPoint.y);
+            }
+          }
+          pop();
+        }
+        let drawParticle = (particle, options = {}) => {
+          drawConveyorParticle(particle, projection, baseRadius, options);
+        };
+        if (Array.isArray(state.queue)) {
+          for (let entry of state.queue) {
+            if (!entry || !entry.particle) continue;
+            drawParticle(entry.particle, { alpha: 110, scale: 0.85 });
+          }
+        }
+        if (Array.isArray(state.fallers)) {
+          for (let faller of state.fallers) {
+            drawParticle(faller, { alpha: 220, glow: true });
+          }
+        }
+        if (Array.isArray(state.modules)) {
+          for (let carrier of state.modules) {
+            if (!carrier || !carrier.particle) continue;
+            drawParticle(carrier.particle, { alpha: 230, glow: true });
+          }
+        }
+        if (Array.isArray(state.departures)) {
+          for (let pkg of state.departures) {
+            if (!pkg || !pkg.particle) continue;
+            drawParticle(pkg.particle, { alpha: 210, scale: 1.25 });
+          }
+        }
+      }
+
+      function createConveyorProjection(context, geometry) {
+        if (!context || !geometry) return null;
+        let points = [];
+        let addPoint = (pt) => {
+          if (!pt) return;
+          let px = typeof pt.x === 'number' ? pt.x : 0;
+          let py = typeof pt.y === 'number' ? pt.y : 0;
+          if (!Number.isFinite(px) || !Number.isFinite(py)) return;
+          points.push({ x: px, y: py });
+        };
+        if (Array.isArray(geometry.entryRange)) {
+          addPoint({ x: geometry.entryRange[0], y: geometry.holeTop });
+          addPoint({ x: geometry.entryRange[1], y: geometry.holeTop });
+        }
+        if (Array.isArray(geometry.beltSegments)) {
+          for (let segment of geometry.beltSegments) {
+            if (!segment) continue;
+            addPoint(segment.from);
+            addPoint(segment.to);
+          }
+        }
+        addPoint(geometry.packageSpot);
+        addPoint(geometry.packageExit);
+        if (points.length === 0) {
+          points.push({ x: -1, y: -0.5 });
+          points.push({ x: 1, y: 0.5 });
+        }
+        let minX = Infinity;
+        let maxX = -Infinity;
+        let minY = Infinity;
+        let maxY = -Infinity;
+        for (let pt of points) {
+          minX = Math.min(minX, pt.x);
+          maxX = Math.max(maxX, pt.x);
+          minY = Math.min(minY, pt.y);
+          maxY = Math.max(maxY, pt.y);
+        }
+        if (!Number.isFinite(minX) || !Number.isFinite(maxX)) {
+          return null;
+        }
+        let paddingX = 0.18;
+        let paddingY = 0.22;
+        minX -= paddingX;
+        maxX += paddingX;
+        minY -= paddingY;
+        maxY += paddingY;
+        let width = Math.max(0.1, maxX - minX);
+        let height = Math.max(0.1, maxY - minY);
+        let viewW = (context.panelW || 0) * 0.76;
+        let viewH = (context.panelH || 0) * 0.54;
+        if (viewW <= 0 || viewH <= 0) {
+          return null;
+        }
+        let scale = Math.min(viewW / width, viewH / height);
+        if (!Number.isFinite(scale) || scale <= 0) {
+          scale = Math.min(viewW, viewH) / Math.max(width, height);
+        }
+        let anchorX = context.center.x;
+        let anchorY = context.center.y - context.panelH * 0.08;
+        let offsetX = anchorX - ((minX + maxX) / 2) * scale;
+        let offsetY = anchorY - ((minY + maxY) / 2) * scale;
+        return {
+          scale,
+          offsetX,
+          offsetY,
+          bounds: { minX, maxX, minY, maxY }
+        };
+      }
+
+      function projectConveyorPoint(mapping, point) {
+        if (!mapping || !point) return null;
+        let px = typeof point.x === 'number' ? point.x : 0;
+        let py = typeof point.y === 'number' ? point.y : 0;
+        if (!Number.isFinite(px) || !Number.isFinite(py)) {
+          return null;
+        }
+        return {
+          x: mapping.offsetX + px * mapping.scale,
+          y: mapping.offsetY + py * mapping.scale
+        };
+      }
+
+      function drawConveyorParticle(particle, mapping, baseRadius, options = {}) {
+        if (!particle || !mapping) return;
+        let position = projectConveyorPoint(mapping, particle);
+        if (!position) return;
+        let radius = baseRadius * (options.scale != null ? options.scale : 1);
+        let colorHex = particle.color || '#e7c97a';
+        let alpha = options.alpha != null ? options.alpha : 220;
+        push();
+        if (options.glow) {
+          stroke(withAlpha('#e2e8f0', 70));
+          strokeWeight(Math.max(1, radius * 0.22));
+        } else {
+          noStroke();
+        }
+        fill(withAlpha(colorHex, alpha));
+        circle(position.x, position.y, radius);
         pop();
       }
 
