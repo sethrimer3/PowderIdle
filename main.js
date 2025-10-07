@@ -123,6 +123,7 @@
       let duneHeightUnits = 0;
       let duneDustMultiplier = 1;
       let jarReleaseState = { open: false, openTimer: 0, cooldown: 0 };
+      let jarChuteExit = null;
       let moduleRevealStates = {};
       const TRACKED_MODULE_KEYS = new Set([
         'conveyor',
@@ -1840,9 +1841,8 @@
         let rectInfo = getMachineRect(machine);
         let center = getMachineCenter(rectInfo);
         let unlocked = isMachineUnlocked(machine.key);
-        let panelSize = Math.min(rectInfo.width, rectInfo.height) * 0.92;
-        let panelW = panelSize;
-        let panelH = panelSize;
+        let panelW = rectInfo.width;
+        let panelH = rectInfo.height;
         let interactButton = null;
         push();
         rectMode(CENTER);
@@ -1871,17 +1871,8 @@
             panelH,
             rect: rectInfo
           });
-          let hint = moduleInteractionHints[machine.key];
-          if (hint) {
-            fill('#cbd5f5');
-            textSize(scaledFont(9));
-            text(hint, center.x, center.y + panelH / 2 - scaledY(22));
-          }
-          fill('#94a3b8');
-          textSize(scaledFont(9));
-          text(machine.description, center.x, center.y + panelH / 2 - scaledY(10));
           let interactW = Math.max(0, panelW - scaledX(24));
-          let interactH = Math.max(0, panelH - scaledY(56));
+          let interactH = Math.max(0, panelH - scaledY(28));
           if (interactW > 0 && interactH > 0) {
             interactButton = {
               action: 'moduleInteract',
@@ -1898,11 +1889,7 @@
           fill(withAlpha('#000000', Math.round(coverAlpha * 255)));
           rect(center.x, center.y, panelW, panelH);
         }
-        fill('#a5b4fc');
-        textSize(scaledFont(11));
-        text(machine.name, center.x, center.y - panelH / 2 + scaledY(16));
         pop();
-        drawFullscreenToggle(rectInfo, machine.key, unlocked);
         if (interactButton) {
           addButton(interactButton);
         }
@@ -3531,7 +3518,7 @@
       function drawModuleShell(context, accentColor = '#1d4ed8') {
         let { center, panelW, panelH } = context;
         let outerW = panelW * 0.92;
-        let outerH = panelH * 0.72;
+        let outerH = panelH * 0.92;
         push();
         translate(center.x, center.y);
         rectMode(CENTER);
@@ -3774,19 +3761,82 @@
         maxY += paddingY;
         let width = Math.max(0.1, maxX - minX);
         let height = Math.max(0.1, maxY - minY);
-        let viewW = (context.panelW || 0) * 0.76;
-        let viewH = (context.panelH || 0) * 0.54;
+        let rect = context.rect || {
+          x: context.center.x - (context.panelW || 0) / 2,
+          y: context.center.y - (context.panelH || 0) / 2,
+          width: context.panelW || 0,
+          height: context.panelH || 0
+        };
+        let availableWidth = rect.width * 0.86;
+        let moduleBottom = rect.y + rect.height - scaledY(6);
+        let targetHoleY = jarChuteExit ? jarChuteExit.y : rect.y + scaledY(8);
+        let viewW = Math.max(10, availableWidth);
+        let viewH = Math.max(10, moduleBottom - targetHoleY);
         if (viewW <= 0 || viewH <= 0) {
           return null;
         }
-        let scale = Math.min(viewW / width, viewH / height);
-        if (!Number.isFinite(scale) || scale <= 0) {
-          scale = Math.min(viewW, viewH) / Math.max(width, height);
+        let scaleX = viewW / width;
+        let scaleY = viewH / height;
+        let scaleEntry = Infinity;
+        if (jarChuteExit && Array.isArray(geometry.entryRange) && geometry.entryRange.length >= 2) {
+          let entryLeft = geometry.entryRange[0];
+          let entryRight = geometry.entryRange[1];
+          let span = entryRight - entryLeft;
+          if (Number.isFinite(span) && Math.abs(span) > 0.0001) {
+            scaleEntry = jarChuteExit.width / Math.abs(span);
+          }
         }
-        let anchorX = context.center.x;
-        let anchorY = context.center.y - context.panelH * 0.08;
-        let offsetX = anchorX - ((minX + maxX) / 2) * scale;
-        let offsetY = anchorY - ((minY + maxY) / 2) * scale;
+        let scale = Math.min(scaleX, scaleY, scaleEntry);
+        if (!Number.isFinite(scale) || scale <= 0) {
+          scale = Math.min(scaleX, scaleY);
+          if (!Number.isFinite(scale) || scale <= 0) {
+            scale = Math.min(viewW, viewH) / Math.max(width, height);
+          }
+        }
+        let anchorX = rect.x + rect.width / 2;
+        let offsetX;
+        if (
+          jarChuteExit &&
+          Array.isArray(geometry.entryRange) &&
+          geometry.entryRange.length >= 2
+        ) {
+          let entryLeft = geometry.entryRange[0];
+          let entryRight = geometry.entryRange[1];
+          if (
+            Number.isFinite(entryLeft) &&
+            Number.isFinite(entryRight) &&
+            entryRight !== entryLeft
+          ) {
+            offsetX = jarChuteExit.left - entryLeft * scale;
+            let viewLeft = rect.x + rect.width * 0.07;
+            let viewRight = rect.x + rect.width - rect.width * 0.07;
+            let minPixelX = offsetX + minX * scale;
+            let maxPixelX = offsetX + maxX * scale;
+            if (minPixelX < viewLeft) {
+              offsetX += viewLeft - minPixelX;
+              maxPixelX = offsetX + maxX * scale;
+            }
+            if (maxPixelX > viewRight) {
+              offsetX -= maxPixelX - viewRight;
+            }
+          } else {
+            offsetX = anchorX - ((minX + maxX) / 2) * scale;
+          }
+        } else {
+          offsetX = anchorX - ((minX + maxX) / 2) * scale;
+        }
+        let offsetY = targetHoleY - geometry.holeTop * scale;
+        let viewTop = rect.y + scaledY(2);
+        let viewBottom = moduleBottom;
+        let minPixelY = offsetY + minY * scale;
+        let maxPixelY = offsetY + maxY * scale;
+        if (minPixelY < viewTop) {
+          offsetY += viewTop - minPixelY;
+          maxPixelY = offsetY + maxY * scale;
+        }
+        if (maxPixelY > viewBottom) {
+          offsetY -= maxPixelY - viewBottom;
+        }
         return {
           scale,
           offsetX,
@@ -3812,18 +3862,25 @@
         if (!particle || !mapping) return;
         let position = projectConveyorPoint(mapping, particle);
         if (!position) return;
-        let radius = baseRadius * (options.scale != null ? options.scale : 1);
         let colorHex = particle.color || '#e7c97a';
         let alpha = options.alpha != null ? options.alpha : 220;
+        let scaleFactor = options.scale != null ? options.scale : 1;
+        let baseSize = options.pixelSize != null
+          ? options.pixelSize
+          : particle.data && typeof particle.data.pixelSize === 'number'
+          ? particle.data.pixelSize
+          : cellPixelSize;
+        let size = Math.max(2, baseSize * scaleFactor);
         push();
+        rectMode(CENTER);
         if (options.glow) {
           stroke(withAlpha('#e2e8f0', 70));
-          strokeWeight(Math.max(1, radius * 0.22));
+          strokeWeight(Math.max(1, size * 0.18));
         } else {
           noStroke();
         }
         fill(withAlpha(colorHex, alpha));
-        circle(position.x, position.y, radius);
+        rect(position.x, position.y, size, size, Math.max(1, size * 0.2));
         pop();
       }
 
@@ -4055,39 +4112,6 @@
         pop();
       }
 
-      function drawFullscreenToggle(rectInfo, key, enabled) {
-        let size = Math.max(scaledX(12), scaledY(12));
-        let marginX = Math.max(scaledX(4), size / 2 + scaledX(2));
-        let marginY = Math.max(scaledY(4), size / 2 + scaledY(2));
-        let x = rectInfo.x + rectInfo.width - marginX;
-        let y = rectInfo.y + marginY;
-        let active = fullscreenModule === key;
-        push();
-        rectMode(CENTER);
-        stroke('#0f172a');
-        strokeWeight(1);
-        let baseColor = enabled
-          ? active
-            ? '#22d3ee'
-            : '#1e3a8a'
-          : '#111c2d';
-        fill(baseColor);
-        rect(x, y, size, size, Math.max(3, size * 0.25));
-        noStroke();
-        fill(active ? '#0b1120' : '#cbd5f5');
-        let inset = size * 0.35;
-        if (active) {
-          rect(x, y, size - inset, size - inset, 2);
-        } else {
-          rect(x - inset / 2, y - inset / 2, size / 2, size / 2, 2);
-          rect(x + inset / 2, y + inset / 2, size / 2, size / 2, 2);
-        }
-        pop();
-        if (enabled) {
-          addButton({ action: 'toggleFullscreen', key, x, y, w: size, h: size });
-        }
-      }
-
       function drawJarFrame(machine) {
         let rectInfo = getMachineRect(machine);
         let center = getMachineCenter(rectInfo);
@@ -4105,19 +4129,15 @@
         rect(center.x, center.y, panelW, panelH);
         noStroke();
         fill('#0f1e36');
-        rect(center.x, center.y - panelH * 0.34, panelW * 0.92, panelH * 0.16);
+        rect(center.x, center.y - panelH * 0.32, panelW * 0.92, panelH * 0.16);
         fill('#122b4b');
-        rect(center.x, center.y + panelH * 0.12, panelW * 0.96, panelH * 0.18);
-        fill('#a5b4fc');
-        textSize(scaledFont(12));
-        text('Powder Intake', center.x, center.y - panelH / 2 + scaledY(14));
+        rect(center.x, center.y + panelH * 0.12, panelW * 0.96, panelH * 0.2);
         pop();
         drawJarConveyorLink({ rectInfo, center, panelW, panelH });
-        drawFullscreenToggle(rectInfo, machine.key, true);
       }
 
-      function drawJarInterior() {
-        if (jarRect.width <= 0 || jarRect.height <= 0) return;
+      function getJarChuteMetrics() {
+        if (jarRect.width <= 0 || jarRect.height <= 0) return null;
         let centerX = jarRect.left + jarRect.width / 2;
         let centerY = jarRect.top + jarRect.height / 2;
         let innerW = jarRect.width * 0.88;
@@ -4151,6 +4171,48 @@
           scaledX(14)
         );
         let chuteCenterY = funnelBottomY + chuteHeight / 2;
+        return {
+          centerX,
+          centerY,
+          innerW,
+          innerH,
+          innerTop,
+          innerBottom,
+          funnelTopY,
+          funnelBottomY,
+          funnelTopWidth,
+          funnelBottomWidth,
+          chuteHeight,
+          chuteWidth,
+          chuteCenterY
+        };
+      }
+
+      function drawJarInterior() {
+        let metrics = getJarChuteMetrics();
+        if (!metrics) return;
+        let {
+          centerX,
+          centerY,
+          innerW,
+          innerH,
+          innerTop,
+          innerBottom,
+          funnelTopY,
+          funnelBottomY,
+          funnelTopWidth,
+          funnelBottomWidth,
+          chuteHeight,
+          chuteWidth,
+          chuteCenterY
+        } = metrics;
+        jarChuteExit = {
+          x: centerX,
+          y: chuteCenterY + chuteHeight / 2,
+          width: chuteWidth,
+          left: centerX - chuteWidth / 2,
+          right: centerX + chuteWidth / 2
+        };
         let conveyorUnlocked = isMachineUnlocked('conveyor');
         push();
         rectMode(CENTER);
@@ -4200,6 +4262,13 @@
           fill(withAlpha('#e0f2fe', jarReleaseState.open ? 160 : 90));
           rect(centerX, chuteCenterY, Math.max(chuteWidth * 0.55, scaledX(6)), chuteHeight * 0.72, 4);
         }
+        jarChuteExit = {
+          x: centerX,
+          y: chuteCenterY + chuteHeight / 2,
+          width: chuteWidth,
+          left: centerX - chuteWidth / 2,
+          right: centerX + chuteWidth / 2
+        };
         stroke(withAlpha('#38bdf8', 140));
         strokeWeight(2);
         noFill();
@@ -4223,99 +4292,58 @@
         let conveyorMachine = machineDefinitions.find((m) => m.key === 'conveyor');
         if (!conveyorMachine) return;
         let conveyorRect = getMachineRect(conveyorMachine);
-        let conveyorCenter = getMachineCenter(conveyorRect);
-        let conveyorPanelSize = Math.min(conveyorRect.width, conveyorRect.height) * 0.92;
-        let conveyorTop = conveyorCenter.y - conveyorPanelSize / 2;
-        let jarBottom = context.center.y + context.panelH / 2;
-        let gapTop = jarBottom + scaledY(6);
-        let gapBottom = conveyorTop - scaledY(6);
-        if (gapBottom <= gapTop) return;
-        let noseCells =
-          jarFunnelMetrics.noseWidth || (jarNeckSpan.end - jarNeckSpan.start);
-        if (!(noseCells > 0)) {
-          noseCells = Math.max(1, Math.round(gridCols * 0.12));
+        let metrics = getJarChuteMetrics();
+        if (metrics) {
+          jarChuteExit = {
+            x: metrics.centerX,
+            y: metrics.chuteCenterY + metrics.chuteHeight / 2,
+            width: metrics.chuteWidth,
+            left: metrics.centerX - metrics.chuteWidth / 2,
+            right: metrics.centerX + metrics.chuteWidth / 2
+          };
         }
-        let noseRatio = gridCols > 0 ? noseCells / gridCols : 0.18;
-        noseRatio = Math.max(0.08, Math.min(0.6, noseRatio * 1.4));
+        let channelTop = jarChuteExit ? jarChuteExit.y : context.center.y + context.panelH / 2;
+        let channelBottom = conveyorRect.y;
+        if (channelBottom <= channelTop) {
+          channelBottom = Math.max(channelBottom, channelTop + scaledY(6));
+        }
+        let channelWidth = jarChuteExit ? jarChuteExit.width : context.panelW * 0.42;
+        let channelCenter = jarChuteExit ? jarChuteExit.x : context.center.x;
+        let left = channelCenter - channelWidth / 2;
+        let right = channelCenter + channelWidth / 2;
         push();
         rectMode(CORNERS);
-        if (isMachineUnlocked('conveyor')) {
-          let walkwayBase = context.panelW * Math.max(0.26, noseRatio);
-          let walkwayWidth = Math.min(
-            conveyorPanelSize * 0.55,
-            Math.max(context.panelW * 0.28, walkwayBase)
-          );
-          let glowWidth = walkwayWidth + scaledX(18);
-          let left = context.center.x - walkwayWidth / 2;
-          let right = context.center.x + walkwayWidth / 2;
-          noStroke();
-          fill(withAlpha('#09213d', 230));
-          rect(
-            context.center.x - glowWidth / 2,
-            gapTop - scaledY(10),
-            context.center.x + glowWidth / 2,
-            gapBottom + scaledY(10)
-          );
-          let walkwayColor = jarReleaseState.open ? '#38bdf8' : '#1d4ed8';
-          fill(withAlpha(walkwayColor, jarReleaseState.open ? 220 : 150));
-          rect(left - scaledX(3), gapTop, right + scaledX(3), gapBottom);
-          fill(withAlpha('#e0f2fe', jarReleaseState.open ? 160 : 70));
-          rect(
-            left + walkwayWidth * 0.2,
-            gapTop + scaledY(2),
-            right - walkwayWidth * 0.2,
-            gapBottom - scaledY(2)
-          );
-        } else {
-          let barrierWidth = context.panelW * 0.45;
-          let left = context.center.x - barrierWidth / 2;
-          let right = context.center.x + barrierWidth / 2;
-          noStroke();
-          fill('#030b18');
-          rect(left, gapTop - scaledY(4), right, gapTop + scaledY(10));
-          stroke('#1e293b');
-          strokeWeight(2);
-          line(left, gapTop + scaledY(2), right, gapTop + scaledY(2));
+        noStroke();
+        fill(withAlpha('#09213d', 220));
+        rect(left - scaledX(6), channelTop, right + scaledX(6), channelBottom);
+        fill(withAlpha('#38bdf8', isMachineUnlocked('conveyor') ? 180 : 80));
+        rect(left, channelTop + scaledY(2), right, channelBottom);
+        if (!isMachineUnlocked('conveyor')) {
+          fill(withAlpha('#020b18', 220));
+          rect(left, channelTop + scaledY(4), right, channelTop + scaledY(14));
         }
         pop();
       }
 
 
       function drawJarOverlay() {
-        if (jarRect.width <= 0 || jarRect.height <= 0) return;
-        let centerX = jarRect.left + jarRect.width / 2;
-        let centerY = jarRect.top + jarRect.height / 2;
-        let innerW = jarRect.width * 0.88;
-        let innerH = jarRect.height * 0.82;
-        let innerTop = centerY - innerH / 2;
-        let innerBottom = centerY + innerH / 2;
-        let noseCells =
-          jarFunnelMetrics.noseWidth || (jarNeckSpan.end - jarNeckSpan.start);
-        if (!(noseCells > 0)) {
-          noseCells = Math.max(1, Math.round(gridCols * 0.12));
-        }
-        let topCells = Math.max(noseCells, jarFunnelMetrics.topWidth || gridCols);
-        let noseRatio = gridCols > 0 ? noseCells / gridCols : 0.18;
-        let topRatio = gridCols > 0 ? topCells / gridCols : 0.82;
-        noseRatio = Math.max(0.05, Math.min(0.85, noseRatio));
-        topRatio = Math.max(noseRatio, Math.min(1, topRatio));
-        let startRatio = gridRows > 0 ? jarFunnelMetrics.startRow / gridRows : 0.18;
-        let throatRatio = gridRows > 0 ? jarFunnelMetrics.throatRow / gridRows : 0.88;
-        let funnelTopRatio = Math.max(0.2, Math.min(0.48, startRatio + 0.05));
-        let funnelBottomRatio = Math.max(
-          funnelTopRatio + 0.08,
-          Math.min(0.94, throatRatio + 0.04)
-        );
-        let funnelTopY = innerTop + innerH * funnelTopRatio;
-        let funnelBottomY = innerTop + innerH * funnelBottomRatio;
-        let funnelTopWidth = innerW * topRatio;
-        let funnelBottomWidth = innerW * noseRatio;
-        let chuteHeight = innerBottom - funnelBottomY + innerH * 0.08;
-        let chuteWidth = Math.max(
-          Math.min(innerW * 0.68, funnelBottomWidth * 1.25),
-          scaledX(14)
-        );
-        let chuteCenterY = funnelBottomY + chuteHeight / 2;
+        let metrics = getJarChuteMetrics();
+        if (!metrics) return;
+        let {
+          centerX,
+          centerY,
+          innerW,
+          innerH,
+          innerTop,
+          innerBottom,
+          funnelTopY,
+          funnelBottomY,
+          funnelTopWidth,
+          funnelBottomWidth,
+          chuteHeight,
+          chuteWidth,
+          chuteCenterY
+        } = metrics;
         push();
         rectMode(CENTER);
         noFill();
@@ -4338,19 +4366,6 @@
           : withAlpha('#000000', 140);
         fill(chuteOverlay);
         rect(centerX, chuteCenterY, chuteWidth, chuteHeight, 6);
-        textAlign(CENTER, CENTER);
-        fill('#e2e8f0');
-        textSize(scaledFont(12));
-        text('Sandfall Jar', centerX, jarRect.top - scaledY(36));
-        textSize(scaledFont(10));
-        text('Click or press Space/E to drop powder', centerX, jarRect.top - scaledY(20));
-        fill('#94a3b8');
-        textSize(scaledFont(9));
-        text(
-          'Unlocked conveyors draw grains through the funnel toward the belt.',
-          centerX,
-          jarRect.bottom + scaledY(12)
-        );
         pop();
       }
 
@@ -4374,22 +4389,15 @@
         let jarMachine = machineDefinitions.find((m) => m.key === 'jar');
         if (jarMachine) {
           let rect = getMachineRect(jarMachine);
-          let jarWidth;
-          let jarHeight;
-          if (fullscreenModule === 'jar') {
-            jarWidth = Math.round(rect.width * 0.92);
-            jarHeight = Math.round(rect.height * 0.92);
-          } else {
-            let innerSize = Math.min(rect.width, rect.height) * 0.8;
-            let minimumSize = MAX_POWDER_SIZE + scaledX(10);
-            jarWidth = Math.max(minimumSize, Math.round(innerSize));
-            jarHeight = jarWidth;
-          }
-          let center = getMachineCenter(rect);
+          let baseSize = Math.min(rect.width, rect.height);
+          let innerSize = baseSize * 0.92;
+          let minimumSize = MAX_POWDER_SIZE + scaledX(10);
+          let jarWidth = Math.max(minimumSize, Math.round(innerSize));
+          let jarHeight = jarWidth;
           jarRect.width = Math.round(jarWidth);
           jarRect.height = Math.round(jarHeight);
-          jarRect.left = Math.round(center.x - jarRect.width / 2);
-          jarRect.top = Math.round(center.y - jarRect.height / 2);
+          jarRect.left = Math.round(rect.x + rect.width / 2 - jarRect.width / 2);
+          jarRect.top = Math.round(rect.y + rect.height - jarRect.height);
         }
       }
 
@@ -4544,9 +4552,35 @@
           spawnRatio = constrain(centerCol / gridCols, 0, 1);
         }
         let grains = [];
-        for (let i = 0; i < powderGain; i++) {
-          let entity = createBaseEntity(type, {
-            origin: i === 0 ? 'jar' : 'quantum',
+        let storedEntities = Array.isArray(powder.entities)
+          ? powder.entities.filter(Boolean)
+          : [];
+        if (storedEntities.length === 0) {
+          let fallbackEntity = createBaseEntity(type, {
+            origin: 'jar',
+            metadata: { size }
+          });
+          storedEntities.push(fallbackEntity);
+        }
+        for (let entity of storedEntities) {
+          if (!entity.metadata) {
+            entity.metadata = {};
+          }
+          entity.metadata.spawnRatio = spawnRatio;
+          entity.metadata.jarCol = powder.col;
+          entity.metadata.jarRow = powder.row;
+          entity.metadata.size = size;
+          if (!entity.origin) {
+            entity.origin = 'jar';
+          }
+          gainEntity(type, entity);
+          totalPowderCollected += 1;
+          grains.push(entity);
+        }
+        let additional = Math.max(0, powderGain - grains.length);
+        for (let i = 0; i < additional; i++) {
+          let bonusEntity = createBaseEntity(type, {
+            origin: 'quantum',
             metadata: {
               spawnRatio,
               jarCol: powder.col,
@@ -4554,9 +4588,9 @@
               size
             }
           });
-          gainEntity(type, entity);
+          gainEntity(type, bonusEntity);
           totalPowderCollected += 1;
-          grains.push(entity);
+          grains.push(bonusEntity);
         }
         let baseValue = powderTypes[type].dustValue;
         let dustGain = Math.round(
@@ -4569,6 +4603,7 @@
           enqueueConveyorGrains(powder, grains);
         }
         powder.collected = true;
+        powder.entities = [];
       }
 
       function enqueueConveyorGrains(powder, grains) {
@@ -4581,6 +4616,7 @@
         let size = getPowderSize(powder);
         let centerCol = powder.col + size / 2;
         let ratio = gridCols > 0 ? constrain(centerCol / gridCols, 0, 1) : 0.5;
+        let pixelSize = Math.max(2, size * cellPixelSize);
         for (let i = 0; i < grains.length; i++) {
           let grain = grains[i];
           let spread = grains.length > 1 ? (i / Math.max(1, grains.length - 1)) - 0.5 : 0;
@@ -4592,7 +4628,7 @@
                 ? lerp(state.geometry.entryRange[0], state.geometry.entryRange[1], source)
                 : 0,
             y: state.geometry ? state.geometry.holeTop : 0,
-            data: { spawnRatio: source }
+            data: { spawnRatio: source, pixelSize }
           });
           state.queue.push({
             grain,
@@ -4619,6 +4655,11 @@
               ? grain.metadata.spawnRatio
               : 0.5;
           let source = constrain(baseSource + random(-0.12, 0.12), 0, 1);
+          let grainSize =
+            grain && grain.metadata && typeof grain.metadata.size === 'number'
+              ? grain.metadata.size
+              : 1;
+          let pixelSize = Math.max(2, grainSize * cellPixelSize);
           let particle = createPowderParticleForEntity(grain, 'conveyor', {
             state: 'queued',
             x:
@@ -4626,7 +4667,7 @@
                 ? lerp(state.geometry.entryRange[0], state.geometry.entryRange[1], source)
                 : 0,
             y: state.geometry ? state.geometry.holeTop : 0,
-            data: { salvage: true }
+            data: { salvage: true, pixelSize }
           });
           state.queue.push({
             grain,
@@ -6550,10 +6591,6 @@
             selectedModule = btn.key;
             unlockTier(btn.index);
             break;
-          case 'toggleFullscreen':
-            toggleModuleFullscreen(btn.key);
-            selectedModule = btn.key;
-            break;
         }
       }
 
@@ -6683,15 +6720,6 @@
         state.shards.push({ life: 1, angle: Math.random() * TAU });
       }
 
-      function toggleModuleFullscreen(key) {
-        if (key !== 'jar' && !isMachineUnlocked(key)) {
-          return;
-        }
-        fullscreenModule = fullscreenModule === key ? null : key;
-        updateLayoutDimensions(true);
-        refreshPowderGrid(true);
-      }
-
       function dropPowder(type, spawnX) {
         if (!(type === 0 || tierUpgrades[type - 1])) {
           return false;
@@ -6733,13 +6761,23 @@
         if (!canOccupy(0, col, size)) {
           return false;
         }
+        let powderEntity = createBaseEntity(type, {
+          origin: 'jar',
+          metadata: {
+            size,
+            jarCol: col,
+            jarRow: 0,
+            spawnRatio: gridCols > 0 ? constrain((col + size / 2) / gridCols, 0, 1) : 0.5
+          }
+        });
         let powder = {
           col,
           row: 0,
           type: type,
           fallProgress: 0,
           collected: false,
-          settled: false
+          settled: false,
+          entities: [powderEntity]
         };
         powders.push(powder);
         occupyPowderCells(powder);
