@@ -14,9 +14,6 @@
       const AUTO_DROP_INTERVAL = 1200;
       const AUTO_COMPRESS_INTERVAL = 1800;
       const CHAIN_REQUIREMENT = 100;
-      const SAND_RELEASE_HEIGHT = 30;
-      const SAND_RELEASE_OPEN_DURATION = 0.6;
-      const MIN_GRAINS_FOR_RELEASE = 400;
       const MODULE_UNLOCK_ORDER = [
         'conveyor',
         'rocket',
@@ -126,6 +123,7 @@
       let duneHeightUnits = 0;
       let duneDustMultiplier = 1;
       let jarReleaseState = { open: false, openTimer: 0, cooldown: 0 };
+      let moduleRevealStates = {};
       const TRACKED_MODULE_KEYS = new Set([
         'conveyor',
         'rocket',
@@ -857,6 +855,57 @@
         };
       }
 
+      function resetModuleRevealStates() {
+        moduleRevealStates = {};
+        for (let machine of machineDefinitions || []) {
+          if (!machine || !machine.key) continue;
+          let unlocked = isMachineUnlocked(machine.key);
+          moduleRevealStates[machine.key] = {
+            alpha: unlocked ? 0 : 1,
+            target: unlocked ? 0 : 1
+          };
+        }
+      }
+
+      function ensureModuleRevealState(key) {
+        if (!key) return null;
+        if (!moduleRevealStates[key]) {
+          moduleRevealStates[key] = { alpha: 1, target: 1 };
+        }
+        return moduleRevealStates[key];
+      }
+
+      function beginModuleReveal(key) {
+        let state = ensureModuleRevealState(key);
+        if (!state) return;
+        state.alpha = 1;
+        state.target = 0;
+      }
+
+      function updateModuleCoverAlpha(key, unlocked) {
+        let state = ensureModuleRevealState(key);
+        if (!state) {
+          return 0;
+        }
+        if (!unlocked) {
+          state.alpha = 1;
+          state.target = 1;
+          return state.alpha;
+        }
+        state.target = 0;
+        let dt = typeof deltaTime === 'number' && deltaTime > 0 ? deltaTime / 1000 : 0.016;
+        let fadeRate = 1.8;
+        if (state.alpha > state.target) {
+          state.alpha = Math.max(state.target, state.alpha - dt * fadeRate);
+        } else if (state.alpha < state.target) {
+          state.alpha = Math.min(state.target, state.alpha + dt * fadeRate);
+        }
+        if (state.alpha < 0.001) {
+          state.alpha = 0;
+        }
+        return state.alpha;
+      }
+
       function resetInventories() {
         tierInventories = new Array(powderTypes.length).fill(null).map(() => []);
         nextEntityId = 1;
@@ -1302,6 +1351,7 @@
         codexUnlocked = false;
         selectedModule = 'jar';
         moduleStates = createDefaultModuleStates();
+        resetModuleRevealStates();
         resetPowderWorld();
         menuScroll = 0;
         menuScrollMax = 0;
@@ -1532,6 +1582,7 @@
         updateAutoDroppers();
         updateAutomationControllers();
         updatePowders();
+        autoUnlockAvailableModules();
         updateMilestones();
         if (jarVisible) {
           renderPowders();
@@ -1671,7 +1722,6 @@
         let panelW = panelSize;
         let panelH = panelSize;
         let interactButton = null;
-        let unlockButton = null;
         push();
         rectMode(CENTER);
         if (selectedModule === machine.key) {
@@ -1683,60 +1733,8 @@
         rect(center.x, center.y, panelW, panelH);
         noStroke();
         if (!unlocked) {
-          fill(withAlpha('#020617', 220));
+          fill('#000000');
           rect(center.x, center.y, panelW - scaledX(10), panelH - scaledY(10));
-          push();
-          textAlign(CENTER, CENTER);
-          fill('#334155');
-          textSize(scaledFont(10));
-          text('Locked', center.x, center.y - scaledY(22));
-          fill(MENU_THEME.mutedText);
-          textSize(scaledFont(8));
-          text(
-            machine.description,
-            center.x,
-            center.y - scaledY(4),
-            panelW - scaledX(28),
-            scaledY(46)
-          );
-          pop();
-          let tierIndex = getTierIndexForModule(machine.key);
-          let nextIndex = getNextTierToUnlock();
-          if (tierIndex >= 0 && tierIndex === nextIndex) {
-            let cost = tierUnlockCosts[tierIndex] || 0;
-            let resourceName = powderTypes[tierIndex]
-              ? powderTypes[tierIndex].name
-              : 'Powder';
-            let have = Math.floor(powderCounts[tierIndex] || 0);
-            let btnW = Math.max(panelW - scaledX(24), scaledX(96));
-            let btnH = Math.max(scaledY(28), panelH * 0.24);
-            let btnY = center.y + panelH / 2 - btnH / 2 - scaledY(12);
-            drawNeonButton(center.x, btnY, btnW, btnH, {
-              active: false,
-              enabled: have >= cost,
-              accentColor: MENU_THEME.accent,
-              baseColor: MENU_THEME.buttonBase,
-              radius: Math.max(10, btnH / 2.4)
-            });
-            push();
-            textAlign(CENTER, CENTER);
-            fill(have >= cost ? MENU_THEME.invertedText : MENU_THEME.mutedText);
-            textSize(scaledFont(9));
-            text(`Unlock for ${cost.toLocaleString()} ${resourceName}`, center.x, btnY - scaledY(4));
-            fill(MENU_THEME.mutedText);
-            textSize(scaledFont(8));
-            text(`Held: ${have.toLocaleString()} ${resourceName}`, center.x, btnY + scaledY(12));
-            pop();
-            unlockButton = {
-              action: 'unlockModule',
-              key: machine.key,
-              index: tierIndex,
-              x: center.x,
-              y: btnY,
-              w: btnW,
-              h: btnH
-            };
-          }
         } else {
           drawPanelPixelBackdrop(center, panelW, panelH);
           updateModuleState(machine.key, {
@@ -1773,14 +1771,16 @@
             };
           }
         }
+        let coverAlpha = updateModuleCoverAlpha(machine.key, unlocked);
+        if (coverAlpha > 0) {
+          fill(withAlpha('#000000', Math.round(coverAlpha * 255)));
+          rect(center.x, center.y, panelW, panelH);
+        }
         fill('#a5b4fc');
         textSize(scaledFont(11));
         text(machine.name, center.x, center.y - panelH / 2 + scaledY(16));
         pop();
         drawFullscreenToggle(rectInfo, machine.key, unlocked);
-        if (unlockButton) {
-          addButton(unlockButton);
-        }
         if (interactButton) {
           addButton(interactButton);
         }
@@ -3652,9 +3652,9 @@
         let funnelBottomY = bottomY - innerH * 0.14;
         let funnelTopY = funnelBottomY - innerH * 0.28;
         let funnelTopWidth = innerW * 0.94;
-        let funnelBottomWidth = innerW * 0.28;
-        let chuteHeight = bottomY - funnelBottomY + innerH * 0.04;
-        let chuteWidth = funnelBottomWidth * 0.92;
+        let funnelBottomWidth = Math.min(funnelTopWidth * 0.35, Math.max(scaledX(5), 5));
+        let chuteHeight = bottomY - funnelBottomY + innerH * 0.06;
+        let chuteWidth = Math.min(innerW * 0.6, Math.max(funnelBottomWidth * 1.35, scaledX(8)));
         let chuteCenterY = funnelBottomY + chuteHeight / 2;
         let conveyorUnlocked = isMachineUnlocked('conveyor');
         push();
@@ -3696,14 +3696,14 @@
         vertex(centerX + funnelBottomWidth / 2, funnelBottomY);
         vertex(centerX - funnelBottomWidth / 2, funnelBottomY);
         endShape(CLOSE);
-        let chuteBase = conveyorUnlocked
-          ? withAlpha('#38bdf8', jarReleaseState.open ? 220 : 140)
-          : withAlpha('#132b47', 220);
-        fill(chuteBase);
+        let chuteColor = conveyorUnlocked
+          ? withAlpha('#38bdf8', jarReleaseState.open ? 220 : 160)
+          : withAlpha('#000000', 240);
+        fill(chuteColor);
         rect(centerX, chuteCenterY, chuteWidth, chuteHeight, 6);
         if (conveyorUnlocked) {
           fill(withAlpha('#e0f2fe', jarReleaseState.open ? 160 : 90));
-          rect(centerX, chuteCenterY, chuteWidth * 0.6, chuteHeight * 0.72, 4);
+          rect(centerX, chuteCenterY, Math.max(chuteWidth * 0.55, scaledX(6)), chuteHeight * 0.72, 4);
         }
         stroke(withAlpha('#38bdf8', 140));
         strokeWeight(2);
@@ -3785,9 +3785,9 @@
         let funnelBottomY = bottomY - innerH * 0.14;
         let funnelTopY = funnelBottomY - innerH * 0.28;
         let funnelTopWidth = innerW * 0.94;
-        let funnelBottomWidth = innerW * 0.28;
-        let chuteHeight = bottomY - funnelBottomY + innerH * 0.04;
-        let chuteWidth = funnelBottomWidth * 0.92;
+        let funnelBottomWidth = Math.min(funnelTopWidth * 0.35, Math.max(scaledX(5), 5));
+        let chuteHeight = bottomY - funnelBottomY + innerH * 0.06;
+        let chuteWidth = Math.min(innerW * 0.6, Math.max(funnelBottomWidth * 1.35, scaledX(8)));
         let chuteCenterY = funnelBottomY + chuteHeight / 2;
         push();
         rectMode(CENTER);
@@ -3808,7 +3808,7 @@
         endShape(CLOSE);
         let chuteOverlay = jarReleaseState.open
           ? withAlpha('#38bdf8', 90)
-          : withAlpha('#22d3ee', 60);
+          : withAlpha('#000000', 140);
         fill(chuteOverlay);
         rect(centerX, chuteCenterY, chuteWidth, chuteHeight, 6);
         textAlign(CENTER, CENTER);
@@ -4145,10 +4145,21 @@
       function isHoleSpan(col, size) {
         if (!jarReleaseState || !jarReleaseState.open) return false;
         if (gridCols <= 0) return false;
-        let collectorWidth = Math.max(size, Math.floor(gridCols * 0.2));
-        collectorWidth = Math.min(collectorWidth, Math.floor(gridCols * 0.6));
-        let start = Math.floor((gridCols - collectorWidth) / 2);
-        return col >= start && col + size <= start + collectorWidth;
+        let pixelSize = cellPixelSize > 0 ? cellPixelSize : 1;
+        let neckCells = Math.max(size, Math.round(5 / pixelSize));
+        neckCells = Math.max(1, Math.min(neckCells, gridCols));
+        let center = Math.floor(gridCols / 2);
+        let start = center - Math.floor(neckCells / 2);
+        let end = start + neckCells;
+        if (start < 0) {
+          end += -start;
+          start = 0;
+        }
+        if (end > gridCols) {
+          start -= end - gridCols;
+          end = gridCols;
+        }
+        return col >= start && col + size <= end;
       }
 
       function rebuildGrid() {
@@ -4197,75 +4208,11 @@
 
       function updateJarReleaseState() {
         if (!jarReleaseState) {
-          jarReleaseState = { open: false, openTimer: 0, cooldown: 0 };
+          jarReleaseState = { open: true, openTimer: 0, cooldown: 0 };
         }
-        let dt = deltaTime / 1000;
-        if (jarReleaseState.open) {
-          jarReleaseState.openTimer = Math.max(0, jarReleaseState.openTimer - dt);
-          if (jarReleaseState.openTimer <= 0) {
-            jarReleaseState.open = false;
-          }
-        } else if (jarReleaseState.cooldown > 0) {
-          jarReleaseState.cooldown = Math.max(0, jarReleaseState.cooldown - dt);
-        }
-        if (
-          !jarReleaseState.open &&
-          jarReleaseState.cooldown <= 0 &&
-          duneHeightUnits >= SAND_RELEASE_HEIGHT &&
-          getJarPowderCount(0) >= MIN_GRAINS_FOR_RELEASE
-        ) {
-          triggerJarRelease();
-        }
-      }
-
-      function triggerJarRelease() {
-        releaseJarPowdersToConveyor();
         jarReleaseState.open = true;
-        jarReleaseState.openTimer = SAND_RELEASE_OPEN_DURATION;
-        jarReleaseState.cooldown = SAND_RELEASE_OPEN_DURATION;
-      }
-
-      function releaseJarPowdersToConveyor() {
-        if (!powders || powders.length === 0) return;
-        let released = false;
-        for (let i = powders.length - 1; i >= 0; i--) {
-          let powder = powders[i];
-          clearPowderCells(powder);
-          collectPowder(powder);
-          powders.splice(i, 1);
-          released = true;
-        }
-        if (released) {
-          let state = moduleStates && moduleStates.conveyor;
-          if (state) {
-            setupConveyorGeometry(state);
-            state.fallers = state.fallers || [];
-            state.queue = state.queue || [];
-            let range =
-              state.geometry && state.geometry.entryRange
-                ? state.geometry.entryRange
-                : [-0.36, 0.36];
-            while (state.queue.length > 0) {
-              let entry = state.queue.shift();
-              let source = entry.source != null ? entry.source : 0.5;
-              let spawnX = lerp(range[0], range[1], source) + random(-0.02, 0.02);
-              state.fallers.push({
-                x: spawnX,
-                y: state.geometry ? state.geometry.holeTop : -0.74,
-                vx: 0,
-                vy: -0.04,
-                type: entry.type,
-                color: entry.color
-              });
-            }
-            while (state.fallers.length > 64) {
-              state.fallers.shift();
-            }
-            state.spawnTimer = 0;
-          }
-          rebuildGrid();
-          updateDuneMultiplierFromGrid();
-        }
+        jarReleaseState.openTimer = 0;
+        jarReleaseState.cooldown = 0;
       }
 
       function refreshPowderGrid(rescale = false) {
@@ -6270,6 +6217,27 @@
         if (powderCounts[index] >= cost) {
           powderCounts[index] -= cost;
           tierUpgrades[index] = true;
+          let moduleKey = MODULE_UNLOCK_ORDER[index];
+          if (moduleKey) {
+            beginModuleReveal(moduleKey);
+          }
+        }
+      }
+
+      function autoUnlockAvailableModules() {
+        let maxIterations = tierUpgrades.length;
+        let attempts = 0;
+        while (attempts < maxIterations) {
+          let next = getNextTierToUnlock();
+          if (next < 0) {
+            break;
+          }
+          let cost = tierUnlockCosts[next] || 0;
+          if ((powderCounts[next] || 0) < cost) {
+            break;
+          }
+          unlockTier(next);
+          attempts++;
         }
       }
 
@@ -6394,6 +6362,7 @@
         fullscreenModule = null;
         selectedModule = activeMenu === 'jar' ? 'jar' : null;
         moduleStates = createDefaultModuleStates();
+        resetModuleRevealStates();
         menuScroll = 0;
         menuScrollMax = 0;
         updateLayoutDimensions(true);
