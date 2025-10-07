@@ -3695,7 +3695,8 @@
           funnelBottomWidth,
           chuteHeight,
           chuteWidth,
-          chuteCenterY
+          chuteCenterY,
+          noseRatio
         };
       }
 
@@ -3822,6 +3823,13 @@
         let channelCenter = jarChuteExit ? jarChuteExit.x : context.center.x;
         let left = channelCenter - channelWidth / 2;
         let right = channelCenter + channelWidth / 2;
+        let gapTop = channelTop;
+        let gapBottom = channelBottom;
+        let conveyorPanelSize = Math.min(conveyorRect.width, conveyorRect.height);
+        let noseRatio =
+          metrics && typeof metrics.noseRatio === 'number'
+            ? metrics.noseRatio
+            : 0.26;
         push();
         rectMode(CORNERS);
         if (isMachineUnlocked('conveyor')) {
