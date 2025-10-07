@@ -2262,42 +2262,25 @@
         state.geometry = {
           holeTop: -0.74,
           beltY: -0.32,
-          entryRange: [-0.36, 0.36],
-          spawnRate: 0.22,
+          entryRange: [-0.28, 0.28],
+          spawnRate: 0.24,
           beltSegments: [
             {
-              from: { x: -0.12, y: -0.32 },
-              to: { x: 0.92, y: -0.32 },
+              from: { x: 0.2, y: -0.32 },
+              to: { x: -0.62, y: -0.32 },
               speed: 0.42,
               type: 'belt'
             },
             {
-              from: { x: 0.92, y: -0.32 },
-              to: { x: 0.92, y: 0.08 },
+              from: { x: -0.62, y: -0.32 },
+              to: { x: -0.62, y: 0.02 },
               speed: 0.58,
               type: 'drop'
-            },
-            {
-              from: { x: 0.92, y: 0.08 },
-              to: { x: -0.84, y: 0.08 },
-              speed: 0.36,
-              type: 'belt'
-            },
-            {
-              from: { x: -0.84, y: 0.08 },
-              to: { x: -0.84, y: 0.34 },
-              speed: 0.6,
-              type: 'drop'
-            },
-            {
-              from: { x: -0.84, y: 0.34 },
-              to: { x: 0.62, y: 0.34 },
-              speed: 0.34,
-              type: 'belt'
             }
           ],
-          packageSpot: { x: 0.62, y: 0.34 },
-          packageExit: { x: -0.96, y: 0.24 }
+          compactorBox: { x: -0.62, y: 0.08, width: 0.56, height: 0.44 },
+          packageSpot: { x: -0.62, y: 0.04 },
+          packageExit: { x: -0.12, y: 0.32 }
         };
       }
 
@@ -3677,10 +3660,37 @@
               stroke(withAlpha('#0f172a', 140));
               strokeWeight(thickness * 0.45);
               line(fromPoint.x, fromPoint.y, toPoint.x, toPoint.y);
+              let midPoint = {
+                x: (segment.from.x + segment.to.x) / 2,
+                y: (segment.from.y + segment.to.y) / 2
+              };
+              let arrowPoint = projectConveyorPoint(projection, midPoint);
+              if (arrowPoint) {
+                let angle = Math.atan2(
+                  segment.to.y - segment.from.y,
+                  segment.to.x - segment.from.x
+                );
+                let arrowSize = Math.max(4, baseRadius * 0.6);
+                push();
+                translate(arrowPoint.x, arrowPoint.y);
+                rotate(angle);
+                noStroke();
+                fill(withAlpha('#38bdf8', 210));
+                triangle(
+                  -arrowSize * 0.4,
+                  arrowSize * 0.5,
+                  -arrowSize * 0.4,
+                  -arrowSize * 0.5,
+                  arrowSize * 0.6,
+                  0
+                );
+                pop();
+              }
             }
           }
           pop();
         }
+        drawConveyorCompactor(state, projection, geometry, baseRadius);
         let drawParticle = (particle, options = {}) => {
           drawConveyorParticle(particle, projection, baseRadius, options);
         };
@@ -3703,8 +3713,8 @@
         }
         if (Array.isArray(state.departures)) {
           for (let pkg of state.departures) {
-            if (!pkg || !pkg.particle) continue;
-            drawParticle(pkg.particle, { alpha: 210, scale: 1.25 });
+            if (!pkg) continue;
+            drawConveyorPackage(pkg, projection, baseRadius);
           }
         }
       }
@@ -3729,6 +3739,13 @@
             addPoint(segment.from);
             addPoint(segment.to);
           }
+        }
+        if (geometry.compactorBox) {
+          let box = geometry.compactorBox;
+          let halfW = (box.width || 0) / 2;
+          let halfH = (box.height || 0) / 2;
+          addPoint({ x: box.x - halfW, y: box.y - halfH });
+          addPoint({ x: box.x + halfW, y: box.y + halfH });
         }
         addPoint(geometry.packageSpot);
         addPoint(geometry.packageExit);
@@ -3808,6 +3825,108 @@
         fill(withAlpha(colorHex, alpha));
         circle(position.x, position.y, radius);
         pop();
+      }
+
+
+      function drawConveyorCompactor(state, projection, geometry, baseRadius) {
+        if (!geometry || !geometry.compactorBox || !projection) return;
+        let box = geometry.compactorBox;
+        let halfW = (box.width || 0) / 2;
+        let halfH = (box.height || 0) / 2;
+        let topLeft = projectConveyorPoint(projection, {
+          x: box.x - halfW,
+          y: box.y - halfH
+        });
+        let bottomRight = projectConveyorPoint(projection, {
+          x: box.x + halfW,
+          y: box.y + halfH
+        });
+        if (!topLeft || !bottomRight) return;
+        let minX = Math.min(topLeft.x, bottomRight.x);
+        let maxX = Math.max(topLeft.x, bottomRight.x);
+        let minY = Math.min(topLeft.y, bottomRight.y);
+        let maxY = Math.max(topLeft.y, bottomRight.y);
+        let radius = Math.max(4, baseRadius * 0.6);
+        push();
+        rectMode(CORNERS);
+        fill(withAlpha('#021022', 240));
+        stroke(withAlpha('#38bdf8', 200));
+        strokeWeight(Math.max(2, baseRadius * 0.28));
+        rect(minX, minY, maxX, maxY, radius);
+        pop();
+        let padding = Math.max(4, baseRadius * 0.45);
+        let innerLeft = minX + padding;
+        let innerRight = maxX - padding;
+        let innerTop = minY + padding;
+        let innerBottom = maxY - padding;
+        if (innerRight <= innerLeft || innerBottom <= innerTop) {
+          return;
+        }
+        push();
+        rectMode(CORNERS);
+        noStroke();
+        fill(withAlpha('#0b1f38', 230));
+        rect(innerLeft, innerTop, innerRight, innerBottom, Math.max(3, radius * 0.6));
+        pop();
+        let buffer = Array.isArray(state.packageBuffer) ? state.packageBuffer : [];
+        let colors = buffer
+          .slice(0, 16)
+          .map((grain) => (grain && grain.color) || '#e7c97a');
+        if (colors.length === 0 && Array.isArray(state.queue)) {
+          for (let entry of state.queue) {
+            if (!entry || !entry.grain) continue;
+            colors.push(entry.grain.color || '#e7c97a');
+            if (colors.length >= 16) break;
+          }
+        }
+        if (colors.length === 0) {
+          colors.push('#1d4ed8');
+        }
+        let cols = Math.max(1, Math.ceil(Math.sqrt(colors.length)));
+        let rows = Math.max(1, Math.ceil(colors.length / cols));
+        let cellW = (innerRight - innerLeft) / cols;
+        let cellH = (innerBottom - innerTop) / rows;
+        push();
+        rectMode(CENTER);
+        noStroke();
+        let index = 0;
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            if (index >= colors.length) break;
+            let cx = innerLeft + cellW * (c + 0.5);
+            let cy = innerTop + cellH * (r + 0.5);
+            fill(withAlpha(colors[index], 230));
+            rect(cx, cy, cellW * 0.7, cellH * 0.7, Math.max(2, baseRadius * 0.25));
+            index++;
+          }
+        }
+        pop();
+        let progress = constrain(state.packageProgress || 0, 0, 1);
+        if (progress > 0) {
+          let height = (innerBottom - innerTop) * progress;
+          push();
+          rectMode(CORNERS);
+          noStroke();
+          fill(withAlpha('#38bdf8', 140));
+          rect(
+            innerLeft,
+            innerBottom - height,
+            innerRight,
+            innerBottom,
+            Math.max(2, baseRadius * 0.3)
+          );
+          pop();
+        }
+      }
+
+      function drawConveyorPackage(pkg, projection, baseRadius) {
+        if (!pkg || !projection) return;
+        let particle = pkg.particle || null;
+        if (!particle) return;
+        let position = projectConveyorPoint(projection, particle);
+        if (!position) return;
+        let size = Math.max(10, baseRadius * 2.4);
+        drawPackageSprite(pkg, position.x, position.y, size);
       }
 
 
