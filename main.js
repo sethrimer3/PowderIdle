@@ -1477,7 +1477,8 @@
         drawingContext.shadowColor = 'rgba(250, 204, 21, 0.6)';
         noStroke();
         fill(withAlpha('#facc15', 70));
-        rect(x, y, width, height, radius || Math.max(12, Math.min(width, height) * 0.18));
+        let resolvedRadius = radius != null ? radius : Math.max(12, Math.min(width, height) * 0.18);
+        rect(x, y, width, height, resolvedRadius);
         drawingContext.restore();
         pop();
       }
@@ -1486,7 +1487,7 @@
         let rectInfo = getMachineRect(machine);
         let center = getMachineCenter(rectInfo);
         let unlocked = isMachineUnlocked(machine.key);
-        let panelSize = Math.min(rectInfo.width, rectInfo.height) * 0.8;
+        let panelSize = Math.min(rectInfo.width, rectInfo.height) * 0.92;
         let panelW = panelSize;
         let panelH = panelSize;
         let interactButton = null;
@@ -1494,18 +1495,16 @@
         push();
         rectMode(CENTER);
         if (selectedModule === machine.key) {
-          let glowRadius = Math.max(scaledX(12), Math.min(panelW, panelH) * 0.18);
-          drawSelectionGlow(center.x, center.y, panelW, panelH, glowRadius);
+          drawSelectionGlow(center.x, center.y, panelW, panelH, 0);
         }
         stroke(unlocked ? '#1e3a8a' : '#1e293b');
         strokeWeight(2);
         fill(unlocked ? '#0b1220' : '#040810');
-        rect(center.x, center.y, panelW, panelH, Math.max(12, panelH * 0.08));
+        rect(center.x, center.y, panelW, panelH);
         noStroke();
         if (!unlocked) {
-          let innerRadius = Math.max(10, panelH * 0.1);
           fill(withAlpha('#020617', 220));
-          rect(center.x, center.y, panelW - scaledX(10), panelH - scaledY(10), innerRadius);
+          rect(center.x, center.y, panelW - scaledX(10), panelH - scaledY(10));
           push();
           textAlign(CENTER, CENTER);
           fill('#334155');
@@ -3678,7 +3677,7 @@
         if (!conveyorMachine) return;
         let conveyorRect = getMachineRect(conveyorMachine);
         let conveyorCenter = getMachineCenter(conveyorRect);
-        let conveyorPanelSize = Math.min(conveyorRect.width, conveyorRect.height) * 0.8;
+        let conveyorPanelSize = Math.min(conveyorRect.width, conveyorRect.height) * 0.92;
         let conveyorTop = conveyorCenter.y - conveyorPanelSize / 2;
         let jarBottom = context.center.y + context.panelH / 2;
         let gapTop = jarBottom + scaledY(6);
@@ -3696,8 +3695,8 @@
           rect(
             context.center.x - glowWidth / 2,
             gapTop - scaledY(10),
-            glowWidth,
-            gapBottom - gapTop + scaledY(20)
+            context.center.x + glowWidth / 2,
+            gapBottom + scaledY(10)
           );
           fill(withAlpha('#155e9a', 220));
           rect(left - scaledX(4), gapTop, right + scaledX(4), gapBottom);
@@ -3707,8 +3706,8 @@
           rect(
             left + walkwayWidth * 0.18,
             gapTop,
-            walkwayWidth * 0.64,
-            gapBottom - gapTop
+            right - walkwayWidth * 0.18,
+            gapBottom
           );
         } else {
           let barrierWidth = context.panelW * 0.7;
