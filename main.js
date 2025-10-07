@@ -1157,6 +1157,12 @@
       let jarWalls = [];
       let jarFunnelProfile = [];
       let jarNeckSpan = { start: 0, end: 0 };
+      let jarFunnelMetrics = {
+        noseWidth: 0,
+        topWidth: 0,
+        startRow: 0,
+        throatRow: 0
+      };
       let collageLayout = {
         left: 0,
         top: 0,
@@ -1469,30 +1475,46 @@
       function buildJarFunnelGeometry() {
         jarFunnelProfile = [];
         jarNeckSpan = { start: 0, end: gridCols };
+        jarFunnelMetrics = {
+          noseWidth: 0,
+          topWidth: 0,
+          startRow: 0,
+          throatRow: 0
+        };
         if (gridRows <= 0 || gridCols <= 0) {
           return;
         }
         let center = gridCols / 2;
-        let topMargin = Math.max(1, Math.round(gridCols * 0.08));
-        let funnelStartRow = Math.max(0, Math.floor(gridRows * 0.12));
-        let throatRow = Math.max(funnelStartRow + 1, Math.floor(gridRows * 0.75));
-        let throatWidth = Math.max(
-          MAX_POWDER_SIZE,
-          Math.min(gridCols, Math.round(gridCols * 0.22))
+        let topMargin = Math.max(1, Math.round(gridCols * 0.1));
+        let funnelStartRow = Math.max(0, Math.floor(gridRows * 0.18));
+        let throatRow = Math.max(
+          funnelStartRow + 1,
+          Math.min(gridRows - 1, Math.floor(gridRows * 0.88))
         );
-        let topWidth = Math.max(throatWidth, gridCols - topMargin * 2);
+        let noseWidth = Math.min(gridCols, Math.max(1, 6));
+        let desiredTopWidth = Math.round(gridCols * 0.74);
+        let maxTopWidth = Math.max(noseWidth, gridCols - topMargin * 2);
+        let topWidth = Math.max(noseWidth, Math.min(desiredTopWidth, maxTopWidth));
+        jarFunnelMetrics = {
+          noseWidth,
+          topWidth,
+          startRow: funnelStartRow,
+          throatRow
+        };
+        let transitionSpan = Math.max(1, throatRow - funnelStartRow);
         for (let r = 0; r < gridRows; r++) {
           let spanWidth;
           if (r <= funnelStartRow) {
             spanWidth = topWidth;
           } else if (r >= throatRow) {
-            spanWidth = throatWidth;
+            spanWidth = noseWidth;
           } else {
-            let t = (r - funnelStartRow) / (throatRow - funnelStartRow);
+            let t = (r - funnelStartRow) / transitionSpan;
             t = Math.min(1, Math.max(0, t));
-            spanWidth = Math.round(lerpValue(topWidth, throatWidth, t));
+            let eased = t * t * (3 - 2 * t);
+            spanWidth = Math.round(lerpValue(topWidth, noseWidth, eased));
           }
-          spanWidth = Math.max(throatWidth, Math.min(gridCols, spanWidth));
+          spanWidth = Math.max(noseWidth, Math.min(gridCols, spanWidth));
           let spanStart = Math.floor(center - spanWidth / 2);
           let spanEnd = spanStart + spanWidth;
           if (spanStart < 0) {
@@ -1513,6 +1535,7 @@
         let baseRow = Math.max(0, gridRows - 1);
         let baseSpan = jarFunnelProfile[baseRow] || [0, gridCols];
         jarNeckSpan = { start: baseSpan[0], end: baseSpan[1] };
+        jarFunnelMetrics.noseWidth = jarNeckSpan.end - jarNeckSpan.start;
       }
 
       function getFunnelSpanAtRow(row) {
@@ -3747,13 +3770,34 @@
         let centerY = jarRect.top + jarRect.height / 2;
         let innerW = jarRect.width * 0.88;
         let innerH = jarRect.height * 0.82;
-        let bottomY = centerY + innerH / 2;
-        let funnelBottomY = bottomY - innerH * 0.14;
-        let funnelTopY = funnelBottomY - innerH * 0.28;
-        let funnelTopWidth = innerW * 0.94;
-        let funnelBottomWidth = Math.min(funnelTopWidth * 0.35, Math.max(scaledX(5), 5));
-        let chuteHeight = bottomY - funnelBottomY + innerH * 0.06;
-        let chuteWidth = Math.min(innerW * 0.6, Math.max(funnelBottomWidth * 1.35, scaledX(8)));
+        let innerTop = centerY - innerH / 2;
+        let innerBottom = centerY + innerH / 2;
+        let noseCells =
+          jarFunnelMetrics.noseWidth || (jarNeckSpan.end - jarNeckSpan.start);
+        if (!(noseCells > 0)) {
+          noseCells = Math.max(1, Math.round(gridCols * 0.12));
+        }
+        let topCells = Math.max(noseCells, jarFunnelMetrics.topWidth || gridCols);
+        let noseRatio = gridCols > 0 ? noseCells / gridCols : 0.18;
+        let topRatio = gridCols > 0 ? topCells / gridCols : 0.82;
+        noseRatio = Math.max(0.05, Math.min(0.85, noseRatio));
+        topRatio = Math.max(noseRatio, Math.min(1, topRatio));
+        let startRatio = gridRows > 0 ? jarFunnelMetrics.startRow / gridRows : 0.18;
+        let throatRatio = gridRows > 0 ? jarFunnelMetrics.throatRow / gridRows : 0.88;
+        let funnelTopRatio = Math.max(0.2, Math.min(0.48, startRatio + 0.05));
+        let funnelBottomRatio = Math.max(
+          funnelTopRatio + 0.08,
+          Math.min(0.94, throatRatio + 0.04)
+        );
+        let funnelTopY = innerTop + innerH * funnelTopRatio;
+        let funnelBottomY = innerTop + innerH * funnelBottomRatio;
+        let funnelTopWidth = innerW * topRatio;
+        let funnelBottomWidth = innerW * noseRatio;
+        let chuteHeight = innerBottom - funnelBottomY + innerH * 0.08;
+        let chuteWidth = Math.max(
+          Math.min(innerW * 0.68, funnelBottomWidth * 1.25),
+          scaledX(14)
+        );
         let chuteCenterY = funnelBottomY + chuteHeight / 2;
         let conveyorUnlocked = isMachineUnlocked('conveyor');
         push();
@@ -3834,10 +3878,21 @@
         let gapTop = jarBottom + scaledY(6);
         let gapBottom = conveyorTop - scaledY(6);
         if (gapBottom <= gapTop) return;
+        let noseCells =
+          jarFunnelMetrics.noseWidth || (jarNeckSpan.end - jarNeckSpan.start);
+        if (!(noseCells > 0)) {
+          noseCells = Math.max(1, Math.round(gridCols * 0.12));
+        }
+        let noseRatio = gridCols > 0 ? noseCells / gridCols : 0.18;
+        noseRatio = Math.max(0.08, Math.min(0.6, noseRatio * 1.4));
         push();
         rectMode(CORNERS);
         if (isMachineUnlocked('conveyor')) {
-          let walkwayWidth = Math.min(context.panelW * 0.42, conveyorPanelSize * 0.5);
+          let walkwayBase = context.panelW * Math.max(0.26, noseRatio);
+          let walkwayWidth = Math.min(
+            conveyorPanelSize * 0.55,
+            Math.max(context.panelW * 0.28, walkwayBase)
+          );
           let glowWidth = walkwayWidth + scaledX(18);
           let left = context.center.x - walkwayWidth / 2;
           let right = context.center.x + walkwayWidth / 2;
@@ -3880,13 +3935,34 @@
         let centerY = jarRect.top + jarRect.height / 2;
         let innerW = jarRect.width * 0.88;
         let innerH = jarRect.height * 0.82;
-        let bottomY = centerY + innerH / 2;
-        let funnelBottomY = bottomY - innerH * 0.14;
-        let funnelTopY = funnelBottomY - innerH * 0.28;
-        let funnelTopWidth = innerW * 0.94;
-        let funnelBottomWidth = Math.min(funnelTopWidth * 0.35, Math.max(scaledX(5), 5));
-        let chuteHeight = bottomY - funnelBottomY + innerH * 0.06;
-        let chuteWidth = Math.min(innerW * 0.6, Math.max(funnelBottomWidth * 1.35, scaledX(8)));
+        let innerTop = centerY - innerH / 2;
+        let innerBottom = centerY + innerH / 2;
+        let noseCells =
+          jarFunnelMetrics.noseWidth || (jarNeckSpan.end - jarNeckSpan.start);
+        if (!(noseCells > 0)) {
+          noseCells = Math.max(1, Math.round(gridCols * 0.12));
+        }
+        let topCells = Math.max(noseCells, jarFunnelMetrics.topWidth || gridCols);
+        let noseRatio = gridCols > 0 ? noseCells / gridCols : 0.18;
+        let topRatio = gridCols > 0 ? topCells / gridCols : 0.82;
+        noseRatio = Math.max(0.05, Math.min(0.85, noseRatio));
+        topRatio = Math.max(noseRatio, Math.min(1, topRatio));
+        let startRatio = gridRows > 0 ? jarFunnelMetrics.startRow / gridRows : 0.18;
+        let throatRatio = gridRows > 0 ? jarFunnelMetrics.throatRow / gridRows : 0.88;
+        let funnelTopRatio = Math.max(0.2, Math.min(0.48, startRatio + 0.05));
+        let funnelBottomRatio = Math.max(
+          funnelTopRatio + 0.08,
+          Math.min(0.94, throatRatio + 0.04)
+        );
+        let funnelTopY = innerTop + innerH * funnelTopRatio;
+        let funnelBottomY = innerTop + innerH * funnelBottomRatio;
+        let funnelTopWidth = innerW * topRatio;
+        let funnelBottomWidth = innerW * noseRatio;
+        let chuteHeight = innerBottom - funnelBottomY + innerH * 0.08;
+        let chuteWidth = Math.max(
+          Math.min(innerW * 0.68, funnelBottomWidth * 1.25),
+          scaledX(14)
+        );
         let chuteCenterY = funnelBottomY + chuteHeight / 2;
         push();
         rectMode(CENTER);
