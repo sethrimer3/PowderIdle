@@ -74,7 +74,7 @@
       let milestoneConfigs = [];
       let MAX_POWDER_SIZE = 1;
 
-      let powders = []; // {col, row, type, fallProgress, collected}
+      let powders = []; // {col, row, type, fallProgress, collected, settled}
       let powderCounts = [];
       let tierInventories = [];
       let nextEntityId = 1;
@@ -3888,6 +3888,8 @@
           let p = powders[i];
           p.fallProgress = (p.fallProgress || 0) + fallCells;
           let removed = false;
+          let movedThisFrame = false;
+          let cameToRest = false;
           while (p.fallProgress >= 1 && !removed) {
             clearPowderCells(p);
             let moveResult = tryMovePowder(p, i);
@@ -3897,8 +3899,10 @@
             }
             if (moveResult) {
               p.fallProgress -= 1;
+              movedThisFrame = true;
             } else {
               p.fallProgress = 0;
+              cameToRest = true;
             }
             occupyPowderCells(p);
             if (!moveResult) {
@@ -3907,6 +3911,11 @@
           }
           if (removed) {
             continue;
+          }
+          if (cameToRest) {
+            p.settled = true;
+          } else if (movedThisFrame) {
+            p.settled = false;
           }
         }
         updateDuneMultiplierFromGrid();
@@ -4070,7 +4079,8 @@
         let heightCells = 0;
         outer: for (let r = 0; r < gridRows; r++) {
           for (let c = 0; c < gridCols; c++) {
-            if (grid[r][c]) {
+            let occupant = grid[r][c];
+            if (occupant && occupant.settled) {
               heightCells = gridRows - r;
               break outer;
             }
@@ -4172,8 +4182,14 @@
       function refreshPowderGrid(rescale = false) {
         let prevCols = gridCols || 1;
         let prevRows = gridRows || 1;
-        let widthPixels = Math.max(jarRect.width, PLAY_AREA_W * 0.3);
-        let heightPixels = Math.max(jarRect.height, SCREEN_H * 0.4);
+        let usableWidth = jarRect.width > 0 ? jarRect.width * 0.88 : 0;
+        let usableHeight = jarRect.height > 0 ? jarRect.height * 0.82 : 0;
+        let minWidth = Math.max(PLAY_AREA_W * 0.2, MAX_POWDER_SIZE * cellPixelSize);
+        let minHeight = Math.max(SCREEN_H * 0.25, MAX_POWDER_SIZE * cellPixelSize);
+        let widthPixels =
+          usableWidth > 0 ? Math.max(usableWidth, MAX_POWDER_SIZE * cellPixelSize) : minWidth;
+        let heightPixels =
+          usableHeight > 0 ? Math.max(usableHeight, MAX_POWDER_SIZE * cellPixelSize) : minHeight;
         gridCols = Math.max(
           MAX_POWDER_SIZE,
           Math.floor(widthPixels / cellPixelSize)
@@ -4198,6 +4214,7 @@
             clampPowderToBounds(p);
           }
           p.fallProgress = 0;
+          p.settled = false;
           clampPowderToBounds(p);
           occupyPowderCells(p);
         }
@@ -6116,7 +6133,8 @@
           row: 0,
           type: type,
           fallProgress: 0,
-          collected: false
+          collected: false,
+          settled: false
         };
         powders.push(powder);
         occupyPowderCells(powder);
