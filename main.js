@@ -1154,6 +1154,9 @@
       let grid = [];
       let gridCols = 0;
       let gridRows = 0;
+      let jarWalls = [];
+      let jarFunnelProfile = [];
+      let jarNeckSpan = { start: 0, end: 0 };
       let collageLayout = {
         left: 0,
         top: 0,
@@ -1453,6 +1456,98 @@
         grid = Array.from({ length: gridRows }, () =>
           new Array(gridCols).fill(null)
         );
+        jarWalls = Array.from({ length: gridRows }, () =>
+          new Array(gridCols).fill(false)
+        );
+        buildJarFunnelGeometry();
+      }
+
+      function lerpValue(a, b, t) {
+        return a + (b - a) * t;
+      }
+
+      function buildJarFunnelGeometry() {
+        jarFunnelProfile = [];
+        jarNeckSpan = { start: 0, end: gridCols };
+        if (gridRows <= 0 || gridCols <= 0) {
+          return;
+        }
+        let center = gridCols / 2;
+        let topMargin = Math.max(1, Math.round(gridCols * 0.08));
+        let funnelStartRow = Math.max(0, Math.floor(gridRows * 0.12));
+        let throatRow = Math.max(funnelStartRow + 1, Math.floor(gridRows * 0.75));
+        let throatWidth = Math.max(
+          MAX_POWDER_SIZE,
+          Math.min(gridCols, Math.round(gridCols * 0.22))
+        );
+        let topWidth = Math.max(throatWidth, gridCols - topMargin * 2);
+        for (let r = 0; r < gridRows; r++) {
+          let spanWidth;
+          if (r <= funnelStartRow) {
+            spanWidth = topWidth;
+          } else if (r >= throatRow) {
+            spanWidth = throatWidth;
+          } else {
+            let t = (r - funnelStartRow) / (throatRow - funnelStartRow);
+            t = Math.min(1, Math.max(0, t));
+            spanWidth = Math.round(lerpValue(topWidth, throatWidth, t));
+          }
+          spanWidth = Math.max(throatWidth, Math.min(gridCols, spanWidth));
+          let spanStart = Math.floor(center - spanWidth / 2);
+          let spanEnd = spanStart + spanWidth;
+          if (spanStart < 0) {
+            spanEnd += -spanStart;
+            spanStart = 0;
+          }
+          if (spanEnd > gridCols) {
+            spanStart -= spanEnd - gridCols;
+            spanEnd = gridCols;
+          }
+          spanStart = Math.max(0, spanStart);
+          spanEnd = Math.max(spanStart, Math.min(gridCols, spanEnd));
+          jarFunnelProfile[r] = [spanStart, spanEnd];
+          for (let c = 0; c < gridCols; c++) {
+            jarWalls[r][c] = c < spanStart || c >= spanEnd;
+          }
+        }
+        let baseRow = Math.max(0, gridRows - 1);
+        let baseSpan = jarFunnelProfile[baseRow] || [0, gridCols];
+        jarNeckSpan = { start: baseSpan[0], end: baseSpan[1] };
+      }
+
+      function getFunnelSpanAtRow(row) {
+        if (!Array.isArray(jarFunnelProfile) || !jarFunnelProfile[row]) {
+          return [0, gridCols];
+        }
+        return jarFunnelProfile[row];
+      }
+
+      function getFunnelSpanForRows(row, size) {
+        if (gridRows <= 0 || gridCols <= 0) {
+          return { start: 0, end: gridCols };
+        }
+        let start = 0;
+        let end = gridCols;
+        let maxRow = Math.min(gridRows, row + size);
+        for (let r = row; r < maxRow; r++) {
+          let span = getFunnelSpanAtRow(r);
+          if (!span) continue;
+          start = Math.max(start, span[0]);
+          end = Math.min(end, span[1]);
+        }
+        if (end <= start) {
+          let fallbackStart = Math.max(0, Math.floor(gridCols / 2 - size / 2));
+          return { start: fallbackStart, end: Math.min(gridCols, fallbackStart + size) };
+        }
+        return { start, end };
+      }
+
+      function clampColumnToFunnel(col, row, size) {
+        if (gridCols <= 0) return col;
+        let span = getFunnelSpanForRows(row, size);
+        let minCol = Math.max(0, Math.min(span.start, gridCols - size));
+        let maxCol = Math.max(minCol, Math.min(gridCols - size, span.end - size));
+        return Math.max(minCol, Math.min(maxCol, col));
       }
 
       function occupyPowderCells(powder) {
@@ -1488,6 +1583,9 @@
         if (row + size > gridRows || col + size > gridCols) return false;
         for (let r = 0; r < size; r++) {
           for (let c = 0; c < size; c++) {
+            if (jarWalls[row + r] && jarWalls[row + r][col + c]) {
+              return false;
+            }
             let occupant = grid[row + r][col + c];
             if (occupant && occupant !== ignorePowder) {
               return false;
@@ -1500,8 +1598,9 @@
       function clampPowderToBounds(powder) {
         let size = getPowderSize(powder);
         if (gridCols <= 0 || gridRows <= 0) return;
-        powder.col = Math.max(0, Math.min(gridCols - size, powder.col));
-        powder.row = Math.max(0, Math.min(gridRows - size, powder.row));
+        let maxRow = Math.max(0, gridRows - size);
+        powder.row = Math.max(0, Math.min(maxRow, powder.row));
+        powder.col = clampColumnToFunnel(powder.col, powder.row, size);
       }
 
       function measureOpenDepth(powder, dir) {
@@ -4145,6 +4244,19 @@
       function isHoleSpan(col, size) {
         if (!jarReleaseState || !jarReleaseState.open) return false;
         if (gridCols <= 0) return false;
+        if (jarNeckSpan && jarNeckSpan.end > jarNeckSpan.start) {
+          let start = jarNeckSpan.start;
+          let end = jarNeckSpan.end;
+          let width = end - start;
+          if (width < size) {
+            let deficit = size - width;
+            let expandLeft = Math.ceil(deficit / 2);
+            let expandRight = deficit - expandLeft;
+            start = Math.max(0, start - expandLeft);
+            end = Math.min(gridCols, end + expandRight);
+          }
+          return col >= start && col + size <= end;
+        }
         let pixelSize = cellPixelSize > 0 ? cellPixelSize : 1;
         let neckCells = Math.max(size, Math.round(5 / pixelSize));
         neckCells = Math.max(1, Math.min(neckCells, gridCols));
@@ -6189,6 +6301,7 @@
         let centerCol = (centerX - jarLeft) / cellPixelSize;
         let col = Math.round(centerCol - size / 2);
         col = Math.max(0, Math.min(gridCols - size, col));
+        col = clampColumnToFunnel(col, 0, size);
         if (!canOccupy(0, col, size)) {
           return false;
         }
