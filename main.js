@@ -2093,16 +2093,6 @@
           state.deliveryPulse = Math.max(0, (state.deliveryPulse || 0) - dt * 1.4);
           return;
         }
-        let spawnInterval = Math.max(
-          0.08,
-          (state.geometry.spawnRate || 0.22) / Math.max(0.4, speedBoost)
-        );
-        updateConveyorQueueParticles(state, dt, speedBoost);
-        state.spawnTimer = (state.spawnTimer || 0) - dt;
-        while (state.queue && state.queue.length > 0 && state.spawnTimer <= 0) {
-          spawnConveyorBatch(state);
-          state.spawnTimer += spawnInterval;
-        }
         updateConveyorFallers(state, dt, speedBoost);
         processConveyorBuffer(state, dt, speedBoost);
         runModuleAutomation(state, 'conveyor', dt, 5.5, rushConveyor);
@@ -2244,66 +2234,6 @@
         }
       }
 
-      function updateConveyorQueueParticles(state, dt, speedBoost) {
-        if (!state || !state.geometry) return;
-        if (!Array.isArray(state.queue) || state.queue.length === 0) return;
-        let geometry = state.geometry;
-        let entryRange = geometry.entryRange || [-0.28, 0.28];
-        let walkwayTop =
-          geometry.bounds && geometry.bounds.minY != null
-            ? geometry.bounds.minY
-            : (geometry.holeTop || 0) - 0.08;
-        let targetY = geometry.holeTop != null ? geometry.holeTop : walkwayTop + 0.08;
-        if (targetY < walkwayTop) {
-          targetY = walkwayTop + 0.08;
-        }
-        let acceleration = 1.4 + speedBoost * 0.4;
-        let maxVelocity = 3.2 * Math.max(1, speedBoost);
-        for (let entry of state.queue) {
-          if (!entry) continue;
-          let particle = entry.particle;
-          if (!particle) {
-            particle = createPowderParticleForEntity(entry.grain, 'conveyor', {
-              state: 'queued'
-            });
-            entry.particle = particle;
-          }
-          let source = entry.source != null ? entry.source : 0.5;
-          let x = lerp(entryRange[0], entryRange[1], source);
-          let y = particle.y != null ? particle.y : walkwayTop;
-          let vy = particle.vy != null ? particle.vy : 0;
-          if (y < targetY) {
-            vy = Math.min(maxVelocity, vy + acceleration * dt);
-            y = Math.min(targetY, y + vy * dt);
-            if (y >= targetY) {
-              vy = 0;
-            }
-          } else {
-            y = targetY;
-            vy = 0;
-          }
-          updatePowderParticle(
-            particle,
-            {
-              state: 'queued',
-              x,
-              y,
-              vx: 0,
-              vy,
-              data: {
-                ...(particle.data || {}),
-                targetY,
-                walkwayTop,
-                spawnRatio: source
-              }
-            },
-            false
-          );
-          entry.source = source;
-          entry.particle = particle;
-        }
-      }
-
       function setupConveyorGeometry(state) {
         if (state.initialized) return;
         state.initialized = true;
@@ -2321,60 +2251,33 @@
         };
       }
 
-      function spawnConveyorBatch(state) {
-        if (!state.geometry || !state.queue || state.queue.length === 0) {
-          return;
+      function startConveyorDrop(state, grain, source, options = {}) {
+        if (!state || !grain) return null;
+        setupConveyorGeometry(state);
+        let geometry = state.geometry || {};
+        let entryRange = geometry.entryRange || [-0.28, 0.28];
+        let spawnX = lerp(entryRange[0], entryRange[1], constrain(source ?? 0.5, 0, 1));
+        let walkwayTop =
+          geometry.bounds && geometry.bounds.minY != null
+            ? geometry.bounds.minY
+            : (geometry.holeTop || 0) - 0.12;
+        let spawnY = walkwayTop;
+        if (typeof options.startY === 'number') {
+          spawnY = options.startY;
         }
-        let range = state.geometry.entryRange || [-0.32, 0.32];
-        let readyY =
-          state.geometry && state.geometry.holeTop != null
-            ? state.geometry.holeTop
-            : 0;
-        let spawned = 0;
-        while (spawned < 3 && state.queue.length > 0) {
-          let entry = state.queue[0];
-          if (!entry || !entry.grain) {
-            state.queue.shift();
-            continue;
+        let particle = createPowderParticleForEntity(grain, 'conveyor', {
+          state: 'fall',
+          x: spawnX + random(-0.01, 0.01),
+          y: spawnY,
+          vx: 0,
+          vy: 0,
+          data: {
+            source: constrain(source ?? 0.5, 0, 1)
           }
-          let particle = entry.particle;
-          if (!particle || particle.y < readyY - 0.0001) {
-            break;
-          }
-          state.queue.shift();
-          let source = entry.source != null ? entry.source : 0.5;
-          let spawnX = lerp(range[0], range[1], source);
-          spawnX += random(-0.02, 0.02);
-          if (!particle) {
-            particle = createPowderParticleForEntity(entry.grain, 'conveyor', {
-              state: 'fall',
-              x: spawnX,
-              y: readyY,
-              vx: 0,
-              vy: -0.04
-            });
-          }
-          particle.vx = 0;
-          particle.vy = -0.04;
-          particle.x = spawnX;
-          particle.y = readyY;
-          particle.segment = 0;
-          updatePowderParticle(particle, {
-            state: 'fall',
-            x: particle.x,
-            y: particle.y,
-            vx: particle.vx,
-            vy: particle.vy,
-            segment: 0,
-            progress: 0,
-            data: { source }
-          });
-          state.fallers.push(particle);
-          spawned += 1;
-        }
-        while (state.fallers.length > 48) {
-          state.fallers.shift();
-        }
+        });
+        state.fallers = state.fallers || [];
+        state.fallers.push(particle);
+        return particle;
       }
 
       function updateConveyorFallers(state, dt, speedBoost) {
@@ -3587,7 +3490,7 @@
           if (entryLeft && entryRight) {
             let queueStrength = Math.min(
               1,
-              ((state.queue ? state.queue.length : 0) || 0) / 24
+              ((state.fallers ? state.fallers.length : 0) || 0) / 24
             );
             stroke(withAlpha('#38bdf8', 180 + queueStrength * 60));
             strokeWeight(Math.max(2, baseRadius * 0.35));
@@ -3930,19 +3833,25 @@
           let innerRight = right - walkwayWidth * 0.2;
           let innerTop = gapTop + scaledY(2);
           let innerBottom = gapBottom - scaledY(2);
-          noStroke();
-          fill(withAlpha('#09213d', 230));
+          noFill();
+          stroke(withAlpha('#0b1f3a', 220));
+          strokeWeight(Math.max(2, scaledX(2)));
           rect(
             context.center.x - glowWidth / 2,
-            gapTop - scaledY(10),
+            gapTop - scaledY(6),
             context.center.x + glowWidth / 2,
-            gapBottom + scaledY(10)
+            gapBottom + scaledY(6)
           );
-          let walkwayColor = jarReleaseState.open ? '#38bdf8' : '#1d4ed8';
-          fill(withAlpha(walkwayColor, jarReleaseState.open ? 220 : 150));
-          rect(left - scaledX(3), gapTop, right + scaledX(3), gapBottom);
-          fill(withAlpha('#e0f2fe', jarReleaseState.open ? 160 : 70));
-          rect(innerLeft, innerTop, innerRight, innerBottom);
+          stroke(
+            withAlpha(jarReleaseState.open ? '#38bdf8' : '#1d4ed8', jarReleaseState.open ? 200 : 140)
+          );
+          strokeWeight(Math.max(2, scaledX(3)));
+          line(left, gapTop, left, gapBottom);
+          line(right, gapTop, right, gapBottom);
+          strokeWeight(Math.max(1, scaledX(2)));
+          line(innerLeft, innerTop, innerLeft, innerBottom);
+          line(innerRight, innerTop, innerRight, innerBottom);
+          noStroke();
           let conveyorState = moduleStates && moduleStates.conveyor;
           if (conveyorState && conveyorState.geometry) {
             let geometry = conveyorState.geometry;
@@ -3962,13 +3871,6 @@
             let innerHeight = innerBottom - innerTop;
             if (innerWidth > 0 && innerHeight > 0) {
               let walkwayParticles = [];
-              if (Array.isArray(conveyorState.queue)) {
-                for (let entry of conveyorState.queue) {
-                  if (entry && entry.particle) {
-                    walkwayParticles.push(entry.particle);
-                  }
-                }
-              }
               if (Array.isArray(conveyorState.fallers)) {
                 for (let particle of conveyorState.fallers) {
                   if (particle && particle.y <= walkwayBottomNorm + 0.0001) {
@@ -4364,44 +4266,20 @@
         if (!isMachineUnlocked('conveyor')) return;
         if (!grains || grains.length === 0) return;
         let state = moduleStates.conveyor;
-        state.queue = state.queue || [];
         setupConveyorGeometry(state);
         let size = getPowderSize(powder);
         let centerCol = powder.col + size / 2;
         let ratio = gridCols > 0 ? constrain(centerCol / gridCols, 0, 1) : 0.5;
         let geometry = state.geometry || {};
-        let entryRange = geometry.entryRange || [-0.28, 0.28];
         let walkwayTop =
           geometry.bounds && geometry.bounds.minY != null
             ? geometry.bounds.minY
             : (geometry.holeTop || 0) - 0.08;
-        let walkwayBottom = geometry.holeTop != null ? geometry.holeTop : walkwayTop + 0.08;
         for (let i = 0; i < grains.length; i++) {
           let grain = grains[i];
           let spread = grains.length > 1 ? (i / Math.max(1, grains.length - 1)) - 0.5 : 0;
           let source = constrain(ratio + spread * 0.1 + random(-0.04, 0.04), 0, 1);
-          let particle = createPowderParticleForEntity(grain, 'conveyor', {
-            state: 'queued',
-            x: lerp(entryRange[0], entryRange[1], source),
-            y: walkwayTop,
-            vx: 0,
-            vy: 0,
-            data: {
-              spawnRatio: source,
-              targetY: walkwayBottom,
-              walkwayTop
-            }
-          });
-          state.queue.push({
-            grain,
-            source,
-            color: grain.color,
-            type: grain.type,
-            particle
-          });
-        }
-        while (state.queue.length > 280) {
-          state.queue.shift();
+          startConveyorDrop(state, grain, source, { startY: walkwayTop });
         }
       }
 
@@ -4409,39 +4287,19 @@
         if (!moduleStates || !moduleStates.conveyor) return;
         if (!grains || grains.length === 0) return;
         let state = moduleStates.conveyor;
-        state.queue = state.queue || [];
         setupConveyorGeometry(state);
         let geometry = state.geometry || {};
-        let entryRange = geometry.entryRange || [-0.28, 0.28];
         let walkwayTop =
           geometry.bounds && geometry.bounds.minY != null
             ? geometry.bounds.minY
             : (geometry.holeTop || 0) - 0.08;
-        let walkwayBottom = geometry.holeTop != null ? geometry.holeTop : walkwayTop + 0.08;
         for (let grain of grains) {
           let baseSource =
             grain && grain.metadata && typeof grain.metadata.spawnRatio === 'number'
               ? grain.metadata.spawnRatio
               : 0.5;
           let source = constrain(baseSource + random(-0.12, 0.12), 0, 1);
-          let particle = createPowderParticleForEntity(grain, 'conveyor', {
-            state: 'queued',
-            x: lerp(entryRange[0], entryRange[1], source),
-            y: walkwayTop,
-            vx: 0,
-            vy: 0,
-            data: { salvage: true, targetY: walkwayBottom, walkwayTop }
-          });
-          state.queue.push({
-            grain,
-            source,
-            color: grain.color,
-            type: grain.type,
-            particle
-          });
-        }
-        while (state.queue.length > 280) {
-          state.queue.shift();
+          startConveyorDrop(state, grain, source, { startY: walkwayTop });
         }
       }
 
