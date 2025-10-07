@@ -803,11 +803,10 @@
         return {
           conveyor: {
             fallers: [],
-            modules: [],
+            restingParticles: [],
             queue: [],
             packageBuffer: [],
             packageHistory: [],
-            departures: [],
             spawnTimer: 0,
             deliveryPulse: 0,
             packageProgress: 0,
@@ -2080,19 +2079,18 @@
             updatePowderParticle(faller, { state: 'stored' });
           }
           state.fallers.length = 0;
-          for (let carrier of state.modules) {
-            if (carrier && carrier.particle) {
-              updatePowderParticle(carrier.particle, { state: 'stored' });
+          if (state.restingParticles) {
+            for (let particle of state.restingParticles) {
+              updatePowderParticle(particle, { state: 'stored' });
             }
+            state.restingParticles.length = 0;
           }
-          state.modules.length = 0;
           state.queue = [];
           state.packageBuffer = [];
           state.packageHistory = [];
-          state.departures = [];
           state.packageProgress = 0;
-          state.packagePulse = Math.max(0, (state.packagePulse || 0) - dt * 2.2);
-          state.deliveryPulse = Math.max(0, (state.deliveryPulse || 0) - dt * 1.6);
+          state.packagePulse = Math.max(0, (state.packagePulse || 0) - dt * 1.4);
+          state.deliveryPulse = Math.max(0, (state.deliveryPulse || 0) - dt * 1.4);
           return;
         }
         let spawnInterval = Math.max(
@@ -2105,7 +2103,18 @@
           state.spawnTimer += spawnInterval;
         }
         updateConveyorFallers(state, dt, speedBoost);
-        updateConveyorModules(state, dt, speedBoost);
+        processConveyorBuffer(state, dt, speedBoost);
+        runModuleAutomation(state, 'conveyor', dt, 5.5, rushConveyor);
+        state.packagePulse = Math.max(0, (state.packagePulse || 0) - dt * 1.4);
+        state.deliveryPulse = Math.max(0, (state.deliveryPulse || 0) - dt * 1.4);
+        if (state.packageHistory) {
+          for (let pkg of state.packageHistory) {
+            pkg.pulse = Math.max(0, (pkg.pulse || 0) - dt * 1.2);
+          }
+        }
+      }
+
+      function processConveyorBuffer(state, dt, speedBoost) {
         let packagingSpeed = 0.45 + speedBoost * 0.08;
         if ((state.packageBuffer || []).length >= CHAIN_REQUIREMENT) {
           state.packageProgress = (state.packageProgress || 0) + dt * packagingSpeed;
@@ -2118,34 +2127,26 @@
         while (
           (state.packageProgress || 0) >= 1 &&
           (state.packageBuffer || []).length >= CHAIN_REQUIREMENT &&
-          (ensureInventory(0).length >= CHAIN_REQUIREMENT)
+          ensureInventory(0).length >= CHAIN_REQUIREMENT
         ) {
           state.packageProgress -= 1;
           let packageGrains = state.packageBuffer.splice(0, CHAIN_REQUIREMENT);
           let removed = consumeEntities(0, packageGrains);
           if (removed.length < CHAIN_REQUIREMENT) {
-            // Requeue any unremoved grains to maintain flow
-            state.packageBuffer.unshift(...packageGrains.filter((g) => !removed.includes(g)));
+            state.packageBuffer.unshift(
+              ...packageGrains.filter((g) => !removed.includes(g))
+            );
             state.packageProgress = 0;
             break;
           }
           despawnParticlesForEntities(removed);
+          if (state.restingParticles && state.restingParticles.length > 0) {
+            state.restingParticles = state.restingParticles.filter(
+              (particle) => particle && !removed.includes(particle.entity)
+            );
+          }
           let packageEntity = createCompositeEntity(1, removed, { origin: 'conveyor' });
           gainEntity(1, packageEntity);
-          let packageParticle = createPowderParticleForEntity(
-            packageEntity,
-            'conveyor',
-            {
-              state: 'packaged',
-              x: state.geometry && state.geometry.packageSpot
-                ? state.geometry.packageSpot.x
-                : 0.4,
-              y: state.geometry && state.geometry.packageSpot
-                ? state.geometry.packageSpot.y
-                : 0.34,
-              progress: 0
-            }
-          );
           state.packagePulse = 1;
           state.deliveryPulse = 1;
           let colors = removed.map((grain) => grain.color);
@@ -2162,18 +2163,20 @@
                 : 1;
             return total + dustValue;
           }, 0);
-          state.departures = state.departures || [];
-          state.departures.push({
-            package: packageEntity,
-            colors,
-            pulse: 1,
-            progress: 0,
-            worth: packageWorth,
-            rocket: isMachineUnlocked('rocket'),
-            particle: packageParticle
-          });
-          while (state.departures.length > 12) {
-            state.departures.shift();
+          let payout = Math.round(packageWorth * 100 * getDustMultiplier());
+          if (payout > 0) {
+            dust += payout;
+            totalDustEarned += payout;
+          }
+          if (isMachineUnlocked('rocket')) {
+            registerRocketArrival({
+              package: packageEntity,
+              colors,
+              pulse: 1,
+              progress: 1,
+              worth: packageWorth,
+              rocket: true
+            });
           }
           let overfillLevel = getUpgradeLevel('conveyorOverfill');
           if (overfillLevel > 0) {
@@ -2187,42 +2190,47 @@
               let bonusRemoved = consumeEntities(0, bonusGrains);
               if (bonusRemoved.length === CHAIN_REQUIREMENT) {
                 despawnParticlesForEntities(bonusRemoved);
-                let bonusPackage = createCompositeEntity(1, bonusRemoved, { origin: 'conveyor' });
-              gainEntity(1, bonusPackage);
-              let bonusParticle = createPowderParticleForEntity(
-                bonusPackage,
-                'conveyor',
-                {
-                  state: 'packaged',
-                  x: state.geometry && state.geometry.packageSpot
-                    ? state.geometry.packageSpot.x
-                    : 0.4,
-                  y: state.geometry && state.geometry.packageSpot
-                    ? state.geometry.packageSpot.y
-                    : 0.34,
-                  progress: 0
+                if (state.restingParticles && state.restingParticles.length > 0) {
+                  state.restingParticles = state.restingParticles.filter(
+                    (particle) => particle && !bonusRemoved.includes(particle.entity)
+                  );
                 }
-              );
-              let bonusWorth = bonusRemoved.reduce((total, grain) => {
-                let type = grain.type != null ? grain.type : 0;
-                let dustValue =
-                  powderTypes[type] && powderTypes[type].dustValue != null
-                    ? powderTypes[type].dustValue
-                    : 1;
-                return total + dustValue;
-              }, 0);
-              state.departures.push({
-                package: bonusPackage,
-                colors: bonusRemoved.map((grain) => grain.color),
-                pulse: 1,
-                progress: 0,
-                worth: bonusWorth,
-                rocket: isMachineUnlocked('rocket'),
-                particle: bonusParticle
-              });
-              state.deliveryPulse = 1;
+                let bonusPackage = createCompositeEntity(1, bonusRemoved, {
+                  origin: 'conveyor'
+                });
+                gainEntity(1, bonusPackage);
+                let bonusColors = bonusRemoved.map((grain) => grain.color);
+                state.packageHistory.push({ colors: bonusColors, pulse: 1 });
+                while (state.packageHistory.length > 4) {
+                  state.packageHistory.shift();
+                }
+                let bonusWorth = bonusRemoved.reduce((total, grain) => {
+                  let type = grain.type != null ? grain.type : 0;
+                  let dustValue =
+                    powderTypes[type] && powderTypes[type].dustValue != null
+                      ? powderTypes[type].dustValue
+                      : 1;
+                  return total + dustValue;
+                }, 0);
+                let bonusPayout = Math.round(
+                  bonusWorth * 100 * getDustMultiplier()
+                );
+                if (bonusPayout > 0) {
+                  dust += bonusPayout;
+                  totalDustEarned += bonusPayout;
+                }
+                if (isMachineUnlocked('rocket')) {
+                  registerRocketArrival({
+                    package: bonusPackage,
+                    colors: bonusColors,
+                    pulse: 1,
+                    progress: 1,
+                    worth: bonusWorth,
+                    rocket: true
+                  });
+                }
+                state.deliveryPulse = 1;
               } else {
-                // Return grains if bonus package failed to form
                 state.packageBuffer.unshift(...bonusGrains);
                 gainEntities(0, bonusRemoved);
               }
@@ -2233,54 +2241,22 @@
             }
           }
         }
-        state.packagePulse = Math.max(
-          0,
-          (state.packagePulse || 0) - dt * 2.2
-        );
-        state.deliveryPulse = Math.max(
-          0,
-          (state.deliveryPulse || 0) - dt * 1.6
-        );
-        if (state.packageHistory) {
-          for (let pkg of state.packageHistory) {
-            pkg.pulse = Math.max(0, (pkg.pulse || 0) - dt * 1.2);
-          }
-        }
-        updateConveyorDepartures(state, dt, speedBoost);
-        runModuleAutomation(state, 'conveyor', dt, 5.5, rushConveyor);
       }
 
       function setupConveyorGeometry(state) {
         if (state.initialized) return;
         state.initialized = true;
         state.fallers = state.fallers || [];
-        state.modules = state.modules || [];
+        state.restingParticles = state.restingParticles || [];
         state.queue = state.queue || [];
         state.packageBuffer = state.packageBuffer || [];
         state.packageHistory = state.packageHistory || [];
-        state.departures = state.departures || [];
         state.geometry = {
           holeTop: -0.74,
-          beltY: -0.32,
+          floorY: 0.34,
           entryRange: [-0.28, 0.28],
           spawnRate: 0.24,
-          beltSegments: [
-            {
-              from: { x: 0.2, y: -0.32 },
-              to: { x: -0.62, y: -0.32 },
-              speed: 0.42,
-              type: 'belt'
-            },
-            {
-              from: { x: -0.62, y: -0.32 },
-              to: { x: -0.62, y: 0.02 },
-              speed: 0.58,
-              type: 'drop'
-            }
-          ],
-          compactorBox: { x: -0.62, y: 0.08, width: 0.56, height: 0.44 },
-          packageSpot: { x: -0.62, y: 0.04 },
-          packageExit: { x: -0.12, y: 0.32 }
+          bounds: { minX: -0.42, maxX: 0.42, minY: -0.82, maxY: 0.38 }
         };
       }
 
@@ -2331,13 +2307,21 @@
       function updateConveyorFallers(state, dt, speedBoost) {
         if (!state.geometry) return;
         let gravity = 1.6 * speedBoost;
-        let beltY = state.geometry.beltY;
+        let floorY =
+          state.geometry.floorY != null ? state.geometry.floorY : 0.34;
+        let bounds = state.geometry.bounds || {
+          minX: -0.4,
+          maxX: 0.4,
+          minY: -0.82,
+          maxY: 0.38
+        };
         for (let i = state.fallers.length - 1; i >= 0; i--) {
           let faller = state.fallers[i];
           faller.vy = (faller.vy || 0) + gravity * dt;
           faller.y += faller.vy * dt;
-          faller.vx = (faller.vx || 0) * 0.9 + (0 - faller.x) * dt * 1.4 * speedBoost;
+          faller.vx = (faller.vx || 0) * 0.9;
           faller.x += faller.vx * dt;
+          faller.x = constrain(faller.x, bounds.minX, bounds.maxX);
           updatePowderParticle(faller, {
             state: 'fall',
             x: faller.x,
@@ -2345,151 +2329,48 @@
             vx: faller.vx,
             vy: faller.vy
           });
-          if (faller.y >= beltY) {
-            let carrier = {
-              segment: 0,
-              progress: 0,
-              wobble: Math.random() * TAU,
-              particle: faller
-            };
-            state.modules.push(carrier);
-            if (state.modules.length > 48) {
-              state.modules.shift();
-            }
+          if (faller.y >= floorY) {
+            faller.y = floorY;
+            faller.vx = 0;
+            faller.vy = 0;
+            faller.x += random(-0.01, 0.01);
+            faller.x = constrain(faller.x, bounds.minX, bounds.maxX);
             updatePowderParticle(faller, {
-              state: 'belt',
-              y: beltY,
-              vx: faller.vx,
-              vy: 0,
-              progress: 0,
-              segment: 0
+              state: 'rest',
+              x: faller.x,
+              y: faller.y,
+              vx: 0,
+              vy: 0
             });
+            if (faller.entity) {
+              state.packageBuffer.push(faller.entity);
+              if (state.packageBuffer.length > 280) {
+                state.packageBuffer.splice(
+                  0,
+                  state.packageBuffer.length - 280
+                );
+              }
+            }
+            state.restingParticles.push(faller);
             state.fallers.splice(i, 1);
             continue;
           }
-          if (faller.y > 1.4 || Math.abs(faller.x) > 1.2) {
+          if (
+            faller.y > bounds.maxY + 0.4 ||
+            Math.abs(faller.x) > bounds.maxX + 0.4
+          ) {
             updatePowderParticle(faller, { state: 'lost' });
             state.fallers.splice(i, 1);
           }
         }
-      }
-
-      function updateConveyorModules(state, dt, speedBoost) {
-        if (!state.geometry) return;
-        let segments = state.geometry.beltSegments || [];
-        for (let i = state.modules.length - 1; i >= 0; i--) {
-          let carrier = state.modules[i];
-          let particle = carrier.particle;
-          let segment = segments[carrier.segment];
-          if (!segment) {
-            state.modules.splice(i, 1);
-            if (particle && particle.entity) {
-              state.packageBuffer.push(particle.entity);
-              updatePowderParticle(particle, {
-                state: 'buffered',
-                x: state.geometry.packageSpot ? state.geometry.packageSpot.x : carrier.x,
-                y: state.geometry.packageSpot ? state.geometry.packageSpot.y : carrier.y,
-                segment: null
-              });
-            }
-            if (state.packageBuffer.length > CHAIN_REQUIREMENT * 3) {
-              state.packageBuffer.splice(0, state.packageBuffer.length - CHAIN_REQUIREMENT * 3);
-            }
-            state.deliveryPulse = 1;
-            continue;
-          }
-          let speed =
-            segment.speed *
-            (segment.type === 'drop' ? Math.max(1, speedBoost * 1.1) : speedBoost);
-          carrier.progress = (carrier.progress || 0) + dt * speed;
-          while (carrier.progress >= 1) {
-            carrier.progress -= 1;
-            carrier.segment += 1;
-            segment = segments[carrier.segment];
-            if (!segment) {
-              break;
-            }
-          }
-          if (!segment) {
-            state.modules.splice(i, 1);
-            if (particle && particle.entity) {
-              state.packageBuffer.push(particle.entity);
-              updatePowderParticle(particle, {
-                state: 'buffered',
-                x: state.geometry.packageSpot ? state.geometry.packageSpot.x : carrier.x,
-                y: state.geometry.packageSpot ? state.geometry.packageSpot.y : carrier.y,
-                segment: null
-              });
-            }
-            if (state.packageBuffer.length > CHAIN_REQUIREMENT * 3) {
-              state.packageBuffer.splice(0, state.packageBuffer.length - CHAIN_REQUIREMENT * 3);
-            }
-            state.deliveryPulse = 1;
-            continue;
-          }
-          let eased =
-            segment.type === 'drop'
-              ? Math.pow(carrier.progress, 1.4)
-              : smoothStep(carrier.progress);
-          carrier.x = lerp(segment.from.x, segment.to.x, eased);
-          carrier.y = lerp(segment.from.y, segment.to.y, eased);
-          carrier.wobble = (carrier.wobble || 0) + dt * 6;
+        while (state.restingParticles.length > 120) {
+          let particle = state.restingParticles.shift();
           if (particle) {
-            particle.segment = carrier.segment;
-            updatePowderParticle(particle, {
-              state: segment.type === 'drop' ? 'drop' : 'belt',
-              x: carrier.x,
-              y: carrier.y,
-              progress: carrier.progress,
-              segment: carrier.segment
-            });
+            updatePowderParticle(particle, { state: 'stored' });
           }
         }
       }
 
-      function updateConveyorDepartures(state, dt, speedBoost) {
-        if (!state.geometry) return;
-        state.departures = state.departures || [];
-        let start = state.geometry.packageSpot || { x: 0.4, y: 0.42 };
-        let exit = state.geometry.packageExit || { x: -0.72, y: start.y - 0.08 };
-        let moveSpeed = 0.42 + speedBoost * 0.18;
-        for (let i = state.departures.length - 1; i >= 0; i--) {
-          let pkg = state.departures[i];
-          pkg.progress = (pkg.progress || 0) + dt * moveSpeed;
-          pkg.pulse = Math.max(0, (pkg.pulse || 0) - dt * 1.4);
-          let completed = pkg.progress >= 1;
-          if (pkg.particle) {
-            let particle = pkg.particle;
-            let progress = constrain(pkg.progress || 0, 0, 1);
-            let eased = smoothStep(progress);
-            let arc = Math.sin(eased * Math.PI) * 0.12;
-            let pathX = lerp(start.x, exit.x, eased);
-            let pathY = lerp(start.y, exit.y, eased) - arc * (pkg.rocket ? 0.6 : 0.4);
-            updatePowderParticle(particle, {
-              state: completed ? 'departed' : 'departing',
-              x: pathX,
-              y: pathY,
-              progress: pkg.progress
-            });
-          }
-          if (!completed) {
-            continue;
-          }
-          if (pkg.rocket) {
-            registerRocketArrival(pkg);
-          } else {
-            let payout = Math.round((pkg.worth || 0) * 100 * getDustMultiplier());
-            if (payout > 0) {
-              dust += payout;
-              totalDustEarned += payout;
-            }
-            if (pkg.package) {
-              removePowderParticleForEntity(pkg.package);
-            }
-          }
-          state.departures.splice(i, 1);
-        }
-      }
 
       function registerRocketArrival(pkg) {
         let rocketState = moduleStates && moduleStates.rocket;
@@ -3553,6 +3434,7 @@
         drawModuleShell(context, '#38bdf8');
         let state = moduleStates.conveyor;
         if (!state) return;
+        setupConveyorGeometry(state);
         drawConveyorInterior(context, state);
         let progress = typeof state.packageProgress === 'number' ? state.packageProgress : 0;
         push();
@@ -3562,400 +3444,107 @@
       }
 
       function drawConveyorInterior(context, state) {
-        if (!state) return;
-        if (!state.geometry) {
-          setupConveyorGeometry(state);
-        }
+        if (!state || !state.geometry) return;
+        let { center, panelW, panelH } = context;
         let geometry = state.geometry;
-        if (!geometry) return;
-        let projection = createConveyorProjection(context, geometry);
-        if (!projection) return;
-        let bounds = projection.bounds;
-        let baseRadius = Math.max(
-          4,
-          Math.min(context.panelW || 0, context.panelH || 0) * 0.08
-        );
+        let bounds = geometry.bounds || {
+          minX: -0.42,
+          maxX: 0.42,
+          minY: -0.82,
+          maxY: 0.38
+        };
+        let outerW = panelW * 0.74;
+        let outerH = panelH * 0.54;
+        let paddingX = outerW * 0.12;
+        let paddingY = outerH * 0.12;
+        let innerLeft = -outerW / 2 + paddingX;
+        let innerTop = -outerH / 2 + paddingY;
+        let innerW = outerW - paddingX * 2;
+        let innerH = outerH - paddingY * 1.6;
+        let floorY = geometry.floorY != null ? geometry.floorY : 0.34;
+        let holeTop = geometry.holeTop != null ? geometry.holeTop : bounds.minY;
+        let entryRange = geometry.entryRange || [-0.28, 0.28];
+        let widthRange = Math.max(1e-6, bounds.maxX - bounds.minX);
+        let heightRange = Math.max(1e-6, bounds.maxY - bounds.minY);
+        let projectPoint = (x, y) => {
+          if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+          let ratioX = constrain((x - bounds.minX) / widthRange, 0, 1);
+          let ratioY = constrain((y - bounds.minY) / heightRange, 0, 1);
+          return {
+            x: innerLeft + innerW * ratioX,
+            y: innerTop + innerH * ratioY
+          };
+        };
+        let baseRadius = Math.max(3, Math.min(innerW, innerH) * 0.06);
         push();
-        rectMode(CORNERS);
-        noStroke();
-        let topLeft = projectConveyorPoint(projection, {
-          x: bounds.minX,
-          y: bounds.minY
-        });
-        let bottomRight = projectConveyorPoint(projection, {
-          x: bounds.maxX,
-          y: bounds.maxY
-        });
-        if (topLeft && bottomRight) {
-          fill(withAlpha('#030b18', 235));
+        translate(center.x, center.y);
+        rectMode(CORNER);
+        fill('#030b18');
+        rect(-outerW / 2, -outerH / 2, outerW, outerH, 16);
+        fill('#020912');
+        rect(
+          -outerW / 2 + paddingX * 0.4,
+          -outerH / 2 + paddingY * 0.4,
+          outerW - paddingX * 0.8,
+          outerH - paddingY * 0.8,
+          12
+        );
+        fill(withAlpha('#06142b', 235));
+        rect(innerLeft, innerTop, innerW, innerH, 12);
+        let floorLeft = projectPoint(bounds.minX, floorY);
+        let floorRight = projectPoint(bounds.maxX, floorY);
+        if (floorLeft && floorRight) {
+          let pulse = 1 + Math.max(0, state.packagePulse || 0) * 0.35;
+          stroke(withAlpha('#38bdf8', 120));
+          strokeWeight(Math.max(2, baseRadius * 0.3));
+          line(floorLeft.x, floorLeft.y, floorRight.x, floorRight.y);
+          noStroke();
+          fill(withAlpha('#38bdf8', 40 * pulse));
           rect(
-            topLeft.x,
-            topLeft.y,
-            bottomRight.x,
-            bottomRight.y,
-            Math.max(10, context.panelW * 0.08)
+            innerLeft,
+            floorLeft.y,
+            innerW,
+            innerH - (floorLeft.y - innerTop),
+            10
           );
         }
-        pop();
-        if (geometry.packageSpot) {
-          let packagePoint = projectConveyorPoint(projection, geometry.packageSpot);
-          if (packagePoint) {
-            let pulse = 1 + Math.max(0, state.packagePulse || 0) * 0.35;
-            push();
-            noStroke();
-            fill(withAlpha('#38bdf8', 80 + (state.packagePulse || 0) * 120));
-            circle(packagePoint.x, packagePoint.y, baseRadius * 3.2 * pulse);
-            pop();
-          }
-        }
-        if (geometry.packageExit) {
-          let exitPoint = projectConveyorPoint(projection, geometry.packageExit);
-          if (exitPoint) {
-            let pulse = 0.7 + Math.max(0, state.deliveryPulse || 0) * 0.45;
-            push();
-            noStroke();
-            fill(withAlpha('#1e3a8a', 120 + (state.deliveryPulse || 0) * 90));
-            circle(exitPoint.x, exitPoint.y, baseRadius * 2.4 * pulse);
-            pop();
-          }
-        }
-        if (geometry.entryRange && geometry.entryRange.length >= 2) {
-          let entryLeft = projectConveyorPoint(projection, {
-            x: geometry.entryRange[0],
-            y: geometry.holeTop
-          });
-          let entryRight = projectConveyorPoint(projection, {
-            x: geometry.entryRange[1],
-            y: geometry.holeTop
-          });
+        if (Array.isArray(entryRange)) {
+          let entryLeft = projectPoint(entryRange[0], holeTop);
+          let entryRight = projectPoint(entryRange[1], holeTop);
           if (entryLeft && entryRight) {
             let queueStrength = Math.min(
               1,
               ((state.queue ? state.queue.length : 0) || 0) / 24
             );
-            push();
-            stroke(withAlpha('#38bdf8', 160 + queueStrength * 60));
-            strokeWeight(Math.max(2, baseRadius * 0.45));
+            stroke(withAlpha('#38bdf8', 180 + queueStrength * 60));
+            strokeWeight(Math.max(2, baseRadius * 0.35));
             strokeCap(ROUND);
             line(entryLeft.x, entryLeft.y, entryRight.x, entryRight.y);
-            pop();
           }
         }
-        if (Array.isArray(geometry.beltSegments)) {
+        let drawParticle = (particle, alpha = 220) => {
+          if (!particle) return;
+          let point = projectPoint(particle.x, particle.y);
+          if (!point) return;
+          let colorHex = particle.color || '#e7c97a';
           push();
-          strokeCap(ROUND);
-          for (let segment of geometry.beltSegments) {
-            if (!segment) continue;
-            let fromPoint = projectConveyorPoint(projection, segment.from);
-            let toPoint = projectConveyorPoint(projection, segment.to);
-            if (!fromPoint || !toPoint) continue;
-            let isBelt = segment.type === 'belt';
-            let thickness = Math.max(3, baseRadius * (isBelt ? 0.9 : 0.7));
-            stroke(
-              withAlpha(isBelt ? '#38bdf8' : '#60a5fa', isBelt ? 220 : 190)
-            );
-            strokeWeight(thickness);
-            line(fromPoint.x, fromPoint.y, toPoint.x, toPoint.y);
-            if (isBelt) {
-              stroke(withAlpha('#0f172a', 140));
-              strokeWeight(thickness * 0.45);
-              line(fromPoint.x, fromPoint.y, toPoint.x, toPoint.y);
-              let midPoint = {
-                x: (segment.from.x + segment.to.x) / 2,
-                y: (segment.from.y + segment.to.y) / 2
-              };
-              let arrowPoint = projectConveyorPoint(projection, midPoint);
-              if (arrowPoint) {
-                let angle = Math.atan2(
-                  segment.to.y - segment.from.y,
-                  segment.to.x - segment.from.x
-                );
-                let arrowSize = Math.max(4, baseRadius * 0.6);
-                push();
-                translate(arrowPoint.x, arrowPoint.y);
-                rotate(angle);
-                noStroke();
-                fill(withAlpha('#38bdf8', 210));
-                triangle(
-                  -arrowSize * 0.4,
-                  arrowSize * 0.5,
-                  -arrowSize * 0.4,
-                  -arrowSize * 0.5,
-                  arrowSize * 0.6,
-                  0
-                );
-                pop();
-              }
-            }
-          }
+          noStroke();
+          fill(withAlpha(colorHex, alpha));
+          circle(point.x, point.y, baseRadius);
           pop();
-        }
-        drawConveyorCompactor(state, projection, geometry, baseRadius);
-        let drawParticle = (particle, options = {}) => {
-          drawConveyorParticle(particle, projection, baseRadius, options);
         };
-        if (Array.isArray(state.queue)) {
-          for (let entry of state.queue) {
-            if (!entry || !entry.particle) continue;
-            drawParticle(entry.particle, { alpha: 110, scale: 0.85 });
+        if (Array.isArray(state.restingParticles)) {
+          for (let particle of state.restingParticles) {
+            drawParticle(particle, 230);
           }
         }
         if (Array.isArray(state.fallers)) {
-          for (let faller of state.fallers) {
-            drawParticle(faller, { alpha: 220, glow: true });
-          }
-        }
-        if (Array.isArray(state.modules)) {
-          for (let carrier of state.modules) {
-            if (!carrier || !carrier.particle) continue;
-            drawParticle(carrier.particle, { alpha: 230, glow: true });
-          }
-        }
-        if (Array.isArray(state.departures)) {
-          for (let pkg of state.departures) {
-            if (!pkg) continue;
-            drawConveyorPackage(pkg, projection, baseRadius);
-          }
-        }
-      }
-
-      function createConveyorProjection(context, geometry) {
-        if (!context || !geometry) return null;
-        let points = [];
-        let addPoint = (pt) => {
-          if (!pt) return;
-          let px = typeof pt.x === 'number' ? pt.x : 0;
-          let py = typeof pt.y === 'number' ? pt.y : 0;
-          if (!Number.isFinite(px) || !Number.isFinite(py)) return;
-          points.push({ x: px, y: py });
-        };
-        if (Array.isArray(geometry.entryRange)) {
-          addPoint({ x: geometry.entryRange[0], y: geometry.holeTop });
-          addPoint({ x: geometry.entryRange[1], y: geometry.holeTop });
-        }
-        if (Array.isArray(geometry.beltSegments)) {
-          for (let segment of geometry.beltSegments) {
-            if (!segment) continue;
-            addPoint(segment.from);
-            addPoint(segment.to);
-          }
-        }
-        if (geometry.compactorBox) {
-          let box = geometry.compactorBox;
-          let halfW = (box.width || 0) / 2;
-          let halfH = (box.height || 0) / 2;
-          addPoint({ x: box.x - halfW, y: box.y - halfH });
-          addPoint({ x: box.x + halfW, y: box.y + halfH });
-        }
-        addPoint(geometry.packageSpot);
-        addPoint(geometry.packageExit);
-        if (points.length === 0) {
-          points.push({ x: -1, y: -0.5 });
-          points.push({ x: 1, y: 0.5 });
-        }
-        let minX = Infinity;
-        let maxX = -Infinity;
-        let minY = Infinity;
-        let maxY = -Infinity;
-        for (let pt of points) {
-          minX = Math.min(minX, pt.x);
-          maxX = Math.max(maxX, pt.x);
-          minY = Math.min(minY, pt.y);
-          maxY = Math.max(maxY, pt.y);
-        }
-        if (!Number.isFinite(minX) || !Number.isFinite(maxX)) {
-          return null;
-        }
-        let paddingX = 0.18;
-        let paddingY = 0.22;
-        minX -= paddingX;
-        maxX += paddingX;
-        minY -= paddingY;
-        maxY += paddingY;
-        let width = Math.max(0.1, maxX - minX);
-        let height = Math.max(0.1, maxY - minY);
-        let viewW = (context.panelW || 0) * 0.76;
-        let viewH = (context.panelH || 0) * 0.54;
-        if (viewW <= 0 || viewH <= 0) {
-          return null;
-        }
-        let scale = Math.min(viewW / width, viewH / height);
-        if (!Number.isFinite(scale) || scale <= 0) {
-          scale = Math.min(viewW, viewH) / Math.max(width, height);
-        }
-        let anchorX = context.center.x;
-        let anchorY = context.center.y - context.panelH * 0.08;
-        let offsetX = anchorX - ((minX + maxX) / 2) * scale;
-        let offsetY = anchorY - ((minY + maxY) / 2) * scale;
-        return {
-          scale,
-          offsetX,
-          offsetY,
-          bounds: { minX, maxX, minY, maxY }
-        };
-      }
-
-      function projectConveyorPoint(mapping, point) {
-        if (!mapping || !point) return null;
-        let px = typeof point.x === 'number' ? point.x : 0;
-        let py = typeof point.y === 'number' ? point.y : 0;
-        if (!Number.isFinite(px) || !Number.isFinite(py)) {
-          return null;
-        }
-        return {
-          x: mapping.offsetX + px * mapping.scale,
-          y: mapping.offsetY + py * mapping.scale
-        };
-      }
-
-      function drawConveyorParticle(particle, mapping, baseRadius, options = {}) {
-        if (!particle || !mapping) return;
-        let position = projectConveyorPoint(mapping, particle);
-        if (!position) return;
-        let radius = baseRadius * (options.scale != null ? options.scale : 1);
-        let colorHex = particle.color || '#e7c97a';
-        let alpha = options.alpha != null ? options.alpha : 220;
-        push();
-        if (options.glow) {
-          stroke(withAlpha('#e2e8f0', 70));
-          strokeWeight(Math.max(1, radius * 0.22));
-        } else {
-          noStroke();
-        }
-        fill(withAlpha(colorHex, alpha));
-        circle(position.x, position.y, radius);
-        pop();
-      }
-
-
-      function drawConveyorCompactor(state, projection, geometry, baseRadius) {
-        if (!geometry || !geometry.compactorBox || !projection) return;
-        let box = geometry.compactorBox;
-        let halfW = (box.width || 0) / 2;
-        let halfH = (box.height || 0) / 2;
-        let topLeft = projectConveyorPoint(projection, {
-          x: box.x - halfW,
-          y: box.y - halfH
-        });
-        let bottomRight = projectConveyorPoint(projection, {
-          x: box.x + halfW,
-          y: box.y + halfH
-        });
-        if (!topLeft || !bottomRight) return;
-        let minX = Math.min(topLeft.x, bottomRight.x);
-        let maxX = Math.max(topLeft.x, bottomRight.x);
-        let minY = Math.min(topLeft.y, bottomRight.y);
-        let maxY = Math.max(topLeft.y, bottomRight.y);
-        let radius = Math.max(4, baseRadius * 0.6);
-        push();
-        rectMode(CORNERS);
-        fill(withAlpha('#021022', 240));
-        stroke(withAlpha('#38bdf8', 200));
-        strokeWeight(Math.max(2, baseRadius * 0.28));
-        rect(minX, minY, maxX, maxY, radius);
-        pop();
-        let padding = Math.max(4, baseRadius * 0.45);
-        let innerLeft = minX + padding;
-        let innerRight = maxX - padding;
-        let innerTop = minY + padding;
-        let innerBottom = maxY - padding;
-        if (innerRight <= innerLeft || innerBottom <= innerTop) {
-          return;
-        }
-        push();
-        rectMode(CORNERS);
-        noStroke();
-        fill(withAlpha('#0b1f38', 230));
-        rect(innerLeft, innerTop, innerRight, innerBottom, Math.max(3, radius * 0.6));
-        pop();
-        let buffer = Array.isArray(state.packageBuffer) ? state.packageBuffer : [];
-        let colors = buffer
-          .slice(0, 16)
-          .map((grain) => (grain && grain.color) || '#e7c97a');
-        if (colors.length === 0 && Array.isArray(state.queue)) {
-          for (let entry of state.queue) {
-            if (!entry || !entry.grain) continue;
-            colors.push(entry.grain.color || '#e7c97a');
-            if (colors.length >= 16) break;
-          }
-        }
-        if (colors.length === 0) {
-          colors.push('#1d4ed8');
-        }
-        let cols = Math.max(1, Math.ceil(Math.sqrt(colors.length)));
-        let rows = Math.max(1, Math.ceil(colors.length / cols));
-        let cellW = (innerRight - innerLeft) / cols;
-        let cellH = (innerBottom - innerTop) / rows;
-        push();
-        rectMode(CENTER);
-        noStroke();
-        let index = 0;
-        for (let r = 0; r < rows; r++) {
-          for (let c = 0; c < cols; c++) {
-            if (index >= colors.length) break;
-            let cx = innerLeft + cellW * (c + 0.5);
-            let cy = innerTop + cellH * (r + 0.5);
-            fill(withAlpha(colors[index], 230));
-            rect(cx, cy, cellW * 0.7, cellH * 0.7, Math.max(2, baseRadius * 0.25));
-            index++;
+          for (let particle of state.fallers) {
+            drawParticle(particle, 200);
           }
         }
         pop();
-        let progress = constrain(state.packageProgress || 0, 0, 1);
-        if (progress > 0) {
-          let height = (innerBottom - innerTop) * progress;
-          push();
-          rectMode(CORNERS);
-          noStroke();
-          fill(withAlpha('#38bdf8', 140));
-          rect(
-            innerLeft,
-            innerBottom - height,
-            innerRight,
-            innerBottom,
-            Math.max(2, baseRadius * 0.3)
-          );
-          pop();
-        }
       }
-
-      function drawConveyorPackage(pkg, projection, baseRadius) {
-        if (!pkg || !projection) return;
-        let particle = pkg.particle || null;
-        if (!particle) return;
-        let position = projectConveyorPoint(projection, particle);
-        if (!position) return;
-        let size = Math.max(10, baseRadius * 2.4);
-        drawPackageSprite(pkg, position.x, position.y, size);
-      }
-
-
-      function drawPackageSprite(pkg, x, y, size) {
-        push();
-        translate(x, y);
-        rectMode(CENTER);
-        let pulse = pkg.pulse || 0;
-        let grid = Math.min(10, Math.max(5, Math.round(Math.sqrt(CHAIN_REQUIREMENT))));
-        let cell = size / grid;
-        let colors = pkg.colors && pkg.colors.length > 0 ? pkg.colors : ['#f2d28b'];
-        let totalCells = grid * grid;
-        for (let i = 0; i < totalCells; i++) {
-          let col = i % grid;
-          let row = Math.floor(i / grid);
-          let fillColor = colors[i % colors.length];
-          let cx = -size / 2 + cell / 2 + col * cell;
-          let cy = -size / 2 + cell / 2 + row * cell;
-          fill(fillColor);
-          noStroke();
-          rect(cx, cy, cell * 0.9, cell * 0.9, 2);
-        }
-        stroke('#0f172a');
-        strokeWeight(1.4 + pulse * 1.6);
-        noFill();
-        rect(0, 0, size, size, 8);
-        pop();
-      }
-
       function drawRocketModule(context) {
         drawModuleShell(context, '#f97316');
         let state = moduleStates.rocket;
@@ -6620,12 +6209,6 @@
         for (let faller of state.fallers) {
           faller.vy = (faller.vy || 0) + 0.6;
           updatePowderParticle(faller, { vy: faller.vy });
-        }
-        for (let carrier of state.modules) {
-          carrier.progress = Math.min(0.98, (carrier.progress || 0) + 0.12);
-          if (carrier.particle) {
-            updatePowderParticle(carrier.particle, { progress: carrier.progress });
-          }
         }
         state.packageProgress = Math.min(1, (state.packageProgress || 0) + 0.18);
       }
