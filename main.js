@@ -2080,15 +2080,6 @@
           state.deliveryPulse = Math.max(0, (state.deliveryPulse || 0) - dt * 1.4);
           return;
         }
-        let spawnInterval = Math.max(
-          0.08,
-          (state.geometry.spawnRate || 0.22) / Math.max(0.4, speedBoost)
-        );
-        state.spawnTimer = (state.spawnTimer || 0) - dt;
-        while (state.queue && state.queue.length > 0 && state.spawnTimer <= 0) {
-          spawnConveyorBatch(state);
-          state.spawnTimer += spawnInterval;
-        }
         updateConveyorFallers(state, dt, speedBoost);
         processConveyorBuffer(state, dt, speedBoost);
         runModuleAutomation(state, 'conveyor', dt, 5.5, rushConveyor);
@@ -2247,48 +2238,33 @@
         };
       }
 
-      function spawnConveyorBatch(state) {
-        if (!state.geometry || !state.queue || state.queue.length === 0) {
-          return;
+      function startConveyorDrop(state, grain, source, options = {}) {
+        if (!state || !grain) return null;
+        setupConveyorGeometry(state);
+        let geometry = state.geometry || {};
+        let entryRange = geometry.entryRange || [-0.28, 0.28];
+        let spawnX = lerp(entryRange[0], entryRange[1], constrain(source ?? 0.5, 0, 1));
+        let walkwayTop =
+          geometry.bounds && geometry.bounds.minY != null
+            ? geometry.bounds.minY
+            : (geometry.holeTop || 0) - 0.12;
+        let spawnY = walkwayTop;
+        if (typeof options.startY === 'number') {
+          spawnY = options.startY;
         }
-        let count = Math.min(3, state.queue.length);
-        let range = state.geometry.entryRange || [-0.32, 0.32];
-        for (let i = 0; i < count; i++) {
-          let entry = state.queue.shift();
-          if (!entry || !entry.grain) continue;
-          let source = entry.source != null ? entry.source : 0.5;
-          let spawnX = lerp(range[0], range[1], source);
-          spawnX += random(-0.02, 0.02);
-          let particle = entry.particle;
-          if (!particle) {
-            particle = createPowderParticleForEntity(entry.grain, 'conveyor', {
-              state: 'fall',
-              x: spawnX,
-              y: state.geometry.holeTop,
-              vx: 0,
-              vy: -0.04
-            });
+        let particle = createPowderParticleForEntity(grain, 'conveyor', {
+          state: 'fall',
+          x: spawnX + random(-0.01, 0.01),
+          y: spawnY,
+          vx: 0,
+          vy: 0,
+          data: {
+            source: constrain(source ?? 0.5, 0, 1)
           }
-          particle.vx = 0;
-          particle.vy = -0.04;
-          particle.x = spawnX;
-          particle.y = state.geometry.holeTop;
-          particle.segment = 0;
-          updatePowderParticle(particle, {
-            state: 'fall',
-            x: particle.x,
-            y: particle.y,
-            vx: particle.vx,
-            vy: particle.vy,
-            segment: 0,
-            progress: 0,
-            data: { source }
-          });
-          state.fallers.push(particle);
-        }
-        while (state.fallers.length > 48) {
-          state.fallers.shift();
-        }
+        });
+        state.fallers = state.fallers || [];
+        state.fallers.push(particle);
+        return particle;
       }
 
       function updateConveyorFallers(state, dt, speedBoost) {
@@ -3501,7 +3477,7 @@
           if (entryLeft && entryRight) {
             let queueStrength = Math.min(
               1,
-              ((state.queue ? state.queue.length : 0) || 0) / 24
+              ((state.fallers ? state.fallers.length : 0) || 0) / 24
             );
             stroke(withAlpha('#38bdf8', 180 + queueStrength * 60));
             strokeWeight(Math.max(2, baseRadius * 0.35));
@@ -3509,290 +3485,41 @@
             line(entryLeft.x, entryLeft.y, entryRight.x, entryRight.y);
           }
         }
-        let drawParticle = (particle, alpha = 220) => {
+        let drawParticle = (particle) => {
           if (!particle) return;
           let point = projectPoint(particle.x, particle.y);
           if (!point) return;
           let colorHex = particle.color || '#e7c97a';
+          let entitySize = 1;
+          if (particle.entity) {
+            if (
+              particle.entity.metadata &&
+              typeof particle.entity.metadata.size === 'number'
+            ) {
+              entitySize = particle.entity.metadata.size;
+            } else if (
+              typeof particle.entity.type === 'number' &&
+              getPowderSizeByType
+            ) {
+              entitySize = Math.max(1, getPowderSizeByType(particle.entity.type));
+            }
+          }
+          let pixelSize = Math.max(1, Math.round(cellPixelSize * entitySize));
           push();
+          rectMode(CENTER);
           noStroke();
-          fill(withAlpha(colorHex, alpha));
-          circle(point.x, point.y, baseRadius);
+          fill(colorHex);
+          rect(point.x, point.y, pixelSize, pixelSize);
           pop();
         };
         if (Array.isArray(state.restingParticles)) {
           for (let particle of state.restingParticles) {
-            drawParticle(particle, 230);
+            drawParticle(particle);
           }
         }
         if (Array.isArray(state.fallers)) {
-          for (let faller of state.fallers) {
-            drawParticle(faller, { alpha: 220, glow: true });
-          }
-        }
-        if (Array.isArray(state.modules)) {
-          for (let carrier of state.modules) {
-            if (!carrier || !carrier.particle) continue;
-            drawParticle(carrier.particle, { alpha: 230, glow: true });
-          }
-        }
-        if (Array.isArray(state.departures)) {
-          for (let pkg of state.departures) {
-            if (!pkg) continue;
-            drawConveyorPackage(pkg, projection, baseRadius);
-          }
-        }
-      }
-
-      function createConveyorProjection(context, geometry) {
-        if (!context || !geometry) return null;
-        let points = [];
-        let addPoint = (pt) => {
-          if (!pt) return;
-          let px = typeof pt.x === 'number' ? pt.x : 0;
-          let py = typeof pt.y === 'number' ? pt.y : 0;
-          if (!Number.isFinite(px) || !Number.isFinite(py)) return;
-          points.push({ x: px, y: py });
-        };
-        if (Array.isArray(geometry.entryRange)) {
-          addPoint({ x: geometry.entryRange[0], y: geometry.holeTop });
-          addPoint({ x: geometry.entryRange[1], y: geometry.holeTop });
-        }
-        if (Array.isArray(geometry.beltSegments)) {
-          for (let segment of geometry.beltSegments) {
-            if (!segment) continue;
-            addPoint(segment.from);
-            addPoint(segment.to);
-          }
-        }
-        if (geometry.compactorBox) {
-          let box = geometry.compactorBox;
-          let halfW = (box.width || 0) / 2;
-          let halfH = (box.height || 0) / 2;
-          addPoint({ x: box.x - halfW, y: box.y - halfH });
-          addPoint({ x: box.x + halfW, y: box.y + halfH });
-        }
-        addPoint(geometry.packageSpot);
-        addPoint(geometry.packageExit);
-        if (points.length === 0) {
-          points.push({ x: -1, y: -0.5 });
-          points.push({ x: 1, y: 0.5 });
-        }
-        let minX = Infinity;
-        let maxX = -Infinity;
-        let minY = Infinity;
-        let maxY = -Infinity;
-        for (let pt of points) {
-          minX = Math.min(minX, pt.x);
-          maxX = Math.max(maxX, pt.x);
-          minY = Math.min(minY, pt.y);
-          maxY = Math.max(maxY, pt.y);
-        }
-        if (!Number.isFinite(minX) || !Number.isFinite(maxX)) {
-          return null;
-        }
-        let paddingX = 0.18;
-        let paddingY = 0.22;
-        minX -= paddingX;
-        maxX += paddingX;
-        minY -= paddingY;
-        maxY += paddingY;
-        let width = Math.max(0.1, maxX - minX);
-        let height = Math.max(0.1, maxY - minY);
-        let rect = context.rect || {
-          x: context.center.x - (context.panelW || 0) / 2,
-          y: context.center.y - (context.panelH || 0) / 2,
-          width: context.panelW || 0,
-          height: context.panelH || 0
-        };
-        let availableWidth = rect.width * 0.86;
-        let moduleBottom = rect.y + rect.height - scaledY(6);
-        let targetHoleY = jarChuteExit ? jarChuteExit.y : rect.y + scaledY(8);
-        let viewW = Math.max(10, availableWidth);
-        let viewH = Math.max(10, moduleBottom - targetHoleY);
-        if (viewW <= 0 || viewH <= 0) {
-          return null;
-        }
-        let scaleX = viewW / width;
-        let scaleY = viewH / height;
-        let scaleEntry = Infinity;
-        if (jarChuteExit && Array.isArray(geometry.entryRange) && geometry.entryRange.length >= 2) {
-          let entryLeft = geometry.entryRange[0];
-          let entryRight = geometry.entryRange[1];
-          let span = entryRight - entryLeft;
-          if (Number.isFinite(span) && Math.abs(span) > 0.0001) {
-            scaleEntry = jarChuteExit.width / Math.abs(span);
-          }
-        }
-        let scale = Math.min(scaleX, scaleY, scaleEntry);
-        if (!Number.isFinite(scale) || scale <= 0) {
-          scale = Math.min(scaleX, scaleY);
-          if (!Number.isFinite(scale) || scale <= 0) {
-            scale = Math.min(viewW, viewH) / Math.max(width, height);
-          }
-        }
-        let anchorX = rect.x + rect.width / 2;
-        let offsetX;
-        if (
-          jarChuteExit &&
-          Array.isArray(geometry.entryRange) &&
-          geometry.entryRange.length >= 2
-        ) {
-          let entryLeft = geometry.entryRange[0];
-          let entryRight = geometry.entryRange[1];
-          if (
-            Number.isFinite(entryLeft) &&
-            Number.isFinite(entryRight) &&
-            entryRight !== entryLeft
-          ) {
-            offsetX = jarChuteExit.left - entryLeft * scale;
-            let viewLeft = rect.x + rect.width * 0.07;
-            let viewRight = rect.x + rect.width - rect.width * 0.07;
-            let minPixelX = offsetX + minX * scale;
-            let maxPixelX = offsetX + maxX * scale;
-            if (minPixelX < viewLeft) {
-              offsetX += viewLeft - minPixelX;
-              maxPixelX = offsetX + maxX * scale;
-            }
-            if (maxPixelX > viewRight) {
-              offsetX -= maxPixelX - viewRight;
-            }
-          } else {
-            offsetX = anchorX - ((minX + maxX) / 2) * scale;
-          }
-        } else {
-          offsetX = anchorX - ((minX + maxX) / 2) * scale;
-        }
-        let offsetY = targetHoleY - geometry.holeTop * scale;
-        let viewTop = rect.y + scaledY(2);
-        let viewBottom = moduleBottom;
-        let minPixelY = offsetY + minY * scale;
-        let maxPixelY = offsetY + maxY * scale;
-        if (minPixelY < viewTop) {
-          offsetY += viewTop - minPixelY;
-          maxPixelY = offsetY + maxY * scale;
-        }
-        if (maxPixelY > viewBottom) {
-          offsetY -= maxPixelY - viewBottom;
-        }
-        return {
-          scale,
-          offsetX,
-          offsetY,
-          bounds: { minX, maxX, minY, maxY }
-        };
-      }
-
-      function projectConveyorPoint(mapping, point) {
-        if (!mapping || !point) return null;
-        let px = typeof point.x === 'number' ? point.x : 0;
-        let py = typeof point.y === 'number' ? point.y : 0;
-        if (!Number.isFinite(px) || !Number.isFinite(py)) {
-          return null;
-        }
-        return {
-          x: mapping.offsetX + px * mapping.scale,
-          y: mapping.offsetY + py * mapping.scale
-        };
-      }
-
-      function drawConveyorParticle(particle, mapping, baseRadius, options = {}) {
-        if (!particle || !mapping) return;
-        let position = projectConveyorPoint(mapping, particle);
-        if (!position) return;
-        let colorHex = particle.color || '#e7c97a';
-        let alpha = options.alpha != null ? options.alpha : 220;
-        let scaleFactor = options.scale != null ? options.scale : 1;
-        let baseSize = options.pixelSize != null
-          ? options.pixelSize
-          : particle.data && typeof particle.data.pixelSize === 'number'
-          ? particle.data.pixelSize
-          : cellPixelSize;
-        let size = Math.max(2, baseSize * scaleFactor);
-        push();
-        rectMode(CENTER);
-        if (options.glow) {
-          stroke(withAlpha('#e2e8f0', 70));
-          strokeWeight(Math.max(1, size * 0.18));
-        } else {
-          noStroke();
-        }
-        fill(withAlpha(colorHex, alpha));
-        rect(position.x, position.y, size, size, Math.max(1, size * 0.2));
-        pop();
-      }
-
-
-      function drawConveyorCompactor(state, projection, geometry, baseRadius) {
-        if (!geometry || !geometry.compactorBox || !projection) return;
-        let box = geometry.compactorBox;
-        let halfW = (box.width || 0) / 2;
-        let halfH = (box.height || 0) / 2;
-        let topLeft = projectConveyorPoint(projection, {
-          x: box.x - halfW,
-          y: box.y - halfH
-        });
-        let bottomRight = projectConveyorPoint(projection, {
-          x: box.x + halfW,
-          y: box.y + halfH
-        });
-        if (!topLeft || !bottomRight) return;
-        let minX = Math.min(topLeft.x, bottomRight.x);
-        let maxX = Math.max(topLeft.x, bottomRight.x);
-        let minY = Math.min(topLeft.y, bottomRight.y);
-        let maxY = Math.max(topLeft.y, bottomRight.y);
-        let radius = Math.max(4, baseRadius * 0.6);
-        push();
-        rectMode(CORNERS);
-        fill(withAlpha('#021022', 240));
-        stroke(withAlpha('#38bdf8', 200));
-        strokeWeight(Math.max(2, baseRadius * 0.28));
-        rect(minX, minY, maxX, maxY, radius);
-        pop();
-        let padding = Math.max(4, baseRadius * 0.45);
-        let innerLeft = minX + padding;
-        let innerRight = maxX - padding;
-        let innerTop = minY + padding;
-        let innerBottom = maxY - padding;
-        if (innerRight <= innerLeft || innerBottom <= innerTop) {
-          return;
-        }
-        push();
-        rectMode(CORNERS);
-        noStroke();
-        fill(withAlpha('#0b1f38', 230));
-        rect(innerLeft, innerTop, innerRight, innerBottom, Math.max(3, radius * 0.6));
-        pop();
-        let buffer = Array.isArray(state.packageBuffer) ? state.packageBuffer : [];
-        let colors = buffer
-          .slice(0, 16)
-          .map((grain) => (grain && grain.color) || '#e7c97a');
-        if (colors.length === 0 && Array.isArray(state.queue)) {
-          for (let entry of state.queue) {
-            if (!entry || !entry.grain) continue;
-            colors.push(entry.grain.color || '#e7c97a');
-            if (colors.length >= 16) break;
-          }
-        }
-        if (colors.length === 0) {
-          colors.push('#1d4ed8');
-        }
-        let cols = Math.max(1, Math.ceil(Math.sqrt(colors.length)));
-        let rows = Math.max(1, Math.ceil(colors.length / cols));
-        let cellW = (innerRight - innerLeft) / cols;
-        let cellH = (innerBottom - innerTop) / rows;
-        push();
-        rectMode(CENTER);
-        noStroke();
-        let index = 0;
-        for (let r = 0; r < rows; r++) {
-          for (let c = 0; c < cols; c++) {
-            if (index >= colors.length) break;
-            let cx = innerLeft + cellW * (c + 0.5);
-            let cy = innerTop + cellH * (r + 0.5);
-            fill(withAlpha(colors[index], 230));
-            rect(cx, cy, cellW * 0.7, cellH * 0.7, Math.max(2, baseRadius * 0.25));
-            index++;
+          for (let particle of state.fallers) {
+            drawParticle(particle);
           }
         }
         pop();
@@ -4097,14 +3824,125 @@
         let right = channelCenter + channelWidth / 2;
         push();
         rectMode(CORNERS);
-        noStroke();
-        fill(withAlpha('#09213d', 220));
-        rect(left - scaledX(6), channelTop, right + scaledX(6), channelBottom);
-        fill(withAlpha('#38bdf8', isMachineUnlocked('conveyor') ? 180 : 80));
-        rect(left, channelTop + scaledY(2), right, channelBottom);
-        if (!isMachineUnlocked('conveyor')) {
-          fill(withAlpha('#020b18', 220));
-          rect(left, channelTop + scaledY(4), right, channelTop + scaledY(14));
+        if (isMachineUnlocked('conveyor')) {
+          let walkwayBase = context.panelW * Math.max(0.26, noseRatio);
+          let walkwayWidth = Math.min(
+            conveyorPanelSize * 0.55,
+            Math.max(context.panelW * 0.28, walkwayBase)
+          );
+          let glowWidth = walkwayWidth + scaledX(18);
+          let left = context.center.x - walkwayWidth / 2;
+          let right = context.center.x + walkwayWidth / 2;
+          let innerLeft = left + walkwayWidth * 0.2;
+          let innerRight = right - walkwayWidth * 0.2;
+          let innerTop = gapTop + scaledY(2);
+          let innerBottom = gapBottom - scaledY(2);
+          noFill();
+          stroke(withAlpha('#0b1f3a', 220));
+          strokeWeight(Math.max(2, scaledX(2)));
+          rect(
+            context.center.x - glowWidth / 2,
+            gapTop - scaledY(6),
+            context.center.x + glowWidth / 2,
+            gapBottom + scaledY(6)
+          );
+          stroke(
+            withAlpha(jarReleaseState.open ? '#38bdf8' : '#1d4ed8', jarReleaseState.open ? 200 : 140)
+          );
+          strokeWeight(Math.max(2, scaledX(3)));
+          line(left, gapTop, left, gapBottom);
+          line(right, gapTop, right, gapBottom);
+          strokeWeight(Math.max(1, scaledX(2)));
+          line(innerLeft, innerTop, innerLeft, innerBottom);
+          line(innerRight, innerTop, innerRight, innerBottom);
+          noStroke();
+          let conveyorState = moduleStates && moduleStates.conveyor;
+          if (conveyorState && conveyorState.geometry) {
+            let geometry = conveyorState.geometry;
+            let entryRange = geometry.entryRange || [-0.28, 0.28];
+            let walkwayTopNorm =
+              geometry.bounds && geometry.bounds.minY != null
+                ? geometry.bounds.minY
+                : (geometry.holeTop || 0) - 0.08;
+            let walkwayBottomNorm =
+              geometry.holeTop != null ? geometry.holeTop : walkwayTopNorm + 0.08;
+            if (walkwayBottomNorm <= walkwayTopNorm) {
+              walkwayBottomNorm = walkwayTopNorm + 0.08;
+            }
+            let walkwayHeightNorm = walkwayBottomNorm - walkwayTopNorm;
+            let walkwayWidthNorm = entryRange[1] - entryRange[0];
+            let innerWidth = innerRight - innerLeft;
+            let innerHeight = innerBottom - innerTop;
+            if (innerWidth > 0 && innerHeight > 0) {
+              let walkwayParticles = [];
+              if (Array.isArray(conveyorState.fallers)) {
+                for (let particle of conveyorState.fallers) {
+                  if (particle && particle.y <= walkwayBottomNorm + 0.0001) {
+                    walkwayParticles.push(particle);
+                  }
+                }
+              }
+              if (walkwayParticles.length > 0) {
+                push();
+                rectMode(CENTER);
+                noStroke();
+                for (let particle of walkwayParticles) {
+                  let particleX =
+                    particle && typeof particle.x === 'number'
+                      ? particle.x
+                      : lerp(entryRange[0], entryRange[1], 0.5);
+                  let particleY =
+                    particle && typeof particle.y === 'number'
+                      ? particle.y
+                      : walkwayTopNorm;
+                  let xRatio =
+                    walkwayWidthNorm !== 0
+                      ? constrain(
+                          (particleX - entryRange[0]) / walkwayWidthNorm,
+                          0,
+                          1
+                        )
+                      : 0.5;
+                  let yRatio = constrain(
+                    (particleY - walkwayTopNorm) / walkwayHeightNorm,
+                    0,
+                    1
+                  );
+                  let drawX = innerLeft + innerWidth * xRatio;
+                  let drawY = innerTop + innerHeight * yRatio;
+                  let colorHex = (particle && particle.color) || '#e7c97a';
+                  let entitySize = 1;
+                  if (particle && particle.entity) {
+                    if (
+                      particle.entity.metadata &&
+                      typeof particle.entity.metadata.size === 'number'
+                    ) {
+                      entitySize = particle.entity.metadata.size;
+                    } else if (
+                      typeof particle.entity.type === 'number' &&
+                      getPowderSizeByType
+                    ) {
+                      entitySize = Math.max(1, getPowderSizeByType(particle.entity.type));
+                    }
+                  }
+                  let pixelSize = Math.max(1, Math.round(cellPixelSize * entitySize));
+                  fill(colorHex);
+                  rect(drawX, drawY, pixelSize, pixelSize);
+                }
+                pop();
+              }
+            }
+          }
+        } else {
+          let barrierWidth = context.panelW * 0.45;
+          let left = context.center.x - barrierWidth / 2;
+          let right = context.center.x + barrierWidth / 2;
+          noStroke();
+          fill('#030b18');
+          rect(left, gapTop - scaledY(4), right, gapTop + scaledY(10));
+          stroke('#1e293b');
+          strokeWeight(2);
+          line(left, gapTop + scaledY(2), right, gapTop + scaledY(2));
         }
         pop();
       }
@@ -4395,35 +4233,20 @@
         if (!isMachineUnlocked('conveyor')) return;
         if (!grains || grains.length === 0) return;
         let state = moduleStates.conveyor;
-        state.queue = state.queue || [];
         setupConveyorGeometry(state);
         let size = getPowderSize(powder);
         let centerCol = powder.col + size / 2;
         let ratio = gridCols > 0 ? constrain(centerCol / gridCols, 0, 1) : 0.5;
-        let pixelSize = Math.max(2, size * cellPixelSize);
+        let geometry = state.geometry || {};
+        let walkwayTop =
+          geometry.bounds && geometry.bounds.minY != null
+            ? geometry.bounds.minY
+            : (geometry.holeTop || 0) - 0.08;
         for (let i = 0; i < grains.length; i++) {
           let grain = grains[i];
           let spread = grains.length > 1 ? (i / Math.max(1, grains.length - 1)) - 0.5 : 0;
           let source = constrain(ratio + spread * 0.1 + random(-0.04, 0.04), 0, 1);
-          let particle = createPowderParticleForEntity(grain, 'conveyor', {
-            state: 'queued',
-            x:
-              state.geometry && state.geometry.entryRange
-                ? lerp(state.geometry.entryRange[0], state.geometry.entryRange[1], source)
-                : 0,
-            y: state.geometry ? state.geometry.holeTop : 0,
-            data: { spawnRatio: source, pixelSize }
-          });
-          state.queue.push({
-            grain,
-            source,
-            color: grain.color,
-            type: grain.type,
-            particle
-          });
-        }
-        while (state.queue.length > 280) {
-          state.queue.shift();
+          startConveyorDrop(state, grain, source, { startY: walkwayTop });
         }
       }
 
@@ -4431,38 +4254,19 @@
         if (!moduleStates || !moduleStates.conveyor) return;
         if (!grains || grains.length === 0) return;
         let state = moduleStates.conveyor;
-        state.queue = state.queue || [];
         setupConveyorGeometry(state);
+        let geometry = state.geometry || {};
+        let walkwayTop =
+          geometry.bounds && geometry.bounds.minY != null
+            ? geometry.bounds.minY
+            : (geometry.holeTop || 0) - 0.08;
         for (let grain of grains) {
           let baseSource =
             grain && grain.metadata && typeof grain.metadata.spawnRatio === 'number'
               ? grain.metadata.spawnRatio
               : 0.5;
           let source = constrain(baseSource + random(-0.12, 0.12), 0, 1);
-          let grainSize =
-            grain && grain.metadata && typeof grain.metadata.size === 'number'
-              ? grain.metadata.size
-              : 1;
-          let pixelSize = Math.max(2, grainSize * cellPixelSize);
-          let particle = createPowderParticleForEntity(grain, 'conveyor', {
-            state: 'queued',
-            x:
-              state.geometry && state.geometry.entryRange
-                ? lerp(state.geometry.entryRange[0], state.geometry.entryRange[1], source)
-                : 0,
-            y: state.geometry ? state.geometry.holeTop : 0,
-            data: { salvage: true, pixelSize }
-          });
-          state.queue.push({
-            grain,
-            source,
-            color: grain.color,
-            type: grain.type,
-            particle
-          });
-        }
-        while (state.queue.length > 280) {
-          state.queue.shift();
+          startConveyorDrop(state, grain, source, { startY: walkwayTop });
         }
       }
 
