@@ -1904,6 +1904,10 @@
         let rectInfo = getMachineRect(machine);
         let center = getMachineCenter(rectInfo);
         let unlocked = isMachineUnlocked(machine.key);
+        if (machine.key === 'conveyor') {
+          drawConveyorPanel(machine, rectInfo, center, unlocked);
+          return;
+        }
         let panelW = rectInfo.width;
         let panelH = rectInfo.height;
         let wallThicknessX = Math.max(scaledX(22), panelW * 0.26);
@@ -1971,6 +1975,111 @@
           rect(center.x, center.y, panelW, panelH);
         }
         pop();
+        if (interactButton) {
+          addButton(interactButton);
+        }
+        addButton({
+          action: 'focusModule',
+          key: machine.key,
+          x: center.x,
+          y: center.y,
+          w: panelW,
+          h: panelH
+        });
+      }
+
+      function getConveyorPanelLayout(machine, rectInfo, center) {
+        if (!machine) return null;
+        let resolvedRect = rectInfo || getMachineRect(machine);
+        let resolvedCenter = center || getMachineCenter(resolvedRect);
+        let panelW = resolvedRect.width * 0.92;
+        let panelH = resolvedRect.height * 0.86;
+        let paddingX = Math.max(panelW * 0.06, scaledX(12));
+        let paddingY = Math.max(panelH * 0.08, scaledY(14));
+        let innerW = Math.max(0, panelW - paddingX * 2);
+        let innerH = Math.max(0, panelH - paddingY * 2);
+        let innerLeft = resolvedCenter.x - innerW / 2;
+        let innerTop = resolvedCenter.y - innerH / 2;
+        return {
+          rect: resolvedRect,
+          center: resolvedCenter,
+          panelW,
+          panelH,
+          innerW,
+          innerH,
+          innerLeft,
+          innerTop,
+          paddingX,
+          paddingY
+        };
+      }
+
+      function drawConveyorPanel(machine, rectInfo, center, unlocked) {
+        let layout = getConveyorPanelLayout(machine, rectInfo, center);
+        if (!layout) return;
+        let { panelW, panelH, innerW, innerH, innerLeft, innerTop } = layout;
+        let interactButton = null;
+        push();
+        rectMode(CENTER);
+        noStroke();
+        fill('#030b18');
+        rect(center.x, center.y, panelW, panelH);
+        stroke('#38bdf8');
+        strokeWeight(Math.max(2, scaledX(2)));
+        noFill();
+        rect(center.x, center.y, panelW, panelH);
+        if (selectedModule === machine.key) {
+          drawSelectionGlow(center.x, center.y, panelW, panelH, 0);
+        }
+        pop();
+        push();
+        rectMode(CORNER);
+        noStroke();
+        fill('#020912');
+        rect(innerLeft, innerTop, innerW, innerH);
+        pop();
+        if (!unlocked) {
+          if (innerW > scaledX(12) && innerH > scaledY(12)) {
+            push();
+            rectMode(CENTER);
+            fill(withAlpha('#000000', 200));
+            rect(center.x, center.y, innerW - scaledX(8), innerH - scaledY(8));
+            pop();
+          }
+        } else {
+          drawPanelPixelBackdrop(center, innerW, innerH);
+          syncConveyorGeometryWithLayout(moduleStates.conveyor, layout);
+          let sceneContext = {
+            center,
+            panelW: innerW,
+            panelH: innerH,
+            rect: layout.rect,
+            innerLeft,
+            innerTop
+          };
+          updateModuleState(machine.key, sceneContext);
+          drawConveyorModule(sceneContext);
+          let interactW = Math.max(0, innerW - scaledX(18));
+          let interactH = Math.max(0, innerH - scaledY(22));
+          if (interactW > 0 && interactH > 0) {
+            interactButton = {
+              action: 'moduleInteract',
+              key: machine.key,
+              x: center.x,
+              y: center.y + scaledY(6),
+              w: interactW,
+              h: interactH
+            };
+          }
+        }
+        let coverAlpha = updateModuleCoverAlpha(machine.key, unlocked);
+        if (coverAlpha > 0) {
+          push();
+          rectMode(CENTER);
+          fill(withAlpha('#000000', Math.round(coverAlpha * 255)));
+          rect(center.x, center.y, panelW, panelH);
+          pop();
+        }
         if (interactButton) {
           addButton(interactButton);
         }
@@ -2314,12 +2423,92 @@
         state.packageBuffer = state.packageBuffer || [];
         state.packageHistory = state.packageHistory || [];
         state.geometry = {
-          holeTop: -0.74,
-          floorY: 0.34,
-          entryRange: [-0.28, 0.28],
+          holeTop: 0.16,
+          floorY: 0.62,
+          entryRange: [-0.3, 0.3],
           spawnRate: 0.24,
-          bounds: { minX: -0.42, maxX: 0.42, minY: -0.82, maxY: 0.38 }
+          bounds: { minX: -0.5, maxX: 0.5, minY: 0, maxY: 1.2 },
+          pixel: {
+            innerLeft: 0,
+            innerWidth: 1,
+            minYScreen: 0,
+            maxYScreen: 1,
+            innerTop: 0,
+            innerBottom: 1
+          }
         };
+      }
+
+      function syncConveyorGeometryWithLayout(state, layout) {
+        if (!state) return;
+        setupConveyorGeometry(state);
+        if (!layout) return;
+        let geometry = state.geometry || {};
+        let { center, innerW, innerH, innerLeft, innerTop } = layout;
+        if (!(innerW > 0) || !(innerH > 0)) {
+          return;
+        }
+        let innerBottom = innerTop + innerH;
+        let jarMetrics = getJarChuteMetrics();
+        let chuteCenter = jarMetrics ? jarMetrics.centerX : center.x;
+        let chuteWidth = jarMetrics ? jarMetrics.tubeWidth : Math.max(innerW * 0.22, scaledX(16));
+        let walkwayBottomScreen = innerTop;
+        let walkwayTopScreen = jarMetrics
+          ? jarMetrics.tubeBottomY
+          : innerTop - Math.max(innerH * 0.18, scaledY(24));
+        walkwayTopScreen = Math.min(walkwayTopScreen, walkwayBottomScreen - scaledY(6));
+        let floorScreen = innerBottom - Math.max(innerH * 0.22, scaledY(26));
+        let drainScreen = innerBottom + Math.max(innerH * 0.2, scaledY(34));
+        let screenRange = Math.max(8, drainScreen - walkwayTopScreen);
+        let walkwayNorm = constrain(
+          (walkwayBottomScreen - walkwayTopScreen) / screenRange,
+          0.06,
+          0.22
+        );
+        let floorNorm = constrain(
+          (floorScreen - walkwayTopScreen) / screenRange,
+          walkwayNorm + 0.28,
+          0.86
+        );
+        let drainNorm = 1;
+        geometry.bounds = {
+          minX: -0.5,
+          maxX: 0.5,
+          minY: 0,
+          maxY: drainNorm
+        };
+        geometry.holeTop = walkwayNorm;
+        geometry.floorY = floorNorm;
+        geometry.drainExit = drainNorm;
+        geometry.pixel = {
+          innerLeft,
+          innerWidth: innerW,
+          minYScreen: walkwayTopScreen,
+          maxYScreen: drainScreen,
+          innerTop,
+          innerBottom
+        };
+        let widthRange = geometry.bounds.maxX - geometry.bounds.minX;
+        if (widthRange <= 0) {
+          widthRange = 1;
+        }
+        let entryLeftRatio = (chuteCenter - chuteWidth / 2 - innerLeft) / innerW;
+        let entryRightRatio = (chuteCenter + chuteWidth / 2 - innerLeft) / innerW;
+        entryLeftRatio = constrain(entryLeftRatio, 0.08, 0.92);
+        entryRightRatio = constrain(entryRightRatio, 0.08, 0.92);
+        if (entryRightRatio <= entryLeftRatio) {
+          let mid = (entryLeftRatio + entryRightRatio) / 2;
+          let span = Math.max(0.18, widthRange * 0.28);
+          entryLeftRatio = mid - span / 2;
+          entryRightRatio = mid + span / 2;
+        }
+        geometry.entryRange = [
+          geometry.bounds.minX + entryLeftRatio * widthRange,
+          geometry.bounds.minX + entryRightRatio * widthRange
+        ];
+        geometry.spawnRate = geometry.spawnRate || 0.24;
+        state.geometry = geometry;
+        state.layout = layout;
       }
 
       function startConveyorDrop(state, grain, source, options = {}) {
@@ -2331,8 +2520,9 @@
         let walkwayTop =
           geometry.bounds && geometry.bounds.minY != null
             ? geometry.bounds.minY
-            : (geometry.holeTop || 0) - 0.12;
-        let spawnY = walkwayTop;
+            : 0;
+        let dropLip = geometry.holeTop != null ? geometry.holeTop : walkwayTop + 0.18;
+        let spawnY = Math.min(walkwayTop, walkwayTop - Math.max(0.08, dropLip * 0.18));
         if (typeof options.startY === 'number') {
           spawnY = options.startY;
         }
@@ -2357,10 +2547,10 @@
         let floorY =
           state.geometry.floorY != null ? state.geometry.floorY : 0.34;
         let bounds = state.geometry.bounds || {
-          minX: -0.4,
-          maxX: 0.4,
-          minY: -0.82,
-          maxY: 0.38
+          minX: -0.5,
+          maxX: 0.5,
+          minY: 0,
+          maxY: 1
         };
         for (let i = state.fallers.length - 1; i >= 0; i--) {
           let faller = state.fallers[i];
@@ -2369,27 +2559,19 @@
           faller.vx = (faller.vx || 0) * 0.9;
           faller.x += faller.vx * dt;
           faller.x = constrain(faller.x, bounds.minX, bounds.maxX);
+          let particleState = faller.data && faller.data.delivered ? 'drain' : 'fall';
           updatePowderParticle(faller, {
-            state: 'fall',
+            state: particleState,
             x: faller.x,
             y: faller.y,
             vx: faller.vx,
             vy: faller.vy
           });
           if (faller.y >= floorY) {
-            faller.y = floorY;
-            faller.vx = 0;
-            faller.vy = 0;
-            faller.x += random(-0.01, 0.01);
-            faller.x = constrain(faller.x, bounds.minX, bounds.maxX);
-            updatePowderParticle(faller, {
-              state: 'rest',
-              x: faller.x,
-              y: faller.y,
-              vx: 0,
-              vy: 0
-            });
-            if (faller.entity) {
+            if (!faller.data) {
+              faller.data = {};
+            }
+            if (!faller.data.delivered && faller.entity) {
               state.packageBuffer.push(faller.entity);
               if (state.packageBuffer.length > 280) {
                 state.packageBuffer.splice(
@@ -2397,8 +2579,21 @@
                   state.packageBuffer.length - 280
                 );
               }
+              faller.data.delivered = true;
             }
-            state.restingParticles.push(faller);
+            faller.state = 'drain';
+            faller.x += random(-0.01, 0.01);
+            faller.x = constrain(faller.x, bounds.minX, bounds.maxX);
+            faller.vx *= 0.85;
+          }
+          if (faller.y >= bounds.maxY + 0.2) {
+            updatePowderParticle(faller, {
+              state: 'stored',
+              x: faller.x,
+              y: faller.y,
+              vx: 0,
+              vy: 0
+            });
             state.fallers.splice(i, 1);
             continue;
           }
@@ -2410,7 +2605,7 @@
             state.fallers.splice(i, 1);
           }
         }
-        while (state.restingParticles.length > 120) {
+        while (state.restingParticles.length > 0) {
           let particle = state.restingParticles.shift();
           if (particle) {
             updatePowderParticle(particle, { state: 'stored' });
@@ -3478,15 +3673,39 @@
       }
 
       function drawConveyorModule(context) {
-        drawModuleShell(context, '#38bdf8');
         let state = moduleStates.conveyor;
         if (!state) return;
         setupConveyorGeometry(state);
+        if (context && state.layout) {
+          state.layout.center = context.center || state.layout.center;
+          state.layout.innerLeft =
+            context.innerLeft != null
+              ? context.innerLeft
+              : context.center.x - context.panelW / 2;
+          state.layout.innerTop =
+            context.innerTop != null
+              ? context.innerTop
+              : context.center.y - context.panelH / 2;
+          state.layout.innerW = context.panelW;
+          state.layout.innerH = context.panelH;
+          syncConveyorGeometryWithLayout(state, state.layout);
+        } else if (context) {
+          syncConveyorGeometryWithLayout(state, {
+            rect: context.rect,
+            center: context.center,
+            panelW: context.panelW,
+            panelH: context.panelH,
+            innerW: context.panelW,
+            innerH: context.panelH,
+            innerLeft: context.innerLeft != null ? context.innerLeft : context.center.x - context.panelW / 2,
+            innerTop: context.innerTop != null ? context.innerTop : context.center.y - context.panelH / 2
+          });
+        }
         drawConveyorInterior(context, state);
         let progress = typeof state.packageProgress === 'number' ? state.packageProgress : 0;
         push();
-        translate(context.center.x, context.center.y);
-        drawModuleProgressBar(0, context.panelH * 0.3, context.panelW * 0.6, progress, '#38bdf8');
+        translate(context.center.x, context.center.y + context.panelH / 2 - scaledY(18));
+        drawModuleProgressBar(0, 0, context.panelW * 0.6, progress, '#38bdf8');
         pop();
       }
 
@@ -3495,66 +3714,71 @@
         let { center, panelW, panelH } = context;
         let geometry = state.geometry;
         let bounds = geometry.bounds || {
-          minX: -0.42,
-          maxX: 0.42,
-          minY: -0.82,
-          maxY: 0.38
+          minX: -0.5,
+          maxX: 0.5,
+          minY: 0,
+          maxY: 1
         };
-        let outerW = panelW * 0.74;
-        let outerH = panelH * 0.54;
-        let paddingX = outerW * 0.12;
-        let paddingY = outerH * 0.12;
-        let innerLeft = -outerW / 2 + paddingX;
-        let innerTop = -outerH / 2 + paddingY;
-        let innerW = outerW - paddingX * 2;
-        let innerH = outerH - paddingY * 1.6;
-        let floorY = geometry.floorY != null ? geometry.floorY : 0.34;
-        let holeTop = geometry.holeTop != null ? geometry.holeTop : bounds.minY;
-        let entryRange = geometry.entryRange || [-0.28, 0.28];
+        let pixelMap = geometry.pixel || {};
+        let innerLeft =
+          context.innerLeft != null ? context.innerLeft : center.x - panelW / 2;
+        let innerTop =
+          context.innerTop != null ? context.innerTop : center.y - panelH / 2;
+        let innerW = panelW;
+        let innerH = panelH;
+        let innerBottom = innerTop + innerH;
         let widthRange = Math.max(1e-6, bounds.maxX - bounds.minX);
         let heightRange = Math.max(1e-6, bounds.maxY - bounds.minY);
         let projectPoint = (x, y) => {
           if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-          let ratioX = constrain((x - bounds.minX) / widthRange, 0, 1);
-          let ratioY = constrain((y - bounds.minY) / heightRange, 0, 1);
-          return {
-            x: innerLeft + innerW * ratioX,
-            y: innerTop + innerH * ratioY
-          };
+          let ratioX = (x - bounds.minX) / widthRange;
+          ratioX = constrain(ratioX, 0, 1);
+          let ratioY = (y - bounds.minY) / heightRange;
+          let left = pixelMap.innerLeft != null ? pixelMap.innerLeft : innerLeft;
+          let width = pixelMap.innerWidth != null ? pixelMap.innerWidth : innerW;
+          let minYScreen =
+            pixelMap.minYScreen != null ? pixelMap.minYScreen : innerTop;
+          let maxYScreen =
+            pixelMap.maxYScreen != null ? pixelMap.maxYScreen : innerBottom;
+          let screenX = left + width * ratioX;
+          let screenY = minYScreen + (maxYScreen - minYScreen) * ratioY;
+          return { x: screenX, y: screenY };
         };
-        let baseRadius = Math.max(3, Math.min(innerW, innerH) * 0.06);
         push();
-        translate(center.x, center.y);
         rectMode(CORNER);
-        fill('#030b18');
-        rect(-outerW / 2, -outerH / 2, outerW, outerH, 16);
-        fill('#020912');
-        rect(
-          -outerW / 2 + paddingX * 0.4,
-          -outerH / 2 + paddingY * 0.4,
-          outerW - paddingX * 0.8,
-          outerH - paddingY * 0.8,
-          12
-        );
-        fill(withAlpha('#06142b', 235));
-        rect(innerLeft, innerTop, innerW, innerH, 12);
+        noStroke();
+        fill(withAlpha('#050d1a', 235));
+        rect(innerLeft, innerTop, innerW, innerH);
+        let walkwayTopPoint = projectPoint(0, bounds.minY);
+        let holeTop = geometry.holeTop != null ? geometry.holeTop : bounds.minY;
+        let walkwayBottomPoint = projectPoint(0, holeTop);
+        if (walkwayTopPoint && walkwayBottomPoint) {
+          let walkwayHeight = walkwayBottomPoint.y - walkwayTopPoint.y;
+          if (walkwayHeight > 0) {
+            fill(withAlpha('#0a1a33', 230));
+            rect(innerLeft, walkwayTopPoint.y, innerW, walkwayHeight);
+            fill(withAlpha('#38bdf8', 40));
+            rect(innerLeft, walkwayBottomPoint.y - scaledY(2), innerW, scaledY(2));
+          }
+        }
+        let floorY = geometry.floorY != null ? geometry.floorY : bounds.maxY;
         let floorLeft = projectPoint(bounds.minX, floorY);
         let floorRight = projectPoint(bounds.maxX, floorY);
         if (floorLeft && floorRight) {
           let pulse = 1 + Math.max(0, state.packagePulse || 0) * 0.35;
           stroke(withAlpha('#38bdf8', 120));
-          strokeWeight(Math.max(2, baseRadius * 0.3));
+          strokeWeight(Math.max(2, scaledX(2.4)));
           line(floorLeft.x, floorLeft.y, floorRight.x, floorRight.y);
           noStroke();
-          fill(withAlpha('#38bdf8', 40 * pulse));
-          rect(
-            innerLeft,
-            floorLeft.y,
-            innerW,
-            innerH - (floorLeft.y - innerTop),
-            10
-          );
+          let basinHeight = Math.max(0, innerBottom - floorLeft.y);
+          if (basinHeight > 0) {
+            fill(withAlpha('#0b1d36', 220));
+            rect(innerLeft, floorLeft.y, innerW, basinHeight);
+            fill(withAlpha('#38bdf8', 48 * pulse));
+            rect(innerLeft, floorLeft.y, innerW, Math.min(basinHeight, scaledY(18)));
+          }
         }
+        let entryRange = geometry.entryRange || [-0.3, 0.3];
         if (Array.isArray(entryRange)) {
           let entryLeft = projectPoint(entryRange[0], holeTop);
           let entryRight = projectPoint(entryRange[1], holeTop);
@@ -3564,8 +3788,8 @@
               ((state.fallers ? state.fallers.length : 0) || 0) / 24
             );
             stroke(withAlpha('#38bdf8', 180 + queueStrength * 60));
-            strokeWeight(Math.max(2, baseRadius * 0.35));
-            strokeCap(ROUND);
+            strokeWeight(Math.max(2, scaledX(2.6)));
+            strokeCap(SQUARE);
             line(entryLeft.x, entryLeft.y, entryRight.x, entryRight.y);
           }
         }
@@ -3878,6 +4102,15 @@
         let conveyorMachine = machineDefinitions.find((m) => m.key === 'conveyor');
         if (!conveyorMachine) return;
         let conveyorRect = getMachineRect(conveyorMachine);
+        let conveyorCenter = getMachineCenter(conveyorRect);
+        let conveyorLayout = getConveyorPanelLayout(
+          conveyorMachine,
+          conveyorRect,
+          conveyorCenter
+        );
+        if (moduleStates && moduleStates.conveyor && conveyorLayout) {
+          syncConveyorGeometryWithLayout(moduleStates.conveyor, conveyorLayout);
+        }
         let metrics = getJarChuteMetrics();
         if (metrics) {
           jarChuteExit = {
@@ -3891,7 +4124,7 @@
           };
         }
         let channelTop = jarChuteExit ? jarChuteExit.y : context.center.y + context.panelH / 2;
-        let channelBottom = conveyorRect.y;
+        let channelBottom = conveyorLayout ? conveyorLayout.innerTop : conveyorRect.y;
         if (channelBottom <= channelTop) {
           channelBottom = Math.max(channelBottom, channelTop + scaledY(6));
         }
@@ -4303,7 +4536,7 @@
         dust += dustGain;
         totalDustEarned += dustGain;
         addLayerProgress(baseValue * powderGain);
-        if (type === 0 && grains.length > 0) {
+        if (type <= 1 && grains.length > 0) {
           enqueueConveyorGrains(powder, grains);
         }
         powder.collected = true;
@@ -4320,15 +4553,11 @@
         let centerCol = powder.col + size / 2;
         let ratio = gridCols > 0 ? constrain(centerCol / gridCols, 0, 1) : 0.5;
         let geometry = state.geometry || {};
-        let walkwayTop =
-          geometry.bounds && geometry.bounds.minY != null
-            ? geometry.bounds.minY
-            : (geometry.holeTop || 0) - 0.08;
         for (let i = 0; i < grains.length; i++) {
           let grain = grains[i];
           let spread = grains.length > 1 ? (i / Math.max(1, grains.length - 1)) - 0.5 : 0;
           let source = constrain(ratio + spread * 0.1 + random(-0.04, 0.04), 0, 1);
-          startConveyorDrop(state, grain, source, { startY: walkwayTop });
+          startConveyorDrop(state, grain, source);
         }
       }
 
@@ -4338,17 +4567,13 @@
         let state = moduleStates.conveyor;
         setupConveyorGeometry(state);
         let geometry = state.geometry || {};
-        let walkwayTop =
-          geometry.bounds && geometry.bounds.minY != null
-            ? geometry.bounds.minY
-            : (geometry.holeTop || 0) - 0.08;
         for (let grain of grains) {
           let baseSource =
             grain && grain.metadata && typeof grain.metadata.spawnRatio === 'number'
               ? grain.metadata.spawnRatio
               : 0.5;
           let source = constrain(baseSource + random(-0.12, 0.12), 0, 1);
-          startConveyorDrop(state, grain, source, { startY: walkwayTop });
+          startConveyorDrop(state, grain, source);
         }
       }
 
