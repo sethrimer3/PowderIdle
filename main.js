@@ -138,6 +138,7 @@
       ]);
       const MODULE_PRODUCTION_WINDOW = 12;
       const JAR_TUBE_PIXEL_WIDTH = 5;
+      const MODULE_PATH_PIXEL_WIDTH = 5;
       let moduleProductionLog = {};
       const moduleInteractionHints = {
         conveyor: 'Click to rush extra cargo.',
@@ -1915,36 +1916,54 @@
         let unlocked = isMachineUnlocked(machine.key);
         let panelW = rectInfo.width;
         let panelH = rectInfo.height;
+        let wallThicknessX = Math.max(scaledX(22), panelW * 0.26);
+        let wallThicknessY = Math.max(scaledY(22), panelH * 0.26);
+        let innerW = Math.max(0, panelW - wallThicknessX);
+        let innerH = Math.max(0, panelH - wallThicknessY);
+        let innerRadius = innerW > 0 && innerH > 0 ? Math.max(12, Math.min(innerW, innerH) * 0.18) : 0;
         let interactButton = null;
         push();
         rectMode(CENTER);
-        if (selectedModule === machine.key) {
-          drawSelectionGlow(center.x, center.y, panelW, panelH, 0);
-        }
-        stroke(unlocked ? '#1e3a8a' : '#1e293b');
-        strokeWeight(2);
-        fill(unlocked ? '#0b1220' : '#040810');
+        noStroke();
+        fill('#000000');
         rect(center.x, center.y, panelW, panelH);
+        if (selectedModule === machine.key && innerW > 0 && innerH > 0) {
+          drawSelectionGlow(center.x, center.y, innerW, innerH, innerRadius);
+        }
+        if (innerW > 0 && innerH > 0) {
+          stroke(unlocked ? '#1e3a8a' : '#1e293b');
+          strokeWeight(Math.max(2.4, scaledX(2.6)));
+          fill(unlocked ? '#0b1220' : '#040810');
+          rect(center.x, center.y, innerW, innerH, innerRadius);
+        }
         noStroke();
         if (!unlocked) {
-          fill('#000000');
-          rect(center.x, center.y, panelW - scaledX(10), panelH - scaledY(10));
+          if (innerW > scaledX(10) && innerH > scaledY(10)) {
+            fill('#000000');
+            rect(
+              center.x,
+              center.y,
+              innerW - scaledX(10),
+              innerH - scaledY(10),
+              Math.max(8, innerRadius * 0.7)
+            );
+          }
         } else {
-          drawPanelPixelBackdrop(center, panelW, panelH);
+          drawPanelPixelBackdrop(center, innerW, innerH);
           updateModuleState(machine.key, {
             center,
-            panelW,
-            panelH,
+            panelW: innerW,
+            panelH: innerH,
             rect: rectInfo
           });
           drawModuleScene(machine.key, {
             center,
-            panelW,
-            panelH,
+            panelW: innerW,
+            panelH: innerH,
             rect: rectInfo
           });
-          let interactW = Math.max(0, panelW - scaledX(24));
-          let interactH = Math.max(0, panelH - scaledY(28));
+          let interactW = Math.max(0, innerW - scaledX(18));
+          let interactH = Math.max(0, innerH - scaledY(22));
           if (interactW > 0 && interactH > 0) {
             interactButton = {
               action: 'moduleInteract',
@@ -2005,10 +2024,12 @@
       }
 
       function drawPanelPixelBackdrop(center, panelW, panelH) {
-        let left = center.x - panelW / 2 + scaledX(14);
-        let right = center.x + panelW / 2 - scaledX(14);
-        let top = center.y - panelH / 2 + scaledY(30);
-        let bottom = center.y + panelH / 2 - scaledY(30);
+        let insetX = Math.min(scaledX(14), panelW * 0.18);
+        let insetY = Math.min(scaledY(30), panelH * 0.32);
+        let left = center.x - panelW / 2 + insetX;
+        let right = center.x + panelW / 2 - insetX;
+        let top = center.y - panelH / 2 + insetY;
+        let bottom = center.y + panelH / 2 - insetY;
         let usableW = Math.max(0, right - left);
         let usableH = Math.max(0, bottom - top);
         if (usableW <= 0 || usableH <= 0) {
@@ -3884,26 +3905,22 @@
         if (channelBottom <= channelTop) {
           channelBottom = Math.max(channelBottom, channelTop + scaledY(6));
         }
-        let channelWidth = jarChuteExit
-          ? jarChuteExit.width
-          : Math.max(scaledX(JAR_TUBE_PIXEL_WIDTH), scaledX(5));
+        let basePathWidth = scaledX(MODULE_PATH_PIXEL_WIDTH);
+        let channelWidth = jarChuteExit ? jarChuteExit.width : basePathWidth;
         let channelCenter = jarChuteExit ? jarChuteExit.x : context.center.x;
         let gapTop = channelTop;
         let gapBottom = channelBottom;
         push();
         rectMode(CORNERS);
         if (isMachineUnlocked('conveyor')) {
-          let walkwayWidth = Math.max(
-            channelWidth,
-            Math.max(scaledX(JAR_TUBE_PIXEL_WIDTH), scaledX(5))
-          );
+          let walkwayWidth = Math.max(channelWidth, basePathWidth);
           let walkwayCenter = channelCenter;
           let walkwayLeft = walkwayCenter - walkwayWidth / 2;
           let walkwayRight = walkwayCenter + walkwayWidth / 2;
-          let glowWidth = walkwayWidth + scaledX(12);
-          let glowLeft = walkwayCenter - glowWidth / 2;
-          let glowRight = walkwayCenter + glowWidth / 2;
-          let innerInset = Math.min(walkwayWidth * 0.35, Math.max(1, scaledX(1.2)));
+          let pathFill = '#000000';
+          let walkwayTop = gapTop - scaledY(1);
+          let walkwayBottom = gapBottom + scaledY(1);
+          let innerInset = Math.min(walkwayWidth * 0.25, Math.max(1, scaledX(1)));
           let innerLeft = walkwayLeft + innerInset;
           let innerRight = walkwayRight - innerInset;
           if (innerRight <= innerLeft) {
@@ -3912,27 +3929,11 @@
             innerLeft = innerMid - halfSpan;
             innerRight = innerMid + halfSpan;
           }
-          let innerTop = gapTop + scaledY(3);
-          let innerBottom = gapBottom - scaledY(3);
-          noFill();
-          stroke(withAlpha('#0b1f3a', 220));
-          strokeWeight(Math.max(1.5, scaledX(2)));
-          rect(glowLeft, gapTop - scaledY(6), glowRight, gapBottom + scaledY(6));
-          stroke(
-            withAlpha(jarReleaseState.open ? '#38bdf8' : '#1d4ed8', jarReleaseState.open ? 200 : 140)
-          );
-          strokeWeight(Math.max(1.2, scaledX(2.2)));
-          line(walkwayLeft, gapTop, walkwayLeft, gapBottom);
-          line(walkwayRight, gapTop, walkwayRight, gapBottom);
-          strokeWeight(Math.max(0.8, scaledX(1.4)));
-          line(innerLeft, innerTop, innerLeft, innerBottom);
-          line(innerRight, innerTop, innerRight, innerBottom);
+          let innerTop = walkwayTop + scaledY(3);
+          let innerBottom = walkwayBottom - scaledY(3);
           noStroke();
-          let shaftFill = withAlpha('#020912', 235);
-          fill(shaftFill);
-          rect(walkwayLeft, gapTop, walkwayRight, gapBottom);
-          let lumenFill = withAlpha('#38bdf8', jarReleaseState.open ? 150 : 100);
-          rect(innerLeft, innerTop, innerRight, innerBottom);
+          fill(pathFill);
+          rect(walkwayLeft, walkwayTop, walkwayRight, walkwayBottom);
           let conveyorState = moduleStates && moduleStates.conveyor;
           if (conveyorState && conveyorState.geometry) {
             let geometry = conveyorState.geometry;
