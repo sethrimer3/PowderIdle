@@ -3,7 +3,7 @@
 ## Core Loop
 - **Manual casting** – Click or tap inside the Sandfall Jar (or press Space/E) to drop the currently selected powder. Each grain settles through the jar's grid, seeking open cells and funneling toward the exit to grant dust.
 - **Tier unlocking** – Collect enough of a powder to purchase the next tier from the Sandfall tab. New powders expand capacity and unlock additional machines in the collage.
-- **Machines** – Each machine in the atelier automates part of the transformation pipeline (conveyor, launch bay, forge, loom, foundry, crucible). Switching tabs focuses on the chosen machine for upgrades and context hints.
+- **Machines** – The live build now presents a single unified Sandfall Atrium that fills the whole collage space. The legacy nine-module pipeline is archived below for reference when reintroducing specialized machinery.
 - **Resources** – Track three primary currencies: `dust` (spend on upgrades and research), `powder` (raw stock by tier), and `crystal cores` (prestige resource produced in the Singularity Crucible).
 - **Layers** – Stabilize geological strata from the Sandfall tab to raise passive dust/gravity bonuses. Deeper layers unlock sequentially as the jar is flooded with higher-tier matter.
 
@@ -26,5 +26,15 @@
 4. **Narrative expansion** – Tie each stabilized layer and milestone to lore entries inside the Codex, gradually revealing the world as players progress.
 5. **Balancing & analytics** – Instrument milestone pacing (dust/core thresholds) and auto-dropper scaling for smoother curves, then expose settings in JSON for rapid iteration.
 6. **Accessibility & UX** – Add tooltips, adjustable text scaling, and optional color palettes for better readability. Consider keyboard shortcuts for each tab and toggle.
+
+## Archived Module Concepts
+- **Grain Conveyor** – Drops grains into a holding bin ready for routing.
+- **Launch Bay** – Bundles outbound packages into launch fuel for the skyward chain.
+- **Asteroid Crucible** – Compresses launches into dense asteroids.
+- **Planetarium** – Accretes asteroids into orderly planets.
+- **Star Forge** – Ignites planets into newborn stars.
+- **Celestial Loom** – Weaves stars into swirling galaxies.
+- **Universe Foundry** – Binds galaxies into full universes.
+- **Singularity Crucible** – Collapses universes into singularities for prestige loops.
 
 Use this document as a quick orientation for contributors and a living roadmap for future sprints.
