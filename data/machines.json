@@ -2,72 +2,14 @@
   "definitions": [
     {
       "key": "jar",
-      "name": "Sandfall Jar",
-      "description": "The heart of your atelier.",
-      "grid": { "col": 1, "row": 1, "width": 1, "height": 1 }
-    },
-    {
-      "key": "conveyor",
-      "name": "Grain Conveyor",
-      "description": "Drops grains into a holding bin.",
-      "grid": { "col": 1, "row": 2, "width": 1, "height": 1 }
-    },
-    {
-      "key": "rocket",
-      "name": "Launch Bay",
-      "description": "Bundles packages into launch fuel.",
-      "grid": { "col": 0, "row": 2, "width": 1, "height": 1 }
-    },
-    {
-      "key": "asteroid",
-      "name": "Asteroid Crucible",
-      "description": "Pressurizes launches into asteroids.",
-      "grid": { "col": 0, "row": 1, "width": 1, "height": 1 }
-    },
-    {
-      "key": "planet",
-      "name": "Planetarium",
-      "description": "Accretes asteroids into planets.",
-      "grid": { "col": 0, "row": 0, "width": 1, "height": 1 }
-    },
-    {
-      "key": "forge",
-      "name": "Star Forge",
-      "description": "Ignites planets into radiant stars.",
-      "grid": { "col": 1, "row": 0, "width": 1, "height": 1 }
-    },
-    {
-      "key": "galaxy",
-      "name": "Celestial Loom",
-      "description": "Weaves stars into galaxies.",
-      "grid": { "col": 2, "row": 0, "width": 1, "height": 1 }
-    },
-    {
-      "key": "universe",
-      "name": "Universe Foundry",
-      "description": "Binds galaxies into universes.",
-      "grid": { "col": 2, "row": 1, "width": 1, "height": 1 }
-    },
-    {
-      "key": "singularity",
-      "name": "Singularity Crucible",
-      "description": "Collapses universes into singularities.",
-      "grid": { "col": 2, "row": 2, "width": 1, "height": 1 }
+      "name": "Sandfall Atrium",
+      "description": "A unified chamber that holds every transformation at once.",
+      "grid": { "col": 0, "row": 0, "width": 3, "height": 3 }
     }
   ],
-  "connections": [
-    { "from": "jar", "to": "conveyor" },
-    { "from": "conveyor", "to": "rocket" },
-    { "from": "rocket", "to": "asteroid" },
-    { "from": "asteroid", "to": "planet" },
-    { "from": "planet", "to": "forge" },
-    { "from": "forge", "to": "galaxy" },
-    { "from": "galaxy", "to": "universe" },
-    { "from": "universe", "to": "singularity" }
-  ],
+  "connections": [],
   "menuTabs": [
     { "key": "sandfall", "label": "Sandfall" },
-    { "key": "module", "label": "Module" },
     { "key": "universal", "label": "Universal" },
     { "key": "achievements", "label": "Achievements" }
   ]

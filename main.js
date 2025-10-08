@@ -5,7 +5,7 @@
       let SCREEN_H = BASE_SCREEN_H;
       let MENU_W = Math.round(SCREEN_W * 0.34);
       let PLAY_AREA_W = SCREEN_W - MENU_W;
-      const BASE_CELL_PIXEL_SIZE = 6;
+      const BASE_CELL_PIXEL_SIZE = 1;
       let cellPixelSize = BASE_CELL_PIXEL_SIZE;
       let layoutScaleX = 1;
       let layoutScaleY = 1;
@@ -15,19 +15,9 @@
       const AUTO_DROP_INTERVAL = 1200;
       const AUTO_COMPRESS_INTERVAL = 1800;
       const CHAIN_REQUIREMENT = 100;
-      const MODULE_UNLOCK_ORDER = [
-        'conveyor',
-        'rocket',
-        'asteroid',
-        'planet',
-        'forge',
-        'galaxy',
-        'universe',
-        'singularity'
-      ];
+      const MODULE_UNLOCK_ORDER = [];
       const DEFAULT_MENU_TABS = [
         { key: 'sandfall', label: 'Sandfall', icon: '🜃' },
-        { key: 'module', label: 'Module', icon: '⚙️' },
         { key: 'universal', label: 'Universal', icon: '🌌' },
         { key: 'achievements', label: 'Achievements', icon: '📜' }
       ];
@@ -85,7 +75,7 @@
       let crystalCores = 0;
       let totalPowderCollected = 0;
       let upgradesState = {};
-      let activeMenu = 'jar';
+      let activeMenu = 'sandfall';
       let layerStates = [];
       let researchState = {};
       let automationSettings = {
