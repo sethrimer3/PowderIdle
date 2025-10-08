@@ -2369,27 +2369,19 @@
           faller.vx = (faller.vx || 0) * 0.9;
           faller.x += faller.vx * dt;
           faller.x = constrain(faller.x, bounds.minX, bounds.maxX);
+          let particleState = faller.data && faller.data.delivered ? 'drain' : 'fall';
           updatePowderParticle(faller, {
-            state: 'fall',
+            state: particleState,
             x: faller.x,
             y: faller.y,
             vx: faller.vx,
             vy: faller.vy
           });
           if (faller.y >= floorY) {
-            faller.y = floorY;
-            faller.vx = 0;
-            faller.vy = 0;
-            faller.x += random(-0.01, 0.01);
-            faller.x = constrain(faller.x, bounds.minX, bounds.maxX);
-            updatePowderParticle(faller, {
-              state: 'rest',
-              x: faller.x,
-              y: faller.y,
-              vx: 0,
-              vy: 0
-            });
-            if (faller.entity) {
+            if (!faller.data) {
+              faller.data = {};
+            }
+            if (!faller.data.delivered && faller.entity) {
               state.packageBuffer.push(faller.entity);
               if (state.packageBuffer.length > 280) {
                 state.packageBuffer.splice(
@@ -2397,8 +2389,21 @@
                   state.packageBuffer.length - 280
                 );
               }
+              faller.data.delivered = true;
             }
-            state.restingParticles.push(faller);
+            faller.state = 'drain';
+            faller.x += random(-0.01, 0.01);
+            faller.x = constrain(faller.x, bounds.minX, bounds.maxX);
+            faller.vx *= 0.85;
+          }
+          if (faller.y >= bounds.maxY + 0.2) {
+            updatePowderParticle(faller, {
+              state: 'stored',
+              x: faller.x,
+              y: faller.y,
+              vx: 0,
+              vy: 0
+            });
             state.fallers.splice(i, 1);
             continue;
           }
@@ -2410,7 +2415,7 @@
             state.fallers.splice(i, 1);
           }
         }
-        while (state.restingParticles.length > 120) {
+        while (state.restingParticles.length > 0) {
           let particle = state.restingParticles.shift();
           if (particle) {
             updatePowderParticle(particle, { state: 'stored' });
