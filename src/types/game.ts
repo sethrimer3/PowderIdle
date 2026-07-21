@@ -59,7 +59,16 @@ export interface MenuContentArea {
   width: number;
   top: number;
   bottom: number;
+  height: number;
   scrollOffset: number;
+}
+
+export interface MenuTabsArea {
+  tabs: MenuTab[];
+  left: number;
+  right: number;
+  top: number;
+  height: number;
 }
 
 export interface PowderDefinition {
@@ -106,6 +115,8 @@ export interface MenuTab {
   key: string;
   label: string;
   icon?: string;
+  requiresMilestone?: string;
+  requiresModule?: MachineModuleKey;
 }
 
 export interface MachinesData {
@@ -311,7 +322,7 @@ export interface ActivePowder {
   fallProgress: number;
   collected: boolean;
   settled: boolean;
-  entity: PowderEntity;
+  entities: PowderEntity[];
   moveDirection?: number;
   blockedFrames?: number;
 }
@@ -373,7 +384,16 @@ export interface ConveyorState {
   autoTimer: number;
   initialized?: boolean;
   geometry?: ConveyorGeometry;
-  layout?: unknown;
+  layout?: ConveyorPanelLayout;
+}
+
+export interface PackageArrival {
+  package: PowderEntity;
+  colors: string[];
+  pulse: number;
+  progress: number;
+  worth: number;
+  rocket: boolean;
 }
 
 export interface RocketPod {
@@ -399,54 +419,87 @@ export interface RocketState {
   incoming: QueuedPackage[];
   nextLane: number;
   packageQueue: PowderEntity[];
+  progress?: number;
 }
 
 export interface AsteroidBody {
   entity?: PowderEntity;
-  particle?: PowderParticle;
+  particle?: PowderParticle | null;
   x: number;
   y: number;
-  vx?: number;
-  vy?: number;
+  vx: number;
+  vy: number;
   mass: number;
-  radius?: number;
-  angle?: number;
-  spin?: number;
+  radius: number;
+  hue: number;
+  mergeGlow: number;
+}
+
+export interface AsteroidPowderBit {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  mass: number;
+  size: number;
+  life: number;
 }
 
 export interface AsteroidState {
   progress: number;
   asteroids: AsteroidBody[];
-  powderBits: AsteroidBody[];
+  powderBits: AsteroidPowderBit[];
   ring: number;
   ringPulse: number;
   autoTimer: number;
   initialized?: boolean;
-  fragments?: Array<{ life: number; angle: number; speed: number }>;
+  fragments?: Array<{
+    life: number;
+    angle: number;
+    drift: number;
+    radius: number;
+  }>;
+  coreMass?: number;
 }
 
-export interface OrbitalBody {
+export interface Planetesimal {
   entity?: PowderEntity;
-  particle?: PowderParticle;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  mass: number;
+  radius: number;
+  colorPhase: number;
+  spin: number;
+  phase: number;
+}
+
+export interface PlanetMoon {
   angle: number;
   radius: number;
-  speed?: number;
+  speed: number;
+  wobble: number;
+  size: number;
+}
+
+export interface PlanetCore {
   mass: number;
-  x?: number;
-  y?: number;
+  radius: number;
+  angle: number;
 }
 
 export interface PlanetState {
   progress: number;
-  planetesimals: OrbitalBody[];
-  moons: OrbitalBody[];
-  planetCore: PowderEntity | null;
+  planetesimals: Planetesimal[];
+  moons: PlanetMoon[];
+  planetCore: PlanetCore | null;
   spin: number;
   coreGlow: number;
   moonPulse: number;
   autoTimer: number;
   initialized?: boolean;
-  orbiters?: Array<{ life: number; angle: number; radius: number }>;
+  orbiters?: Array<{ life: number; angle: number; radius: number; speed: number }>;
   coreMass?: number;
 }
 
@@ -458,25 +511,42 @@ export interface ForgeState {
 }
 
 export interface GalaxyVortex {
-  entity?: PowderEntity;
-  particle?: PowderParticle;
   angle: number;
-  radius?: number;
-  progress?: number;
+  radius: number;
+  speed: number;
+}
+
+export interface GalaxyParticle {
+  radius: number;
+  angle: number;
+  radialVel: number;
+  angularVel: number;
+  band: number;
+  armOffset: number;
+  twinkle: number;
+}
+
+export interface GalaxyBurst {
+  radius: number;
+  angle: number;
+  life: number;
+  entity?: PowderEntity;
 }
 
 export interface GalaxyState {
   progress: number;
   angle: number;
-  particles: GalaxyVortex[];
+  particles: GalaxyParticle[];
   vortices: GalaxyVortex[];
-  bursts: Array<{ life: number; angle: number }>;
+  bursts: GalaxyBurst[];
   autoTimer: number;
   initialized?: boolean;
 }
 
-export interface UniverseNode extends GalaxyVortex {
-  pulse?: number;
+export interface UniverseNode {
+  radius: number;
+  size: number;
+  offset: number;
 }
 
 export interface UniverseState {
@@ -538,7 +608,8 @@ export interface ModuleRenderContext {
   center: Point;
   panelW: number;
   panelH: number;
-  rect: Rect;
+  rect?: Rect | undefined;
+  rectInfo?: Rect | undefined;
   innerLeft?: number;
   innerTop?: number;
 }
@@ -548,11 +619,19 @@ export interface ConveyorPanelLayout extends ModuleRenderContext {
   innerH: number;
   innerLeft: number;
   innerTop: number;
-  paddingX: number;
-  paddingY: number;
+  paddingX?: number;
+  paddingY?: number;
 }
 
 export interface ProgressState {
   progress: number;
   autoTimer: number;
+}
+
+export interface NeonButtonOptions {
+  active?: boolean;
+  enabled?: boolean;
+  accentColor?: string;
+  baseColor?: string;
+  radius?: number;
 }

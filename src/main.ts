@@ -1,4 +1,4 @@
-import type p5 from 'p5';
+import type P5 from 'p5';
 import type {
   ActivePowder,
   AutomationSettings,
@@ -22,17 +22,21 @@ import type {
   MachineModuleKey,
   MenuContentArea,
   MenuTab,
+  MenuTabsArea,
   MilestoneBonuses,
   MilestoneConfig,
   MilestoneState,
   ModuleKey,
   ModuleRenderContext,
+  NeonButtonOptions,
   ModuleRevealState,
   ModuleStates,
   PowderData,
   PowderDefinition,
   PowderEntity,
   PowderEntityProperties,
+  PackageArrival,
+  Planetesimal,
   PowderParticle,
   PowderParticleUpdate,
   PowderWorld,
@@ -70,13 +74,13 @@ import {
       let cellPixelSize = BASE_CELL_PIXEL_SIZE;
       let layoutScaleX = 1;
       let layoutScaleY = 1;
-      let canvas: p5.Renderer;
+      let canvas: P5.Renderer;
       const BASE_FALL_SPEED = 2;
       const BASE_DROPPER_INTERVAL = 2000; // ms
       const AUTO_DROP_INTERVAL = 1200;
       const AUTO_COMPRESS_INTERVAL = 1800;
       const CHAIN_REQUIREMENT = 100;
-      const MODULE_UNLOCK_ORDER: ModuleKey[] = [];
+      const MODULE_UNLOCK_ORDER: MachineModuleKey[] = [];
       const DEFAULT_MENU_TABS = [
         { key: 'sandfall', label: 'Sandfall', icon: '🜃' },
         { key: 'universal', label: 'Universal', icon: '🌌' },
@@ -175,7 +179,13 @@ import {
       let duneHeightUnits = 0;
       let duneDustMultiplier = 1;
       let jarReleaseState = { open: false, openTimer: 0, cooldown: 0 };
-      let jarChuteExit: { x: number; y: number } | null = null;
+      let jarChuteExit: {
+        x: number;
+        y: number;
+        width: number;
+        left: number;
+        right: number;
+      } | null = null;
       let moduleRevealStates: Partial<Record<ModuleKey, ModuleRevealState>> = {};
       const TRACKED_MODULE_KEYS = new Set([
         'conveyor',
@@ -756,7 +766,9 @@ import {
         'singularity',
         'inventory'
       ];
-      const POWDER_TYPE_DEFAULT_MODULE: Readonly<Record<number, ModuleKey>> = {
+      const POWDER_TYPE_DEFAULT_MODULE: Readonly<
+        Record<number, Exclude<MachineModuleKey, 'jar'>>
+      > = {
         0: 'conveyor',
         1: 'rocket',
         2: 'asteroid',
@@ -1326,6 +1338,7 @@ import {
         width: 0,
         top: 0,
         bottom: 0,
+        height: 0,
         scrollOffset: 0
       };
       let powdersDataRaw: PowderData | null = null;
@@ -1497,9 +1510,8 @@ import {
       function createUpgradeState(source?: Readonly<Record<string, number>>) {
         let state: Record<string, number> = {};
         for (let config of upgradeConfigs) {
-          let value = source && typeof source[config.key] === 'number'
-            ? source[config.key]
-            : 0;
+          const storedValue = source?.[config.key];
+          let value = typeof storedValue === 'number' ? storedValue : 0;
           state[config.key] = value;
         }
         return state;
@@ -1522,7 +1534,7 @@ import {
           completed: false,
           progress: 0
         }));
-        researchState = researchProjects.reduce((acc, project) => {
+        researchState = researchProjects.reduce<Record<string, number>>((acc, project) => {
           acc[project.key] = 0;
           return acc;
         }, {});
@@ -2053,7 +2065,7 @@ import {
         let innerW = Math.max(0, panelW - wallThicknessX);
         let innerH = Math.max(0, panelH - wallThicknessY);
         let innerRadius = innerW > 0 && innerH > 0 ? Math.max(12, Math.min(innerW, innerH) * 0.18) : 0;
-        let interactButton = null;
+        let interactButton: UiButton | null = null;
         push();
         rectMode(CENTER);
         noStroke();
@@ -2165,7 +2177,7 @@ import {
         let layout = getConveyorPanelLayout(machine, rectInfo, center);
         if (!layout) return;
         let { panelW, panelH, innerW, innerH, innerLeft, innerTop } = layout;
-        let interactButton = null;
+        let interactButton: UiButton | null = null;
         push();
         rectMode(CENTER);
         noStroke();
@@ -2336,7 +2348,7 @@ import {
         speed: number,
         dt: number,
         dustBase: number,
-        onCraft?: (entity: PowderEntity) => void
+        onCraft?: (entity: PowderEntity, consumed: PowderEntity[]) => void
       ): void {
         if (!state) return;
         state.progress = state.progress || 0;
@@ -2611,7 +2623,8 @@ import {
         if (!state) return;
         setupConveyorGeometry(state);
         if (!layout) return;
-        let geometry = state.geometry || {};
+        let geometry = state.geometry;
+        if (!geometry) return;
         let { center, innerW, innerH, innerLeft, innerTop } = layout;
         if (!(innerW > 0) || !(innerH > 0)) {
           return;
@@ -2687,7 +2700,8 @@ import {
       ) {
         if (!state || !grain) return null;
         setupConveyorGeometry(state);
-        let geometry = state.geometry || {};
+        let geometry = state.geometry;
+        if (!geometry) return null;
         let entryRange = geometry.entryRange || [-0.28, 0.28];
         let spawnX = lerp(entryRange[0], entryRange[1], constrain(source ?? 0.5, 0, 1));
         let walkwayTop =
@@ -2709,6 +2723,7 @@ import {
             source: constrain(source ?? 0.5, 0, 1)
           }
         });
+        if (!particle) return null;
         state.fallers = state.fallers || [];
         state.fallers.push(particle);
         return particle;
@@ -2731,12 +2746,13 @@ import {
         };
         for (let i = state.fallers.length - 1; i >= 0; i--) {
           let faller = state.fallers[i];
+          if (!faller) continue;
           faller.vy = (faller.vy || 0) + gravity * dt;
           faller.y += faller.vy * dt;
           faller.vx = (faller.vx || 0) * 0.9;
           faller.x += faller.vx * dt;
           faller.x = constrain(faller.x, bounds.minX, bounds.maxX);
-          let particleState = faller.data && faller.data.delivered ? 'drain' : 'fall';
+          const particleState = faller.data?.delivered ? 'drain' : 'fall';
           updatePowderParticle(faller, {
             state: particleState,
             x: faller.x,
@@ -2791,7 +2807,7 @@ import {
       }
 
 
-      function registerRocketArrival(pkg: PowderEntity): void {
+      function registerRocketArrival(pkg: PackageArrival): void {
         let rocketState = moduleStates && moduleStates.rocket;
         if (!rocketState) return;
         rocketState.incoming = rocketState.incoming || [];
@@ -2847,6 +2863,7 @@ import {
         state.packageQueue = state.packageQueue || [];
         for (let i = state.incoming.length - 1; i >= 0; i--) {
           let incoming = state.incoming[i];
+          if (!incoming) continue;
           incoming.progress = (incoming.progress || 0) + dt * 0.9;
           incoming.pulse = Math.max(0, (incoming.pulse || 0) - dt * 1.6);
           let particle = getPowderParticleForEntity(incoming.package);
@@ -2872,6 +2889,7 @@ import {
         let successRate = getRocketSuccessRate();
         for (let i = 0; i < state.pods.length; i++) {
           let pod = state.pods[i];
+          if (!pod) continue;
           if (pod.launch > 0) {
             pod.launch += dt;
             if (pod.launch >= 0.6) {
@@ -2951,8 +2969,10 @@ import {
           }
         }
         for (let i = state.explosions.length - 1; i >= 0; i--) {
-          state.explosions[i].life -= dt * 1.5;
-          if (state.explosions[i].life <= 0) {
+          const explosion = state.explosions[i];
+          if (!explosion) continue;
+          explosion.life -= dt * 1.5;
+          if (explosion.life <= 0) {
             state.explosions.splice(i, 1);
           }
         }
@@ -3055,7 +3075,8 @@ import {
 
       function applyAsteroidFissionBonus(
         state: AsteroidState,
-        asteroidEntity: PowderEntity
+        asteroidEntity: PowderEntity,
+        _consumed?: PowderEntity[]
       ): void {
         let level = getUpgradeLevel('asteroidFissionBoost');
         if (level <= 0) return;
@@ -3112,7 +3133,7 @@ import {
         if (!state.powderBits) return;
         let asteroids = state.asteroids || [];
         for (let i = state.powderBits.length - 1; i >= 0; i--) {
-          let bit = state.powderBits[i];
+          let bit = state.powderBits[i]!;
           bit.life -= dt * 0.18;
           let nearest = null;
           let nearestDist = Infinity;
@@ -3172,7 +3193,7 @@ import {
         let asteroids = state.asteroids;
         let gravityConstant = 0.22;
         for (let i = 0; i < asteroids.length; i++) {
-          let asteroid = asteroids[i];
+          let asteroid = asteroids[i]!;
           asteroid.vx += -asteroid.x * 0.12 * dt;
           asteroid.vy += -asteroid.y * 0.12 * dt;
           asteroid.mergeGlow = Math.max(0, asteroid.mergeGlow - dt * 1.6);
@@ -3186,9 +3207,9 @@ import {
           }
         }
         for (let i = 0; i < asteroids.length; i++) {
-          let a = asteroids[i];
+          let a = asteroids[i]!;
           for (let j = i + 1; j < asteroids.length; j++) {
-            let b = asteroids[j];
+            let b = asteroids[j]!;
             let dx = b.x - a.x;
             let dy = b.y - a.y;
             let distSq = dx * dx + dy * dy + 0.02;
@@ -3217,9 +3238,9 @@ import {
           }
         }
         for (let i = 0; i < asteroids.length; i++) {
-          let a = asteroids[i];
+          let a = asteroids[i]!;
           for (let j = i + 1; j < asteroids.length; j++) {
-            let b = asteroids[j];
+            let b = asteroids[j]!;
             let dx = b.x - a.x;
             let dy = b.y - a.y;
             let dist = Math.sqrt(dx * dx + dy * dy);
@@ -3240,7 +3261,8 @@ import {
               a.mergeGlow = 1;
               if (a.entity || b.entity) {
                 let host = a.entity || b.entity;
-                let components = [];
+                if (!host) continue;
+                let components: PowderEntity[] = [];
                 if (a.entity && Array.isArray(a.entity.contents)) {
                   components.push(...a.entity.contents);
                 }
@@ -3342,8 +3364,8 @@ import {
       function createPlanetesimal(
         angle: number,
         radius: number,
-        planetEntity: PowderEntity
-      ) {
+        planetEntity?: PowderEntity
+      ): Planetesimal {
         let tangential = 0.32 + Math.random() * 0.18;
         let baseMass = planetEntity ? Math.max(0.6, recalcCompositeMass(planetEntity) / 18) : 1;
         let mass = baseMass + Math.random() * baseMass * 0.6;
@@ -3357,7 +3379,7 @@ import {
           colorPhase: Math.random(),
           spin: random(0.8, 1.6),
           phase: random(TAU),
-          entity: planetEntity
+          ...(planetEntity ? { entity: planetEntity } : {})
         };
       }
 
@@ -3384,9 +3406,9 @@ import {
         }
         let gravityConstant = 0.16;
         for (let i = 0; i < bodies.length; i++) {
-          let a = bodies[i];
+          let a = bodies[i]!;
           for (let j = i + 1; j < bodies.length; j++) {
-            let b = bodies[j];
+            let b = bodies[j]!;
             let dx = b.x - a.x;
             let dy = b.y - a.y;
             let distSq = dx * dx + dy * dy + 0.01;
@@ -3407,9 +3429,9 @@ import {
           body.vy *= 0.996;
         }
         for (let i = 0; i < bodies.length; i++) {
-          let a = bodies[i];
+          let a = bodies[i]!;
           for (let j = i + 1; j < bodies.length; j++) {
-            let b = bodies[j];
+            let b = bodies[j]!;
             let dx = b.x - a.x;
             let dy = b.y - a.y;
             let dist = Math.sqrt(dx * dx + dy * dy);
@@ -3433,7 +3455,7 @@ import {
           }
         }
         for (let i = bodies.length - 1; i >= 0; i--) {
-          let body = bodies[i];
+          let body = bodies[i]!;
           let dist = Math.sqrt(body.x * body.x + body.y * body.y);
           if (dist < core.radius * 0.6) {
             core.mass += body.mass;
@@ -3527,8 +3549,9 @@ import {
           }
         );
         for (let i = state.pulses.length - 1; i >= 0; i--) {
-          state.pulses[i].life -= dt * 1.6;
-          if (state.pulses[i].life <= 0) {
+          const pulse = state.pulses[i]!;
+          pulse.life -= dt * 1.6;
+          if (pulse.life <= 0) {
             state.pulses.splice(i, 1);
           }
         }
@@ -3539,7 +3562,7 @@ import {
         let level = getUpgradeLevel('forgeSupernova');
         if (level <= 0) return;
         if (Math.random() < Math.min(0.55, 0.2 * level)) {
-          let fragments = [];
+          let fragments: PowderEntity[] = [];
           if (
             starEntity &&
             Array.isArray(starEntity.contents) &&
@@ -3577,6 +3600,7 @@ import {
         }
         for (let particle of state.particles) {
           let vortex = state.vortices[particle.band % state.vortices.length];
+          if (!vortex) continue;
           let targetAngle = vortex.angle + particle.armOffset;
           let angleDiff = angleWrap(targetAngle - particle.angle);
           particle.angularVel += angleDiff * dt * 0.45;
@@ -3592,7 +3616,7 @@ import {
           particle.twinkle += dt * (0.8 + particle.band * 0.2);
         }
         for (let i = state.bursts.length - 1; i >= 0; i--) {
-          let burst = state.bursts[i];
+          let burst = state.bursts[i]!;
           burst.life -= dt * 0.9;
           burst.radius += dt * 0.05;
           if (burst.life <= 0) {
@@ -3676,7 +3700,7 @@ import {
         }
         if (extra > 0) {
           for (let i = 0; i < extra; i++) {
-            let fragments = [];
+            let fragments: PowderEntity[] = [];
             if (
               galaxyEntity &&
               Array.isArray(galaxyEntity.contents) &&
@@ -3754,7 +3778,7 @@ import {
         let level = getUpgradeLevel('universeContinuum');
         if (level <= 0) return;
         if (Math.random() < Math.min(0.5, 0.18 * level)) {
-          let fragments = [];
+          let fragments: PowderEntity[] = [];
           if (
             universeEntity &&
             Array.isArray(universeEntity.contents) &&
@@ -3824,8 +3848,9 @@ import {
           state.progress = Math.max(0, state.progress - dt * 0.25);
         }
         for (let i = state.shards.length - 1; i >= 0; i--) {
-          state.shards[i].life -= dt * 1.2;
-          if (state.shards[i].life <= 0) {
+          const shard = state.shards[i]!;
+          shard.life -= dt * 1.2;
+          if (shard.life <= 0) {
             state.shards.splice(i, 1);
           }
         }
@@ -3925,7 +3950,7 @@ import {
         let innerBottom = innerTop + innerH;
         let widthRange = Math.max(1e-6, bounds.maxX - bounds.minX);
         let heightRange = Math.max(1e-6, bounds.maxY - bounds.minY);
-        let projectPoint = (x, y) => {
+        let projectPoint = (x: number, y: number): Point | null => {
           if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
           let ratioX = (x - bounds.minX) / widthRange;
           ratioX = constrain(ratioX, 0, 1);
@@ -3989,7 +4014,7 @@ import {
             line(entryLeft.x, entryLeft.y, entryRight.x, entryRight.y);
           }
         }
-        let drawParticle = (particle) => {
+        let drawParticle = (particle: PowderParticle): void => {
           if (!particle) return;
           let point = projectPoint(particle.x, particle.y);
           if (!point) return;
@@ -4227,6 +4252,7 @@ import {
           for (let i = 0; i < totalLayers; i++) {
             let state = layerStates[i];
             let layer = strataLayers[i];
+            if (!state || !layer) continue;
             let ratio = 0;
             if (state.completed) {
               ratio = 1;
@@ -4598,7 +4624,7 @@ import {
         return MODULE_UNLOCK_ORDER.indexOf(key);
       }
 
-      function getNextTierToUnlock() {
+      function getNextTierToUnlock(): number {
         for (let i = 0; i < tierUpgrades.length; i++) {
           if (!tierUpgrades[i]) {
             return i;
@@ -4607,7 +4633,7 @@ import {
         return -1;
       }
 
-      function isInsideJar(x, y) {
+      function isInsideJar(x: number, y: number): boolean {
         if (jarRect.width <= 0 || jarRect.height <= 0) return false;
         return (
           x >= jarRect.left &&
@@ -4625,7 +4651,7 @@ import {
           BASE_FALL_SPEED * getGravityMultiplier() * (deltaTime / 16.67);
         let fallCells = fallSpeed / cellPixelSize;
         for (let i = powders.length - 1; i >= 0; i--) {
-          let p = powders[i];
+          let p = powders[i]!;
           p.fallProgress = (p.fallProgress || 0) + fallCells;
           let removed = false;
           let movedThisFrame = false;
@@ -4669,7 +4695,9 @@ import {
         noStroke();
         rectMode(CORNER);
         for (let p of powders) {
-          fill(powderTypes[p.type].color);
+          const definition = powderTypes[p.type];
+          if (!definition) continue;
+          fill(definition.color);
           let size = getPowderSize(p);
           let width = size * cellPixelSize;
           let x = jarRect.left + p.col * cellPixelSize;
@@ -4679,7 +4707,7 @@ import {
         pop();
       }
 
-      function collectPowder(powder) {
+      function collectPowder(powder: ActivePowder): void {
         if (powder.collected) return;
         let type = powder.type;
         let bonusPowder = researchState.quantum || 0;
@@ -4690,7 +4718,7 @@ import {
           let centerCol = powder.col + size / 2;
           spawnRatio = constrain(centerCol / gridCols, 0, 1);
         }
-        let grains = [];
+        let grains: PowderEntity[] = [];
         let storedEntities = Array.isArray(powder.entities)
           ? powder.entities.filter(Boolean)
           : [];
@@ -4731,7 +4759,7 @@ import {
           totalPowderCollected += 1;
           grains.push(bonusEntity);
         }
-        let baseValue = powderTypes[type].dustValue;
+        let baseValue = powderTypes[type]?.dustValue ?? 1;
         let dustGain = Math.round(
           baseValue * getDustMultiplier() * duneDustMultiplier
         );
@@ -4745,7 +4773,7 @@ import {
         powder.entities = [];
       }
 
-      function enqueueConveyorGrains(powder, grains) {
+      function enqueueConveyorGrains(powder: ActivePowder, grains: PowderEntity[]): void {
         if (!moduleStates || !moduleStates.conveyor) return;
         if (!isMachineUnlocked('conveyor')) return;
         if (!grains || grains.length === 0) return;
@@ -4754,21 +4782,19 @@ import {
         let size = getPowderSize(powder);
         let centerCol = powder.col + size / 2;
         let ratio = gridCols > 0 ? constrain(centerCol / gridCols, 0, 1) : 0.5;
-        let geometry = state.geometry || {};
         for (let i = 0; i < grains.length; i++) {
-          let grain = grains[i];
+          let grain = grains[i]!;
           let spread = grains.length > 1 ? (i / Math.max(1, grains.length - 1)) - 0.5 : 0;
           let source = constrain(ratio + spread * 0.1 + random(-0.04, 0.04), 0, 1);
           startConveyorDrop(state, grain, source);
         }
       }
 
-      function requeueSalvagedGrains(grains) {
+      function requeueSalvagedGrains(grains: PowderEntity[]): void {
         if (!moduleStates || !moduleStates.conveyor) return;
         if (!grains || grains.length === 0) return;
         let state = moduleStates.conveyor;
         setupConveyorGeometry(state);
-        let geometry = state.geometry || {};
         for (let grain of grains) {
           let baseSource =
             grain && grain.metadata && typeof grain.metadata.spawnRatio === 'number'
@@ -4779,7 +4805,10 @@ import {
         }
       }
 
-      function tryMovePowder(powder, index) {
+      function tryMovePowder(
+        powder: ActivePowder,
+        index: number
+      ): boolean | 'removed' {
         let size = getPowderSize(powder);
         let nextRow = powder.row + 1;
         if (nextRow + size > gridRows) {
@@ -4807,7 +4836,7 @@ import {
         return false;
       }
 
-      function isHoleSpan(col, size) {
+      function isHoleSpan(col: number, size: number): boolean {
         if (!jarReleaseState || !jarReleaseState.open) return false;
         if (gridCols <= 0) return false;
         if (jarNeckSpan && jarNeckSpan.end > jarNeckSpan.start) {
@@ -4868,7 +4897,7 @@ import {
         duneDustMultiplier = 1 + duneHeightUnits * 0.1;
       }
 
-      function getJarPowderCount(typeIndex) {
+      function getJarPowderCount(typeIndex: number): number {
         if (!Array.isArray(powders) || powders.length === 0) {
           return 0;
         }
@@ -4893,7 +4922,7 @@ import {
         jarReleaseState.cooldown = 0;
       }
 
-      function refreshPowderGrid(rescale = false) {
+      function refreshPowderGrid(rescale = false): void {
         let prevCols = gridCols || 1;
         let prevRows = gridRows || 1;
         let usableWidth = jarRect.width > 0 ? jarRect.width * 0.88 : 0;
@@ -4934,7 +4963,7 @@ import {
         }
       }
 
-      function getUpgradeLevel(key) {
+      function getUpgradeLevel(key: string): number {
         return upgradesState && typeof upgradesState[key] === 'number'
           ? upgradesState[key]
           : 0;
@@ -4967,7 +4996,7 @@ import {
           : 1 + getUpgradeLevel('compressor') * 0.35;
       }
 
-      function getPowderMultiplier(index) {
+      function getPowderMultiplier(index: number): number {
         if (!Array.isArray(powderTypes) || powderTypes.length === 0) {
           return 1;
         }
@@ -5056,7 +5085,7 @@ import {
         }
       }
 
-      function executeCompressionRecipe(recipe, cost) {
+      function executeCompressionRecipe(recipe: CompressionRecipe, cost: number): boolean {
         if (!recipe) return false;
         let consumed = takeEntities(recipe.from, cost);
         if (consumed.length < cost) {
@@ -5080,7 +5109,14 @@ import {
         return true;
       }
 
-      function renderRoundedRectPath(ctx, x, y, width, height, radius) {
+      function renderRoundedRectPath(
+        ctx: CanvasRenderingContext2D,
+        x: number,
+        y: number,
+        width: number,
+        height: number,
+        radius: number
+      ): void {
         let r = Math.min(radius, width / 2, height / 2);
         ctx.moveTo(x + r, y);
         ctx.lineTo(x + width - r, y);
@@ -5093,7 +5129,7 @@ import {
         ctx.quadraticCurveTo(x, y, x + r, y);
       }
 
-      function mixColors(hexA, hexB, t) {
+      function mixColors(hexA: string, hexB: string, t: number): string {
         let amount = constrain(t, 0, 1);
         let colorA = color(hexA);
         let colorB = color(hexB);
@@ -5102,7 +5138,12 @@ import {
         return `rgba(${Math.round(red(blended))}, ${Math.round(green(blended))}, ${Math.round(blue(blended))}, ${alphaValue})`;
       }
 
-      function drawMenuPanelBackground(centerX, centerY, width, height) {
+      function drawMenuPanelBackground(
+        centerX: number,
+        centerY: number,
+        width: number,
+        height: number
+      ): void {
         let ctx = drawingContext;
         ctx.save();
         let left = centerX - width / 2;
@@ -5123,7 +5164,13 @@ import {
         ctx.restore();
       }
 
-      function drawGlassCard(centerX, centerY, width, height, accentColor = MENU_THEME.accent) {
+      function drawGlassCard(
+        centerX: number,
+        centerY: number,
+        width: number,
+        height: number,
+        accentColor = MENU_THEME.accent
+      ): void {
         let ctx = drawingContext;
         ctx.save();
         let left = centerX - width / 2;
@@ -5144,7 +5191,13 @@ import {
         ctx.restore();
       }
 
-      function drawNeonButton(x, y, w, h, options = {}) {
+      function drawNeonButton(
+        x: number,
+        y: number,
+        w: number,
+        h: number,
+        options: NeonButtonOptions = {}
+      ): void {
         let active = !!options.active;
         let enabled = options.enabled !== false;
         let accentColor = options.accentColor || MENU_THEME.accent;
@@ -5243,7 +5296,7 @@ import {
         }
 
         if (!tabs.some((tab) => tab.key === activeMenu)) {
-          activeMenu = tabs[0].key;
+          activeMenu = tabs[0]!.key;
         }
 
         let contentTop = headerBottom + scaledY(16);
@@ -5279,7 +5332,11 @@ import {
         menuScroll = constrain(menuScroll, 0, menuScrollMax);
       }
 
-      function drawResourceHeader(centerX, availableWidth, topOffset) {
+      function drawResourceHeader(
+        centerX: number,
+        availableWidth: number,
+        topOffset: number
+      ): number {
         let fallbackWidth = MENU_W - scaledX(60);
         let usableWidth = typeof availableWidth === 'number' && availableWidth > 0
           ? Math.min(availableWidth, fallbackWidth)
@@ -5317,7 +5374,7 @@ import {
         return Math.max(nextY + scaledY(10), cardCenterY + cardHeight / 2 + scaledY(6));
       }
 
-      function drawPowderCounters(y) {
+      function drawPowderCounters(y: number): number {
         let left = (menuContentArea.left || scaledX(40)) + scaledX(16);
         let lineSpacing = scaledY(18);
         push();
@@ -5333,11 +5390,21 @@ import {
         let split = Math.ceil(unlocked.length / 2);
         let firstLine = unlocked
           .slice(0, split)
-          .map((i) => `${powderTypes[i].name}: ${powderCounts[i].toLocaleString()}`)
+          .map(
+            (i) =>
+              `${powderTypes[i]?.name ?? 'Unknown'}: ${(
+                powderCounts[i] ?? 0
+              ).toLocaleString()}`
+          )
           .join('   ');
         let secondLine = unlocked
           .slice(split)
-          .map((i) => `${powderTypes[i].name}: ${powderCounts[i].toLocaleString()}`)
+          .map(
+            (i) =>
+              `${powderTypes[i]?.name ?? 'Unknown'}: ${(
+                powderCounts[i] ?? 0
+              ).toLocaleString()}`
+          )
           .join('   ');
         text(firstLine, left, y);
         if (secondLine.length > 0) {
@@ -5349,7 +5416,7 @@ import {
         return y + lineSpacing;
       }
 
-      function isMenuTabUnlocked(key) {
+      function isMenuTabUnlocked(key: string): boolean {
         let tab = menuTabs.find((t) => t.key === key);
         if (!tab) return false;
         if (tab.requiresMilestone) {
@@ -5368,7 +5435,7 @@ import {
         return menuTabs.filter((tab) => isMenuTabUnlocked(tab.key));
       }
 
-      function drawMenuTabs(area) {
+      function drawMenuTabs(area: MenuTabsArea): number {
         let tabs = (area && area.tabs) || [];
         let left = area && area.left !== undefined ? area.left : scaledX(16);
         let right = area && area.right !== undefined ? area.right : MENU_W - scaledX(16);
@@ -5404,7 +5471,7 @@ import {
         let blockHeight = tabSize + labelGap + labelHeight;
 
         for (let i = 0; i < tabs.length; i++) {
-          let tab = tabs[i];
+          let tab = tabs[i]!;
           let x = startX + i * (tabSize + spacing);
           let centerX = x + tabSize / 2;
           let active = tab.key === activeMenu;
@@ -5458,7 +5525,7 @@ import {
         return top + blockHeight;
       }
 
-      function drawSectionHeader(title, y) {
+      function drawSectionHeader(title: string, y: number): number {
         if (menuContentArea.width <= 0) {
           menuContentArea.left = scaledX(40);
           menuContentArea.right = SCREEN_W - scaledX(40);
@@ -5488,7 +5555,7 @@ import {
         return y + scaledY(32);
       }
 
-      function drawSandfallMenu(y) {
+      function drawSandfallMenu(y: number): number {
         y = drawSectionHeader('Grain Selection', y);
         y = drawPowderSelectRow(y + scaledY(8));
         y = drawSectionHeader('Production Statistics', y + scaledY(16));
@@ -5497,15 +5564,15 @@ import {
         return y;
       }
 
-      function drawSandfallStats(y) {
+      function drawSandfallStats(y: number): number {
         let cardW = menuContentArea.width || SCREEN_W - scaledX(60);
         let cardH = scaledY(138);
         let x = menuContentArea.center || SCREEN_W / 2;
         drawGlassCard(x, y, cardW, cardH, MENU_THEME.accent);
         let left = x - cardW / 2 + scaledX(16);
         let topY = y - cardH / 2 + scaledY(26);
-        let selected = powderTypes[selectedPowder] || {};
-        let selectedName = selected.name || 'Unknown';
+        let selected = powderTypes[selectedPowder];
+        let selectedName = selected?.name || 'Unknown';
         let selectedCount = Math.floor(powderCounts[selectedPowder] || 0).toLocaleString();
         push();
         textAlign(LEFT, CENTER);
@@ -5543,7 +5610,7 @@ import {
         return y + cardH / 2 + scaledY(10);
       }
 
-      function formatGrainRate(value) {
+      function formatGrainRate(value: number): string {
         if (!Number.isFinite(value) || value <= 0) {
           return '0';
         }
@@ -5559,7 +5626,7 @@ import {
         return value.toFixed(2);
       }
 
-      function drawModuleProductionStats(y) {
+      function drawModuleProductionStats(y: number): number {
         let modules = getModuleProductionSummaries();
         let cardW = menuContentArea.width || SCREEN_W - scaledX(60);
         let rows = Math.max(1, modules.length);
@@ -5597,7 +5664,7 @@ import {
         return y + cardH / 2 + scaledY(10);
       }
 
-      function drawModuleSummaryCard(machine, y) {
+      function drawModuleSummaryCard(machine: MachineDefinition, y: number): number {
         let cardW = menuContentArea.width || SCREEN_W - scaledX(60);
         let cardH = scaledY(120);
         let x = menuContentArea.center || SCREEN_W / 2;
@@ -5634,7 +5701,7 @@ import {
         return y + cardH / 2 + scaledY(12);
       }
 
-      function drawSelectedModuleMenu(y) {
+      function drawSelectedModuleMenu(y: number): number {
         let moduleKey = selectedModule || 'jar';
         let machine = machineDefinitions.find((m) => m.key === moduleKey);
         if (!machine) {
@@ -5696,7 +5763,7 @@ import {
         }
       }
 
-      function drawUniversalMenu(y) {
+      function drawUniversalMenu(y: number): number {
         y = drawSectionHeader('Gravity & Flow', y);
         y = drawSpecificUpgradeRow(['gravity'], y + scaledY(10));
         y = drawSectionHeader('Refinement', y + scaledY(12));
@@ -5707,12 +5774,12 @@ import {
         y = drawResearchRows(y + scaledY(10));
         y = drawSectionHeader('Geologic Layers', y + scaledY(16));
         for (let i = 0; i < strataLayers.length; i++) {
-          y = drawLayerCard(strataLayers[i], layerStates[i], y + scaledY(6));
+          y = drawLayerCard(strataLayers[i]!, layerStates[i]!, y + scaledY(6));
         }
         return y;
       }
 
-      function drawAchievementsMenu(y) {
+      function drawAchievementsMenu(y: number): number {
         y = drawSectionHeader('Epoch Milestones', y);
         if (!codexUnlocked) {
           fill(MENU_THEME.mutedText);
@@ -5725,14 +5792,14 @@ import {
           return y + scaledY(44);
         }
         for (let i = 0; i < milestoneConfigs.length; i++) {
-          y = drawMilestoneCard(milestoneConfigs[i], milestoneStates[i], y + scaledY(6));
+          y = drawMilestoneCard(milestoneConfigs[i]!, milestoneStates[i]!, y + scaledY(6));
         }
         y = drawSectionHeader('Development Roadmap', y + scaledY(18));
         y = drawDevelopmentNotes(y + scaledY(10));
         return y;
       }
 
-      function drawConveyorMenu(y) {
+      function drawConveyorMenu(y: number): number {
         y = drawSectionHeader('Module Upgrades', y);
         y = drawModuleUpgradeList('conveyor', y + scaledY(10));
         y = drawSectionHeader('Auto Feeders', y + scaledY(12));
@@ -5742,7 +5809,7 @@ import {
         return y;
       }
 
-      function drawRocketMenu(y) {
+      function drawRocketMenu(y: number): number {
         y = drawSectionHeader('Module Upgrades', y);
         y = drawModuleUpgradeList('rocket', y + scaledY(10));
         y = drawSectionHeader('Refinery Upgrades', y + scaledY(12));
@@ -5752,7 +5819,7 @@ import {
         return y;
       }
 
-      function drawAsteroidMenu(y) {
+      function drawAsteroidMenu(y: number): number {
         y = drawSectionHeader('Module Upgrades', y);
         y = drawModuleUpgradeList('asteroid', y + scaledY(10));
         y = drawSectionHeader('Crucible Report', y + scaledY(12));
@@ -5760,7 +5827,7 @@ import {
         return y;
       }
 
-      function drawPlanetMenu(y) {
+      function drawPlanetMenu(y: number): number {
         y = drawSectionHeader('Module Upgrades', y);
         y = drawModuleUpgradeList('planet', y + scaledY(10));
         y = drawSectionHeader('Planetary Ledger', y + scaledY(12));
@@ -5768,7 +5835,7 @@ import {
         return y;
       }
 
-      function drawForgeMenu(y) {
+      function drawForgeMenu(y: number): number {
         y = drawSectionHeader('Module Upgrades', y);
         y = drawModuleUpgradeList('forge', y + scaledY(10));
         y = drawSectionHeader('Compression Engine', y + scaledY(12));
@@ -5778,7 +5845,7 @@ import {
         return y;
       }
 
-      function drawGalaxyMenu(y) {
+      function drawGalaxyMenu(y: number): number {
         y = drawSectionHeader('Module Upgrades', y);
         y = drawModuleUpgradeList('galaxy', y + scaledY(10));
         y = drawSectionHeader('Luminous Upgrades', y + scaledY(12));
@@ -5788,7 +5855,7 @@ import {
         return y;
       }
 
-      function drawUniverseMenu(y) {
+      function drawUniverseMenu(y: number): number {
         y = drawSectionHeader('Module Upgrades', y);
         y = drawModuleUpgradeList('universe', y + scaledY(10));
         y = drawSectionHeader('Resonance Upgrades', y + scaledY(12));
@@ -5798,7 +5865,7 @@ import {
         return y;
       }
 
-      function drawSingularityMenu(y) {
+      function drawSingularityMenu(y: number): number {
         y = drawSectionHeader('Module Upgrades', y);
         y = drawModuleUpgradeList('singularity', y + scaledY(10));
         y = drawSectionHeader('Crystal Ledger', y + scaledY(12));
@@ -5808,7 +5875,7 @@ import {
         return y;
       }
 
-      function drawActiveMenuContent(y) {
+      function drawActiveMenuContent(y: number): number {
         switch (activeMenu) {
           case 'sandfall':
             return drawSandfallMenu(y);
@@ -5823,7 +5890,11 @@ import {
         }
       }
 
-      function drawMilestoneCard(config, state, y) {
+      function drawMilestoneCard(
+        config: MilestoneConfig,
+        state: MilestoneState,
+        y: number
+      ): number {
         let cardW = menuContentArea.width || SCREEN_W - scaledX(60);
         let cardH = scaledY(78);
         let x = menuContentArea.center || SCREEN_W / 2;
@@ -5868,7 +5939,7 @@ import {
         return y + cardH + scaledY(8);
       }
 
-      function drawDevelopmentNotes(y) {
+      function drawDevelopmentNotes(y: number): number {
         let notes = [
           'Refine automation scripting to handle new powder branches.',
           'Introduce prestige-era modules that consume singularity cores.',
@@ -5888,7 +5959,7 @@ import {
         return y + scaledY(6);
       }
 
-      function drawLayerCard(layer, state, y) {
+      function drawLayerCard(layer: StrataLayer, state: LayerState, y: number): number {
         let cardW = menuContentArea.width || SCREEN_W - scaledX(60);
         let cardH = scaledY(70);
         let x = menuContentArea.center || SCREEN_W / 2;
@@ -5927,7 +5998,14 @@ import {
         return y + scaledY(80);
       }
 
-      function drawProgressBar(x, y, width, height, progress, fillColor) {
+      function drawProgressBar(
+        x: number,
+        y: number,
+        width: number,
+        height: number,
+        progress: number,
+        fillColor: string
+      ): void {
         push();
         rectMode(CENTER);
         let bg = MENU_THEME.progressBg;
@@ -5942,7 +6020,7 @@ import {
         pop();
       }
 
-      function drawResearchRows(y) {
+      function drawResearchRows(y: number): number {
         if (researchProjects.length === 0) {
           return y;
         }
@@ -5950,11 +6028,13 @@ import {
         let btnH = scaledY(46);
         let xs = getRowPositions(researchProjects.length);
         for (let i = 0; i < researchProjects.length; i++) {
-          let project = researchProjects[i];
-          let level = researchState[project.key];
-          let cost = Math.floor(project.baseCost * Math.pow(project.costMult, level));
+          let project = researchProjects[i]!;
+          let level = researchState[project.key] ?? 0;
+          let cost = Math.floor(
+            project.baseCost * Math.pow(project.costMult ?? 3, level)
+          );
           let canBuy = dust >= cost;
-          let x = xs[i];
+          let x = xs[i]!;
           drawNeonButton(x, y, btnW, btnH, {
             active: level > 0,
             enabled: canBuy,
@@ -5989,8 +6069,12 @@ import {
         return y + btnH + scaledY(18);
       }
 
-      function drawAutomationControls(y) {
-        let controls = [
+      function drawAutomationControls(y: number): number {
+        let controls: Array<{
+          key: keyof AutomationSettings;
+          label: string;
+          description: string;
+        }> = [
           {
             key: 'autoDrop',
             label: 'Auto Drop',
@@ -6006,10 +6090,10 @@ import {
         let btnH = scaledY(40);
         let xs = getRowPositions(controls.length);
         for (let i = 0; i < controls.length; i++) {
-          let control = controls[i];
+          let control = controls[i]!;
           let enabled = automationSettings[control.key];
           let unlocked = automationUnlocks[control.key];
-          let x = xs[i];
+          let x = xs[i]!;
           if (unlocked) {
             drawNeonButton(x, y, btnW, btnH, {
               active: enabled,
@@ -6067,7 +6151,7 @@ import {
         return y + btnH + scaledY(14);
       }
 
-      function drawPowderSelectRow(y) {
+      function drawPowderSelectRow(y: number): number {
         let indices = getUnlockedIndices();
         if (indices.length === 0) return y;
         let availableWidth = menuContentArea.width || SCREEN_W - scaledX(80);
@@ -6098,7 +6182,10 @@ import {
           textSize(scaledFont(8));
           let longestLabel = 0;
           for (let powderIndex of rowIndices) {
-            longestLabel = Math.max(longestLabel, textWidth(powderTypes[powderIndex].name || ''));
+            longestLabel = Math.max(
+              longestLabel,
+              textWidth(powderTypes[powderIndex]?.name || '')
+            );
           }
           let rowSize = Math.min(
             Math.max(longestLabel + scaledX(16), minSize),
@@ -6109,10 +6196,12 @@ import {
           let centerY = currentTop + rowSize / 2;
           for (let i = 0; i < rowIndices.length; i++) {
             textSize(scaledFont(8));
-            let powderIndex = rowIndices[i];
+            let powderIndex = rowIndices[i]!;
             let x = startX + rowSize / 2 + i * (rowSize + spacingX);
             let isSelected = powderIndex === selectedPowder;
-            let baseColor = powderTypes[powderIndex].color;
+            let definition = powderTypes[powderIndex];
+            if (!definition) continue;
+            let baseColor = definition.color;
             drawNeonButton(x, centerY, rowSize, rowSize, {
               active: isSelected,
               accentColor: baseColor,
@@ -6123,7 +6212,7 @@ import {
             textAlign(CENTER, CENTER);
             fill(isSelected ? MENU_THEME.invertedText : MENU_THEME.text);
             text(
-              powderTypes[powderIndex].name,
+              definition.name,
               x,
               centerY,
               rowSize - scaledX(12),
@@ -6157,7 +6246,7 @@ import {
         return y + Math.max(0, totalHeight);
       }
 
-      function drawAutoDropperRow(y) {
+      function drawAutoDropperRow(y: number): number {
         let indices = getUnlockedIndices();
         if (indices.length === 0) return y;
         let maxWidth = menuContentArea.width || SCREEN_W - scaledX(80);
@@ -6169,20 +6258,22 @@ import {
         let xs = getRowPositions(indices.length);
         textSize(scaledFont(11));
         for (let idx = 0; idx < indices.length; idx++) {
-          let i = indices[idx];
-          let x = xs[idx];
+          let i = indices[idx]!;
+          let x = xs[idx]!;
           let cost = getDropperCost(i);
           let canBuy = dust >= cost;
+          const dropperLevel = autoDroppers[i] ?? 0;
+          const powderName = powderTypes[i]?.name ?? 'Unknown';
           drawNeonButton(x, y, btnW, btnH, {
-            active: autoDroppers[i] > 0,
-            enabled: canBuy || autoDroppers[i] > 0,
+            active: dropperLevel > 0,
+            enabled: canBuy || dropperLevel > 0,
             accentColor: MENU_THEME.accent,
             baseColor: MENU_THEME.buttonBase,
             radius: 10
           });
-          fill(autoDroppers[i] > 0 ? MENU_THEME.invertedText : MENU_THEME.text);
+          fill(dropperLevel > 0 ? MENU_THEME.invertedText : MENU_THEME.text);
           text(
-            `Auto ${powderTypes[i].name}: ${autoDroppers[i]} (\u2212${cost})`,
+            `Auto ${powderName}: ${dropperLevel} (\u2212${cost})`,
             x,
             y
           );
@@ -6202,7 +6293,7 @@ import {
         return y + scaledY(34);
       }
 
-      function drawUpgradeRows(y) {
+      function drawUpgradeRows(y: number): number {
         let columns = Math.min(3, upgradeConfigs.length);
         let areaWidth = menuContentArea.width || SCREEN_W - scaledX(80);
         let btnW = Math.min(
@@ -6218,11 +6309,11 @@ import {
           let count = end - start;
           let xs = getRowPositions(count);
           for (let c = 0; c < count; c++) {
-          let config = upgradeConfigs[start + c];
+          let config = upgradeConfigs[start + c]!;
           let level = getUpgradeLevel(config.key);
             let cost = getUpgradeCost(config);
             let canBuy = dust >= cost;
-            let x = xs[c];
+            let x = xs[c]!;
             let rowY = y + scaledY(r * 36);
             drawNeonButton(x, rowY, btnW, btnH, {
               active: level > 0,
@@ -6256,7 +6347,7 @@ import {
         return y + scaledY(rows * 36);
       }
 
-      function drawSpecificUpgradeRow(keys, y) {
+      function drawSpecificUpgradeRow(keys: string[], y: number): number {
         let configs = upgradeConfigs.filter((config) => keys.includes(config.key));
         if (configs.length === 0) {
           return y;
@@ -6270,11 +6361,11 @@ import {
         let xs = getRowPositions(configs.length);
         textSize(scaledFont(10));
         for (let i = 0; i < configs.length; i++) {
-          let config = configs[i];
+          let config = configs[i]!;
           let level = getUpgradeLevel(config.key);
           let cost = getUpgradeCost(config);
           let canBuy = dust >= cost;
-          let x = xs[i];
+          let x = xs[i]!;
           drawNeonButton(x, y, btnW, btnH, {
             active: level > 0,
             enabled: canBuy,
@@ -6302,7 +6393,7 @@ import {
         return y + btnH + scaledY(12);
       }
 
-      function drawModuleUpgradeList(moduleKey, y) {
+      function drawModuleUpgradeList(moduleKey: MachineModuleKey, y: number): number {
         let configs = upgradeConfigs.filter((config) => config.module === moduleKey);
         if (configs.length === 0) {
           return y;
@@ -6320,12 +6411,12 @@ import {
           let rowConfigs = configs.slice(r * columns, r * columns + columns);
           let xs = getRowPositions(rowConfigs.length);
           for (let i = 0; i < rowConfigs.length; i++) {
-            let config = rowConfigs[i];
+            let config = rowConfigs[i]!;
             let level = getUpgradeLevel(config.key);
             let cost = getUpgradeCost(config);
             let canBuy = dust >= cost;
             let rowY = y + r * (btnH + rowSpacing);
-            let x = xs[i];
+            let x = xs[i]!;
             drawNeonButton(x, rowY, btnW, btnH, {
               active: level > 0,
               enabled: canBuy,
@@ -6360,7 +6451,7 @@ import {
         return y + Math.max(0, totalHeight);
       }
 
-      function drawCompressionRow(y) {
+      function drawCompressionRow(y: number): number {
         if (getUpgradeLevel('compressor') <= 0) {
           textSize(scaledFont(11));
           fill(MENU_THEME.mutedText);
@@ -6389,9 +6480,9 @@ import {
         textSize(scaledFont(11));
         let efficiency = getCompressorEfficiency();
         for (let i = 0; i < availableRecipes.length; i++) {
-          let recipe = availableRecipes[i];
+          let recipe = availableRecipes[i]!;
           let cost = Math.max(2, Math.round(recipe.baseCost / efficiency));
-          let x = xs[i];
+          let x = xs[i]!;
           let canConvert = ensureInventory(recipe.from).length >= cost;
           drawNeonButton(x, y, btnW, btnH, {
             active: false,
@@ -6402,7 +6493,9 @@ import {
           });
           fill(canConvert ? MENU_THEME.invertedText : MENU_THEME.mutedText);
           text(
-            `${powderTypes[recipe.from].name} → ${powderTypes[recipe.to].name} (\u2212${cost} +${recipe.output})`,
+            `${powderTypes[recipe.from]?.name ?? 'Unknown'} → ${
+              powderTypes[recipe.to]?.name ?? 'Unknown'
+            } (\u2212${cost} +${recipe.output})`,
             x,
             y
           );
@@ -6415,7 +6508,7 @@ import {
         return y + btnH + scaledY(10);
       }
 
-      function drawPrestigeRow(y) {
+      function drawPrestigeRow(y: number): number {
         let areaWidth = menuContentArea.width || SCREEN_W - scaledX(80);
         let btnW = Math.min(scaledX(200), areaWidth);
         let btnH = scaledY(32);
@@ -6445,7 +6538,7 @@ import {
         return y + btnH + scaledY(12);
       }
 
-      function drawConveyorNotes(y) {
+      function drawConveyorNotes(y: number): number {
         let center = menuContentArea.center || SCREEN_W / 2;
         fill(MENU_THEME.mutedText);
         textSize(scaledFont(11));
@@ -6456,7 +6549,7 @@ import {
         return y + scaledY(48);
       }
 
-      function drawRocketStatus(y) {
+      function drawRocketStatus(y: number): number {
         let state = moduleStates.rocket;
         let center = menuContentArea.center || SCREEN_W / 2;
         fill(MENU_THEME.mutedText);
@@ -6483,7 +6576,7 @@ import {
         return y + scaledY(64);
       }
 
-      function drawAsteroidStatus(y) {
+      function drawAsteroidStatus(y: number): number {
         let center = menuContentArea.center || SCREEN_W / 2;
         fill(MENU_THEME.mutedText);
         textSize(scaledFont(11));
@@ -6494,7 +6587,7 @@ import {
         return y + scaledY(48);
       }
 
-      function drawPlanetStatus(y) {
+      function drawPlanetStatus(y: number): number {
         let center = menuContentArea.center || SCREEN_W / 2;
         fill(MENU_THEME.mutedText);
         textSize(scaledFont(11));
@@ -6505,7 +6598,7 @@ import {
         return y + scaledY(48);
       }
 
-      function drawSingularityStats(y) {
+      function drawSingularityStats(y: number): number {
         let center = menuContentArea.center || SCREEN_W / 2;
         fill(MENU_THEME.mutedText);
         textSize(scaledFont(11));
@@ -6522,8 +6615,11 @@ import {
         return y + scaledY(62);
       }
 
-      function addButton(btn, options = {}) {
-        let entry = { ...btn };
+      function addButton(
+        btn: UiButton,
+        options: { scrollAware?: boolean } = {}
+      ): void {
+        let entry: UiButton = { ...btn };
         if (options.scrollAware) {
           let offset = menuContentArea && menuContentArea.scrollOffset
             ? menuContentArea.scrollOffset
@@ -6565,12 +6661,12 @@ import {
         }
       }
 
-      function mouseWheel(event) {
+      function mouseWheel(event: WheelEvent): false | void {
         if (!gameInitialized) {
           return;
         }
         if (mouseX <= MENU_W) {
-          let delta = event.delta || 0;
+          let delta = event.deltaY || 0;
           menuScroll = constrain(
             menuScroll + delta * 0.6,
             0,
@@ -6625,7 +6721,7 @@ import {
         menuDragState.dragging = false;
       }
 
-      function touchMoved(event) {
+      function touchMoved(_event: TouchEvent): false | void {
         if (mouseDragged() === false) {
           return false;
         }
@@ -6635,7 +6731,7 @@ import {
         mouseReleased();
       }
 
-      function handleAction(btn) {
+      function handleAction(btn: UiButton): void {
         switch (btn.action) {
           case 'selectPowder':
             selectedPowder = btn.index;
@@ -6691,7 +6787,7 @@ import {
         }
       }
 
-      function handleModuleInteraction(key) {
+      function handleModuleInteraction(key: MachineModuleKey): void {
         switch (key) {
           case 'conveyor':
             rushConveyor();
@@ -6811,7 +6907,7 @@ import {
         state.shards.push({ life: 1, angle: Math.random() * TAU });
       }
 
-      function dropPowder(type, spawnX) {
+      function dropPowder(type: number, spawnX?: number): boolean {
         if (!(type === 0 || tierUpgrades[type - 1])) {
           return false;
         }
@@ -6881,7 +6977,7 @@ import {
         totalDustEarned += bonus;
       }
 
-      function unlockTier(index) {
+      function unlockTier(index: number): void {
         if (tierUpgrades[index]) return;
         let cost = tierUnlockCosts[index];
         if (powderCounts[index] >= cost) {
@@ -6911,11 +7007,11 @@ import {
         }
       }
 
-      function getDropperCost(index) {
+      function getDropperCost(index: number): number {
         return Math.floor(40 * (index + 1) * Math.pow(1.7, autoDroppers[index]));
       }
 
-      function buyDropper(index) {
+      function buyDropper(index: number): void {
         let cost = getDropperCost(index);
         if (dust >= cost) {
           dust -= cost;
@@ -6924,12 +7020,12 @@ import {
         }
       }
 
-      function getUpgradeCost(config) {
+      function getUpgradeCost(config: UpgradeConfig): number {
         let level = getUpgradeLevel(config.key);
         return Math.floor(config.baseCost * Math.pow(config.costMult, level));
       }
 
-      function buyUpgrade(key) {
+      function buyUpgrade(key: string): void {
         let config = upgradeConfigs.find((u) => u.key === key);
         if (!config) return;
         let cost = getUpgradeCost(config);
@@ -6939,7 +7035,7 @@ import {
         }
       }
 
-      function buyResearch(key) {
+      function buyResearch(key: string): void {
         let project = researchProjects.find((p) => p.key === key);
         if (!project) return;
         let level = researchState[key];
@@ -6950,7 +7046,7 @@ import {
         }
       }
 
-      function toggleAutomation(key) {
+      function toggleAutomation(key: keyof AutomationSettings): void {
         if (!(key in automationSettings)) return;
         if (!automationUnlocks[key]) return;
         automationSettings[key] = !automationSettings[key];
@@ -6964,7 +7060,7 @@ import {
         }
       }
 
-      function compressPowder(recipe) {
+      function compressPowder(recipe: CompressionRecipe): void {
         if (getUpgradeLevel('compressor') <= 0) return;
         if (!(recipe.to === 0 || tierUpgrades[recipe.to - 1])) return;
         let efficiency = getCompressorEfficiency();
@@ -6975,7 +7071,7 @@ import {
         }
       }
 
-      function grantDeveloperGrains(amount) {
+      function grantDeveloperGrains(amount: number): void {
         if (!powderCounts || powderCounts.length === 0) return;
         let parsed = Math.floor(Number(amount));
         if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -7049,7 +7145,7 @@ import {
         return unlocked;
       }
 
-      function getRowPositions(count) {
+      function getRowPositions(count: number): number[] {
         if (count <= 0) return [];
         let left = menuContentArea.left || scaledX(40);
         let right = menuContentArea.right || SCREEN_W - scaledX(40);
@@ -7068,24 +7164,24 @@ import {
         return xs;
       }
 
-      function withAlpha(hex, alpha) {
-        if (hex instanceof p5.Color) {
-          return color(red(hex), green(hex), blue(hex), alpha);
-        }
+      function withAlpha(
+        hex:
+          | string
+          | P5.Color
+          | readonly number[]
+          | { 0?: string; value?: string; hex?: string },
+        alpha: number
+      ): P5.Color {
         if (Array.isArray(hex)) {
           let [r = 0, g = 0, b = 0] = hex;
           return color(r, g, b, alpha);
         }
         if (hex && typeof hex === 'object') {
-          if (typeof hex[0] === 'string') {
-            hex = hex[0];
-          } else if (typeof hex.value === 'string') {
-            hex = hex.value;
-          } else if (typeof hex.hex === 'string') {
-            hex = hex.hex;
-          } else if (typeof hex.toString === 'function') {
-            hex = hex.toString();
-          }
+          const legacy = hex as { 0?: string; value?: string; hex?: string };
+          if (typeof legacy[0] === 'string') hex = legacy[0];
+          else if (typeof legacy.value === 'string') hex = legacy.value;
+          else if (typeof legacy.hex === 'string') hex = legacy.hex;
+          else return color(red(hex as P5.Color), green(hex as P5.Color), blue(hex as P5.Color), alpha);
         }
         if (typeof hex !== 'string') {
           hex = '#000000';
@@ -7116,7 +7212,9 @@ import {
               .map((part) => parseFloat(part.trim()))
               .filter((n) => !Number.isNaN(n));
             if (parts.length >= 3) {
-              [r, g, b] = parts;
+              r = parts[0] ?? 0;
+              g = parts[1] ?? 0;
+              b = parts[2] ?? 0;
             }
           }
         }
@@ -7166,7 +7264,7 @@ import {
         );
       }
 
-      function addLayerProgress(amount) {
+      function addLayerProgress(amount: number): void {
         if (amount <= 0) return;
         let amplified = amount * (1 + getUpgradeLevel('lanterns') * 0.25);
         let target = layerStates.findIndex((state) => state.unlocked && !state.completed);
@@ -7193,16 +7291,16 @@ import {
         }
       }
 
-      function scaledFont(value) {
+      function scaledFont(value: number): number {
         let scale = Math.min(layoutScaleX, layoutScaleY);
         return constrain(Math.round(value * scale), 10, 28);
       }
 
-      function scaledX(value) {
+      function scaledX(value: number): number {
         return value * layoutScaleX;
       }
 
-      function scaledY(value) {
+      function scaledY(value: number): number {
         return value * layoutScaleY;
       }
 
