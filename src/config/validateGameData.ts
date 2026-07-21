@@ -2,6 +2,7 @@ import type {
   CompressionRecipe,
   MachineConnection,
   MachineDefinition,
+  MachineModuleKey,
   MachinesData,
   MenuTab,
   MilestoneConfig,
@@ -72,6 +73,59 @@ function optionalNumber(object: JsonObject, field: string, file: string): number
   return value;
 }
 
+function parseMachineKey(value: string, file: string): MachineModuleKey {
+  switch (value) {
+    case 'jar':
+    case 'conveyor':
+    case 'rocket':
+    case 'asteroid':
+    case 'planet':
+    case 'forge':
+    case 'galaxy':
+    case 'universe':
+    case 'singularity':
+      return value;
+    default:
+      throw new GameDataValidationError(file, `unsupported machine key: ${value}`);
+  }
+}
+
+function parseUpgradeModule(
+  value: string,
+  file: string
+): NonNullable<UpgradeConfig['module']> {
+  const key = parseMachineKey(value, file);
+  if (key === 'jar') {
+    throw new GameDataValidationError(file, 'jar cannot own module upgrades');
+  }
+  return key;
+}
+
+function parseMilestoneResource(value: string, file: string): MilestoneResource {
+  switch (value) {
+    case 'dust':
+    case 'cores':
+    case 'powder':
+      return value;
+    default:
+      throw new GameDataValidationError(file, `unsupported milestone resource: ${value}`);
+  }
+}
+
+function parseMilestoneEffect(value: string, file: string): MilestoneEffectType {
+  switch (value) {
+    case 'unlockAutoDrop':
+    case 'unlockAutoCompress':
+    case 'gravityBonus':
+    case 'dustBonus':
+    case 'codexUnlock':
+    case 'coreBonus':
+      return value;
+    default:
+      throw new GameDataValidationError(file, `unsupported milestone effect: ${value}`);
+  }
+}
+
 export function validatePowderData(value: unknown): PowderData {
   const file = 'data/powders.json';
   const object = requireObject(value, file);
@@ -119,7 +173,7 @@ export function validateMachinesData(value: unknown): MachinesData {
       const item = requireObject(entry, `${file} definitions[${index}]`);
       const grid = requireObject(item.grid, `${file} definitions[${index}].grid`);
       return {
-        key: requireString(item, 'key', file) as MachineDefinition['key'],
+        key: parseMachineKey(requireString(item, 'key', file), file),
         name: requireString(item, 'name', file),
         description: requireString(item, 'description', file),
         grid: {
@@ -135,8 +189,8 @@ export function validateMachinesData(value: unknown): MachinesData {
   const connections: MachineConnection[] = requireArray(object.connections, file, 'connections').map(
     (entry, index) => {
       const item = requireObject(entry, `${file} connections[${index}]`);
-      const from = requireString(item, 'from', file) as MachineConnection['from'];
-      const to = requireString(item, 'to', file) as MachineConnection['to'];
+      const from = parseMachineKey(requireString(item, 'from', file), file);
+      const to = parseMachineKey(requireString(item, 'to', file), file);
       if (!knownKeys.has(from) || !knownKeys.has(to)) {
         throw new GameDataValidationError(file, `connections[${index}] references an unknown machine`);
       }
@@ -172,7 +226,7 @@ function validateCostConfig(entry: unknown, file: string, label: string): Upgrad
     costMult: requireNumber(item, 'costMult', file)
   };
   if (module !== undefined) {
-    config.module = module as NonNullable<UpgradeConfig['module']>;
+    config.module = parseUpgradeModule(module, file);
   }
   return config;
 }
@@ -204,16 +258,6 @@ export function validateUpgradesData(value: unknown): UpgradesData {
   return { upgrades, research };
 }
 
-const milestoneResources = new Set<MilestoneResource>(['dust', 'cores', 'powder']);
-const milestoneEffects = new Set<MilestoneEffectType>([
-  'unlockAutoDrop',
-  'unlockAutoCompress',
-  'gravityBonus',
-  'dustBonus',
-  'codexUnlock',
-  'coreBonus'
-]);
-
 export function validateProgressionData(value: unknown): ProgressionData {
   const file = 'data/progression.json';
   const object = requireObject(value, file);
@@ -234,14 +278,8 @@ export function validateProgressionData(value: unknown): ProgressionData {
   const milestones: MilestoneConfig[] = requireArray(object.milestones, file, 'milestones').map(
     (entry, index) => {
       const item = requireObject(entry, `${file} milestones[${index}]`);
-      const resource = requireString(item, 'resource', file) as MilestoneResource;
-      const type = requireString(item, 'type', file) as MilestoneEffectType;
-      if (!milestoneResources.has(resource)) {
-        throw new GameDataValidationError(file, `milestones[${index}].resource is unsupported`);
-      }
-      if (!milestoneEffects.has(type)) {
-        throw new GameDataValidationError(file, `milestones[${index}].type is unsupported`);
-      }
+      const resource = parseMilestoneResource(requireString(item, 'resource', file), file);
+      const type = parseMilestoneEffect(requireString(item, 'type', file), file);
       const magnitude = optionalNumber(item, 'magnitude', file);
       return {
         key: requireString(item, 'key', file),

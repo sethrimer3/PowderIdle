@@ -16,8 +16,15 @@
 
 ## Current Content Structure
 - **Data modules** – Game content is defined in JSON (`data/powders.json`, `data/machines.json`, `data/upgrades.json`, `data/progression.json`). Update these files to tune balance, add new powders/machines, or adjust milestone targets without rewriting logic.
-- **Rendering** – `main.js` loads data during `preload`, configures p5.js canvases, and manages stateful simulation, UI, and machine mini-scenes. `index.html` bootstraps the experience and pulls in p5 plus the main script.
+- **Rendering** – `src/game/runtime.ts` validates and loads data, configures the p5.js canvas, and preserves the stateful simulation, UI, and machine mini-scenes. `src/main.ts` installs the p5 global-mode callbacks, and `index.html` loads p5 plus the Vite entry module.
 - **Styling** – Visual identity uses the “Press Start 2P” typeface and neon-cosmic palette. Module panels adapt to screen size via dynamic scaling helpers.
+
+## TypeScript workflow
+
+- Install with `npm install` and run locally with `npm run dev`.
+- Run strict checks with `npm run typecheck`, deterministic tests with `npm test`, and the production bundle with `npm run build`.
+- Keep game content in the four JSON files under `data/`; untrusted external JSON is validated before initialization and falls back per file to embedded data when unavailable or invalid.
+- Put independently testable calculations in `src/simulation/` or `src/state/`. Preserve frame, draw, and input ordering in `src/game/runtime.ts` when changing p5 behavior.
 
 ## Direction for Further Development
 1. **Late-game loops** – Introduce additional prestige layers that consume crystal cores (e.g., quantum reactors, nebula gardens) and feed back unique modifiers to the base run.

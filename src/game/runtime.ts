@@ -229,6 +229,24 @@ import {
         universe: 'Nudge worlds to sync their orbit.',
         singularity: 'Channel collapsing light into cores.'
       };
+
+      function isTrackedModuleKey(
+        value: string
+      ): value is Exclude<MachineModuleKey, 'jar'> {
+        switch (value) {
+          case 'conveyor':
+          case 'rocket':
+          case 'asteroid':
+          case 'planet':
+          case 'forge':
+          case 'galaxy':
+          case 'universe':
+          case 'singularity':
+            return true;
+          default:
+            return false;
+        }
+      }
       const FALLBACK_DATA = {
         powders: {
           types: [
@@ -1174,8 +1192,8 @@ import {
         if (!origin || amount <= 0) {
           return;
         }
-        let key = String(origin).toLowerCase() as ModuleKey;
-        if (!TRACKED_MODULE_KEYS.has(key)) {
+        let key = String(origin).toLowerCase();
+        if (!isTrackedModuleKey(key) || !TRACKED_MODULE_KEYS.has(key)) {
           return;
         }
         let now = getNowSeconds();
@@ -1378,11 +1396,12 @@ import {
           return Promise.resolve(validate(cloneData(fallback)));
         }
         return fetch(path)
-          .then((response) => {
+          .then(async (response): Promise<unknown> => {
             if (!response.ok) {
               throw new Error(`Failed to load ${path}: ${response.status}`);
             }
-            return response.json() as Promise<unknown>;
+            const parsed: unknown = await response.json();
+            return parsed;
           })
           .then(validate)
           .catch((err) => {
@@ -7341,6 +7360,12 @@ export interface PowderIdleDebugApi {
   };
 }
 
+declare global {
+  interface Window {
+    __powderIdleDebug?: PowderIdleDebugApi;
+  }
+}
+
 export function installPowderIdle(): void {
   Object.assign(window, {
     setup,
@@ -7355,10 +7380,7 @@ export function installPowderIdle(): void {
     keyPressed
   });
 
-  const browserWindow = window as Window & {
-    __powderIdleDebug?: PowderIdleDebugApi;
-  };
-  browserWindow.__powderIdleDebug = {
+  window.__powderIdleDebug = {
     isInitialized: () => gameInitialized,
     dropSelected: () => dropPowder(selectedPowder),
     snapshot: () => ({
