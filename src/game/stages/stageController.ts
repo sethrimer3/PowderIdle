@@ -106,7 +106,7 @@ export class StageController {
     for (const id of Object.keys(this.upgradeLevels) as StageUpgradeId[])
       stageUpgradeValue(config, this.upgradeLevels, id);
   }
-  castSand(requestedCount?: number, x = 24): readonly EntityId[] {
+  castSand(requestedCount?: number, x = 24, y = 4): readonly EntityId[] {
     const count = Math.max(1, Math.floor(requestedCount ?? stageUpgradeValue(
       this.config,
       this.upgradeLevels,
@@ -117,7 +117,7 @@ export class StageController {
       this.upgradeLevels,
       "cast-cooldown",
     ));
-    return this.sandfall.cast(count, x, cooldown);
+    return this.sandfall.cast(count, x, y, cooldown);
   }
   invokeRitual(): boolean {
     return this.compression.invoke();

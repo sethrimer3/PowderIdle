@@ -38,7 +38,7 @@ export function renderCompression(
   drawRitualGlyph(surface, state.phase, awakening, pulse, context.time);
   drawReservoir(surface, matter, state, required, context.capacity);
   drawBatch(surface, matter, state);
-  drawStones(surface, matter, state);
+  drawStones(surface, matter, state, context.time);
   drawEffects(surface, context.effects);
 
   if (context.autoRitual) {
@@ -143,14 +143,45 @@ function drawBatch(surface: P5.Graphics, matter: MatterStore, state: Readonly<Co
   }
 }
 
-function drawStones(surface: P5.Graphics, matter: MatterStore, state: Readonly<CompressionState>): void {
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  const c = (1 - Math.abs(2 * l - 1)) * s,
+    hp = (((h % 360) + 360) % 360) / 60,
+    x = c * (1 - Math.abs((hp % 2) - 1)),
+    m = l - c / 2;
+  let r = 0, g = 0, b = 0;
+  if (hp < 1) { r = c; g = x; } else if (hp < 2) { r = x; g = c; }
+  else if (hp < 3) { g = c; b = x; } else if (hp < 4) { g = x; b = c; }
+  else if (hp < 5) { r = x; b = c; } else { r = c; b = x; }
+  return [
+    Math.round((r + m) * 255),
+    Math.round((g + m) * 255),
+    Math.round((b + m) * 255),
+  ];
+}
+
+function iridescentColor(seed: number, time: number): [number, number, number] {
+  const hue = (time * 40 + (seed % 360)) % 360;
+  return hslToRgb(hue, 0.6, 0.7);
+}
+
+function drawStones(
+  surface: P5.Graphics,
+  matter: MatterStore,
+  state: Readonly<CompressionState>,
+  time: number,
+): void {
   const batchId = state.batch?.outputStoneId;
   const visible = state.outputIds.slice(0, VISIBLE_OUTPUT_SLOTS);
   for (const id of visible) {
     const stone = matter.get(id);
     const x = Math.round(stone.x), y = Math.round(stone.y);
     surface.noStroke();
-    surface.fill(91 + stone.visualSeed % 18, 83 + stone.visualSeed % 14, 96 + stone.visualSeed % 16);
+    if (stone.material === "quartz") {
+      const [r, g, b] = iridescentColor(stone.visualSeed, time);
+      surface.fill(r, g, b);
+    } else {
+      surface.fill(91 + stone.visualSeed % 18, 83 + stone.visualSeed % 14, 96 + stone.visualSeed % 16);
+    }
     surface.rect(x - 1, y - 1, 2, 2);
     surface.stroke(...MYSTICAL_COLORS.violet);
     surface.point(x, y - 1);

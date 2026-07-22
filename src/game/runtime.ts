@@ -7332,7 +7332,7 @@ const MYSTICAL_FONT_URL = new URL(
           dropPowder(selectedPowder);
         }
         if (key === 'e' || key === 'E') {
-          if (selectedPowder === 0) stageWorld.cast(24, 8);
+          if (selectedPowder === 0) stageWorld.cast(24, 4, 8);
           else for (let i = 0; i < 8; i++) dropPowder(selectedPowder);
         }
         if (key === 'c' || key === 'C') {

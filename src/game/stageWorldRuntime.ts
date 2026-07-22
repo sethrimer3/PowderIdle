@@ -145,8 +145,8 @@ export class IntegratedStageWorld {
     );
   }
 
-  cast(x = 24, count?: number): readonly number[] {
-    return this.controller.castSand(count, x);
+  cast(x = 24, y = 4, count?: number): readonly number[] {
+    return this.controller.castSand(count, x, y);
   }
   invokeRitual(): boolean {
     return this.controller.invokeRitual();
@@ -171,7 +171,7 @@ export class IntegratedStageWorld {
     if (
       point.x >= sandfallOrigin.x && point.x < sandfallOrigin.x + 48 &&
       point.y >= sandfallOrigin.y && point.y < sandfallOrigin.y + 48
-    ) return this.cast(point.x - sandfallOrigin.x).length > 0;
+    ) return this.cast(point.x - sandfallOrigin.x, point.y - sandfallOrigin.y).length > 0;
     const compressionOrigin = stageWorldOrigin(this.controller.compression.definition);
     if (
       point.x >= compressionOrigin.x && point.x < compressionOrigin.x + 48 &&
@@ -279,16 +279,22 @@ export class IntegratedStageWorld {
         outputIds: idsOwnedBy(matter, "sandfall-atrium", "output"),
         castCooldown: 0,
         autoCastElapsed: 0,
+        stoneMotesCollected: 0,
       },
+      stage3: { state: { reservoirIds: [] } },
+      quartzTransfers: [],
       compression: {
         state: {
           reservoirIds: idsOwnedBy(matter, "compression-crucible", "reservoir"),
+          stoneReservoirIds: [],
           outputIds: Array.isArray(save.outputStoneIds) ? save.outputStoneIds.filter(Number.isInteger) as number[] : [],
           phase: ritualIds.length ? "levitating" : "gathering",
+          lifetimeQuartzCreated: 0,
           batch: ritualIds.length ? {
             ritualId: "ritual-migrated",
             phase: "levitating",
             elapsed: 0,
+            material: "sand",
             motes: ritualIds.map((entityId) => {
               const entity = matter.entities.find((item) => item.id === entityId);
               if (!entity) throw new Error("Migrated ritual entity is missing");

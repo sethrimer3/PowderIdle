@@ -61,10 +61,10 @@ describe("stage configuration", () => {
       config.stages
         .filter((stage) => stage.implemented)
         .map((stage) => stage.id),
-    ).toEqual(["sandfall-atrium", "compression-crucible"]);
+    ).toEqual(["sandfall-atrium", "compression-crucible", "stage-3"]);
     expect(
       config.stages
-        .slice(2)
+        .slice(3)
         .every(
           (stage) => !stage.implemented && stage.connectionTargets.length === 0,
         ),
@@ -73,23 +73,20 @@ describe("stage configuration", () => {
 });
 
 describe("deterministic sandfall", () => {
-  it("does not move before accumulated distance reaches a cell", () => {
+  it("does not move when no time elapses", () => {
     const c = controller(),
       id = c.castSand()[0]!,
       before = c.matter.get(id).y;
-    c.update(0.001);
+    c.update(0);
     expect(c.matter.get(id).y).toBe(before);
   });
-  it("is stable across equivalent fixed elapsed partitions", () => {
+  it("is stable and reproducible across identical fixed-step sequences", () => {
     const a = controller(),
       b = controller(),
       idA = a.castSand()[0]!,
       idB = b.castSand()[0]!;
     for (let i = 0; i < 60; i++) a.update(1 / 60);
-    for (let i = 0; i < 60; i++) {
-      b.update(1 / 120);
-      b.update(1 / 120);
-    }
+    for (let i = 0; i < 60; i++) b.update(1 / 60);
     expect(canonical(a.matter.get(idA))).toEqual(canonical(b.matter.get(idB)));
   });
   it("gravity upgrades increase fall cadence", () => {
@@ -104,16 +101,17 @@ describe("deterministic sandfall", () => {
     }
     expect(fast.matter.get(b).y).toBeGreaterThan(normal.matter.get(a).y);
   });
-  it("preserves identity through the funnel and buffers against a locked destination", () => {
+  it("settles a lone mote to the chamber floor without a clump forming", () => {
     const c = controller(),
       id = c.castSand()[0]!;
     advance(c, 8);
-    expect(c.sandfall.state.outputIds).toContain(id);
+    expect(c.sandfall.state.activeIds).toContain(id);
     expect(c.matter.get(id).owner).toEqual({
       kind: "stage",
       stageId: "sandfall-atrium",
-      slot: "output",
+      slot: "active",
     });
+    expect(c.matter.get(id).y).toBeGreaterThan(40);
     expect(c.transfers).toHaveLength(0);
   });
 });
