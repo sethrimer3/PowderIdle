@@ -7055,31 +7055,6 @@ import { pointerIsInWorld } from './input/stageInput';
         }
       }
 
-      function grantDeveloperGrains(amount: number): void {
-        if (!powderCounts || powderCounts.length === 0) return;
-        let parsed = Math.floor(Number(amount));
-        if (!Number.isFinite(parsed) || parsed <= 0) {
-          return;
-        }
-        const created = stageWorld.controller.sandfall.cast(parsed, 24, 0).length;
-        totalPowderCollected += created;
-        milestoneMessage = `Granted ${parsed.toLocaleString()} grains for testing.`;
-        milestoneMessageTimer = 3600;
-      }
-
-      function promptDeveloperAddGrains() {
-        if (typeof window === 'undefined' || !window.prompt) {
-          return;
-        }
-        let response = window.prompt('Enter the number of grains to add:', '1000');
-        if (response === null) {
-          return;
-        }
-        let sanitized = response.replace(/,/g, '').trim();
-        let amount = Number(sanitized);
-        grantDeveloperGrains(amount);
-      }
-
       function getPrestigeGain() {
         return calculatePrestigeGain(totalDustEarned);
       }
@@ -7308,6 +7283,10 @@ import { pointerIsInWorld } from './input/stageInput';
           }
         }
         if (localDebug && (key === 'd' || key === 'D')) dust += 100;
+        if (localDebug && (key === 'p' || key === 'P')) {
+          totalDustEarned = Math.max(totalDustEarned, 200);
+          performPrestige();
+        }
       }
 
       function syncStageUpgradeHooks(): void {
@@ -7452,6 +7431,12 @@ export interface PowderIdleDebugApi {
     canvasWidth: number;
     canvasHeight: number;
     fallbackUsed: boolean;
+    stageUnlocked: string[];
+    activeSand: number;
+    queuedTransfers: number;
+    reservoirSand: number;
+    ritualSand: number;
+    outputStones: number;
   };
 }
 
@@ -7485,7 +7470,13 @@ export function installPowderIdle(): void {
       activePowders: powders.length,
       canvasWidth: SCREEN_W,
       canvasHeight: SCREEN_H,
-      fallbackUsed
+      fallbackUsed,
+      stageUnlocked: [...stageWorld.controller.unlocked],
+      activeSand: stageWorld.controller.sandfall.state.activeIds.length,
+      queuedTransfers: stageWorld.controller.transfers.length,
+      reservoirSand: stageWorld.controller.compression.state.reservoirIds.length,
+      ritualSand: stageWorld.controller.compression.state.batch?.motes.length ?? 0,
+      outputStones: stageWorld.controller.compression.state.outputIds.length
     })
   };
 }

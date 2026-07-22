@@ -9,8 +9,8 @@
 
 ## Progression Systems
 - **Upgrades & research** – Spend dust on repeatable upgrades (gravity, refinery, compressor, lanterns, harmonics) and research projects (lens, overclock, quantum, archives) to amplify production and automation cadence.
-- **Automation** – Purchase auto-droppers per powder tier, then unlock automation toggles through milestones to keep the jar running and compression cycling without manual input.
-- **Compression recipes** – Convert stacks of one powder tier into the next using the Stellar Forge menus. Automation can batch-run these recipes after the appropriate upgrades.
+- **Automation** – Auto-droppers and milestone toggles feed the stage upgrade hooks. The stage controller owns the single automatic casting path and the Compression Crucible owns the single automatic ritual path.
+- **Compression** – Stage 2 is the sole sand-to-stone conversion: 100 spendable reservoir sand becomes one spendable output stone. The legacy instant recipe redirects to this ritual; legacy recipes are reserved for later non-stage materials.
 - **Prestige** – The Singularity Crucible consumes late-tier powders to mint crystal cores. Prestiging resets most progression but retains cores (and milestone rewards), seeding a faster climb on subsequent runs.
 - **Milestones (Codex)** – The Codex tab records global achievements. Reaching dust or core thresholds unlocks new powers: automation toggles, bonus gravity/dust, automation cadence boosts, and enhanced crystal yields.
 

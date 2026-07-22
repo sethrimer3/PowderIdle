@@ -106,7 +106,10 @@ export class CompressionStage
       this.state.reservoirIds.length >= this.recipeCount
     )
       this.state.phase = "ready";
-    if (this.state.phase === "ready" && context.upgrades["auto-ritual"] > 0)
+    if (
+      this.state.phase === "ready" &&
+      this.upgradeValue("auto-ritual", context.upgrades) > 0
+    )
       this.invoke();
     const batch = this.state.batch;
     if (!batch || batch.phase === "gathering" || batch.phase === "ready")

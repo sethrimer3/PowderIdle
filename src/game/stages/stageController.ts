@@ -216,10 +216,18 @@ export class StageController {
     this.unlocked.clear();
     for (const id of save.unlocked) {
       const definition = this.config.stages.find((stage) => stage.id === id);
-      if (definition?.implemented) this.unlocked.add(id);
+      if (!definition?.implemented) throw new Error(`Save unlocks unavailable stage ${id}`);
+      if (this.unlocked.has(id)) throw new Error(`Save repeats unlocked stage ${id}`);
+      this.unlocked.add(id);
     }
     this.unlocked.add("sandfall-atrium");
-    Object.assign(this.upgradeLevels, defaultLevels(), save.upgradeLevels);
+    Object.assign(this.upgradeLevels, defaultLevels());
+    for (const definition of this.config.upgrades) {
+      const level = save.upgradeLevels[definition.id];
+      if (!Number.isInteger(level) || level < 0 || level > definition.maxLevel)
+        throw new Error(`Invalid saved level for ${definition.id}`);
+      this.upgradeLevels[definition.id] = level;
+    }
     this.sandfall.hydrate(save.sandfall);
     this.compression.hydrate(save.compression);
     this.transfers.splice(0);
@@ -232,6 +240,8 @@ export class StageController {
       );
       if (
         !connection ||
+        connection.from !== this.sandfall.definition.id ||
+        connection.to !== this.compression.definition.id ||
         !this.unlocked.has(connection.to) ||
         !this.matter.has(raw.entityId)
       )
@@ -377,6 +387,10 @@ export class StageController {
         throw new Error("Ritual output stone is missing from output collection");
       if (batch.outputEventId !== null && batch.outputStoneId === null)
         throw new Error("Ritual output event is missing its stone");
+      if (
+        batch.outputEventId !== null &&
+        batch.outputEventId !== `conversion:${batch.ritualId}`
+      ) throw new Error("Ritual output event ID is inconsistent");
     }
     for (const transfer of this.transfers) {
       if (claims.has(transfer.entityId))

@@ -175,14 +175,18 @@ export class IntegratedStageWorld {
     if (!raw) return null;
     try {
       const parsed: unknown = JSON.parse(raw);
+      const sourceVersion = readSchemaVersion(parsed);
+      if (sourceVersion < SAVE_SCHEMA_VERSION)
+        this.preserveRaw(raw, `v${sourceVersion}`);
       const migrated = old
         ? this.migrateStageV1(parsed, defaults)
         : this.migrateCurrent(parsed, defaults);
       const validated = validateSaveV3(migrated, context);
-      this.controller.hydrate(validated.stageWorld);
+      const candidate = new StageController(this.controller.config);
+      candidate.hydrate(validated.stageWorld);
+      this.controller.hydrate(candidate.serialize());
       this.lastUnlocked = this.controller.unlocked.size;
       this.camera.reset(this.controller.cameraTarget());
-      if (validated.schemaVersion !== readSchemaVersion(parsed)) this.preserveRaw(raw, `v${readSchemaVersion(parsed)}`);
       return validated;
     } catch (error) {
       this.preserveRaw(raw, `invalid-v${readSchemaVersionSafe(raw)}`);
