@@ -130,7 +130,7 @@ export class IntegratedStageWorld {
       this.camera.current.centerY,
       this.camera.current.zoom,
     );
-    drawingContext.imageSmoothingEnabled = false;
+    (drawingContext as CanvasRenderingContext2D).imageSmoothingEnabled = false;
     const shake = this.effects.cameraOffset();
     image(
       surface,

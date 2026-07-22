@@ -13,7 +13,9 @@ let mainWindow: BrowserWindow | null = null;
 let startupFailed = false;
 let criticalRendererError: string | null = null;
 
-if (devUrl) app.setPath('userData', path.join(app.getPath('appData'), 'Powder Idle Development'));
+if (devUrl || smokeMode) {
+  app.setPath('userData', path.join(app.getPath('appData'), smokeMode ? 'Powder Idle Smoke Test' : 'Powder Idle Development'));
+}
 
 function mimeType(file: string): string {
   const extension = path.extname(file).toLowerCase();
@@ -67,8 +69,10 @@ async function createWindow(): Promise<void> {
     webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, devTools: devUrl !== null }
   });
   configureWindowSecurity(mainWindow, devUrl);
-  if (smokeMode) mainWindow.webContents.on('console-message', (_event, level, message) => {
-    if (level >= 3) criticalRendererError = `Critical renderer console error: ${message}`;
+  if (smokeMode) mainWindow.webContents.on('console-message', (event) => {
+    const details = event as unknown as { level: 'error' | 'warning' | 'info' | 'log'; message: string };
+    console.log(`[Powder Idle renderer:${details.level}] ${details.message}`);
+    if (details.level === 'error') criticalRendererError = `Critical renderer console error: ${details.message}`;
   });
   mainWindow.webContents.on('render-process-gone', (_event, details) => showStartupFailure(`Renderer stopped unexpectedly (${details.reason}).`));
   mainWindow.webContents.on('did-fail-load', (_event, code, description, validatedUrl, isMainFrame) => {

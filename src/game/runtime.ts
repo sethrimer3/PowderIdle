@@ -1942,8 +1942,8 @@ const MYSTICAL_FONT_URL = new URL(
         return z * stdDev + mean;
       }
 
-      function preload() {
-        mysticalFont = loadFont(MYSTICAL_FONT_URL);
+      async function preload() {
+        mysticalFont = await loadFont(MYSTICAL_FONT_URL);
       }
 
       function setup() {
@@ -2115,14 +2115,15 @@ const MYSTICAL_FONT_URL = new URL(
       ): void {
         push();
         rectMode(CENTER);
-        drawingContext.save();
-        drawingContext.shadowBlur = Math.max(scaledX(16), scaledY(16));
-        drawingContext.shadowColor = 'rgba(250, 204, 21, 0.6)';
+        const context = drawingContext as CanvasRenderingContext2D;
+        context.save();
+        context.shadowBlur = Math.max(scaledX(16), scaledY(16));
+        context.shadowColor = 'rgba(250, 204, 21, 0.6)';
         noStroke();
         fill(withAlpha('#facc15', 70));
         let resolvedRadius = radius != null ? radius : Math.max(12, Math.min(width, height) * 0.18);
         rect(x, y, width, height, resolvedRadius);
-        drawingContext.restore();
+        context.restore();
         pop();
       }
 
@@ -5152,7 +5153,7 @@ const MYSTICAL_FONT_URL = new URL(
         width: number,
         height: number
       ): void {
-        let ctx = drawingContext;
+        let ctx = drawingContext as CanvasRenderingContext2D;
         ctx.save();
         let left = centerX - width / 2;
         let top = centerY - height / 2;
@@ -5179,7 +5180,7 @@ const MYSTICAL_FONT_URL = new URL(
         height: number,
         accentColor = MENU_THEME.accent
       ): void {
-        let ctx = drawingContext;
+        let ctx = drawingContext as CanvasRenderingContext2D;
         ctx.save();
         let left = centerX - width / 2;
         let top = centerY - height / 2;
@@ -5223,7 +5224,7 @@ const MYSTICAL_FONT_URL = new URL(
           topColor = mixColors(accentColor, '#ffffff', 0.2);
           bottomColor = accentColor;
           borderColor = MENU_THEME.accentHover;
-          shadowColor = withAlpha(accentColor, 180);
+          shadowColor = withAlpha(accentColor, 180).toString();
         } else {
           topColor = mixColors(baseColor, '#1f2937', 0.35);
           bottomColor = baseColor;
@@ -5231,7 +5232,7 @@ const MYSTICAL_FONT_URL = new URL(
           shadowColor = 'rgba(8, 12, 24, 0.55)';
         }
 
-        let ctx = drawingContext;
+        let ctx = drawingContext as CanvasRenderingContext2D;
         let left = x - w / 2;
         let top = y - h / 2;
         ctx.save();
@@ -5320,18 +5321,19 @@ const MYSTICAL_FONT_URL = new URL(
         let contentEnd = contentStart;
         let clipWidth = menuContentArea.width;
         if (clipWidth > 0 && visibleHeight > 0) {
-          drawingContext.save();
-          drawingContext.beginPath();
-          drawingContext.rect(
+          const context = drawingContext as CanvasRenderingContext2D;
+          context.save();
+          context.beginPath();
+          context.rect(
             menuContentArea.left,
             menuContentArea.top,
             clipWidth,
             visibleHeight
           );
-          drawingContext.clip();
+          context.clip();
           menuContentArea.scrollOffset = menuScroll;
           contentEnd = drawActiveMenuContent(contentStart);
-          drawingContext.restore();
+          context.restore();
         } else {
           menuContentArea.scrollOffset = menuScroll;
           contentEnd = drawActiveMenuContent(contentStart);
@@ -5487,7 +5489,7 @@ const MYSTICAL_FONT_URL = new URL(
           let active = tab.key === activeMenu;
           let baseColor = active ? MENU_THEME.tabActive : MENU_THEME.tabInactive;
           let textColor = active ? MENU_THEME.invertedText : MENU_THEME.text;
-          let ctx = drawingContext;
+          let ctx = drawingContext as CanvasRenderingContext2D;
           ctx.save();
           ctx.fillStyle = baseColor;
           ctx.strokeStyle = MENU_THEME.tabBorder;
@@ -5549,7 +5551,7 @@ const MYSTICAL_FONT_URL = new URL(
         textSize(scaledFont(11));
         fill(MENU_THEME.headerText);
         text(title.toUpperCase(), left, y);
-        let ctx = drawingContext;
+        let ctx = drawingContext as CanvasRenderingContext2D;
         ctx.save();
         let lineLeft = left;
         let lineRight = right;
