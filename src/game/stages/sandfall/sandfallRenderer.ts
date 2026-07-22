@@ -1,6 +1,7 @@
 import type P5 from "p5";
 import { effectProgress, type StageEffect } from "../../effects/stageEffects";
 import { MatterStore } from "../../matter/matterStore";
+import { MYSTICAL_COLORS } from "../../rendering/mysticalTheme";
 import { sandPalette } from "../stageVisualModels";
 import type { SandfallState } from "./sandfallStage";
 
@@ -24,25 +25,25 @@ export function renderSandfall(
 ): void {
   const breath = Math.sin(context.time * 1.7) * 0.5 + 0.5;
   surface.noStroke();
-  surface.fill(4, 11, 24);
+  surface.fill(...MYSTICAL_COLORS.chamberDeep);
   surface.rect(0, 0, 48, 48);
-  surface.stroke(22, 52, 81);
+  surface.stroke(...MYSTICAL_COLORS.graphite);
   const stars: Array<[number, number]> = [[8, 8], [37, 6], [13, 19], [41, 25], [7, 33]];
   for (const [x, y] of stars)
     surface.point(x, y);
 
   surface.noFill();
-  surface.stroke(54 + breath * 16, 91 + breath * 18, 137 + breath * 20);
+  surface.stroke(82 + breath * 18, 67 + breath * 14, 96 + breath * 20);
   surface.rect(0.5, 0.5, 47, 47);
   drawCornerRunes(surface, 2, 2);
   drawCornerRunes(surface, 46, 2, -1);
 
-  surface.stroke(46, 84, 106);
+  surface.stroke(...MYSTICAL_COLORS.violetDim);
   surface.line(2, 36, 17, 42);
   surface.line(46, 36, 30, 42);
   surface.line(17, 42, 21, 46);
   surface.line(30, 42, 26, 46);
-  surface.stroke(83, 134, 145);
+  surface.stroke(...MYSTICAL_COLORS.emberDim);
   surface.line(21, 46, 26, 46);
 
   for (const id of state.activeIds) {
@@ -69,9 +70,9 @@ export function renderSandfall(
   const aperturePulse = context.transferCount > 0 ? 1 : breath * 0.45;
   surface.noFill();
   surface.stroke(
-    context.reservoirFull ? 185 : context.destinationUnlocked ? 79 : 72,
-    context.reservoirFull ? 92 : context.destinationUnlocked ? 211 : 103,
-    context.reservoirFull ? 108 : context.destinationUnlocked ? 207 : 126,
+    context.reservoirFull ? MYSTICAL_COLORS.emberLight[0] : context.destinationUnlocked ? MYSTICAL_COLORS.violet[0] : MYSTICAL_COLORS.graphite[0],
+    context.reservoirFull ? MYSTICAL_COLORS.emberLight[1] : context.destinationUnlocked ? MYSTICAL_COLORS.violet[1] : MYSTICAL_COLORS.graphite[1],
+    context.reservoirFull ? MYSTICAL_COLORS.emberLight[2] : context.destinationUnlocked ? MYSTICAL_COLORS.violet[2] : MYSTICAL_COLORS.graphite[2],
   );
   surface.circle(24, 46, 3 + aperturePulse * 2);
   if (!context.destinationUnlocked || context.reservoirFull) {
@@ -80,7 +81,7 @@ export function renderSandfall(
   } else {
     surface.point(24, 47);
     if (state.outputIds.length) {
-      surface.stroke(133, 238, 216);
+      surface.stroke(...MYSTICAL_COLORS.violet);
       surface.point(23, 44);
       surface.point(25, 43);
     }
@@ -91,7 +92,7 @@ export function renderSandfall(
   drawCooldown(surface, context.cooldownProgress, context.castCount);
 
   surface.noStroke();
-  surface.fill(116, 154, 184);
+  surface.fill(...MYSTICAL_COLORS.violet);
   surface.textSize(3);
   surface.textAlign("center", "top");
   surface.text("SANDFALL ATRIUM", 24, 2);
@@ -109,7 +110,8 @@ function drawConjurationEffects(surface: P5.Graphics, effects: readonly StageEff
     const p = effectProgress(effect), contraction = 1 - p;
     const centerX = Math.round(effect.x);
     surface.noFill();
-    surface.stroke(effect.automatic ? 91 : 119, effect.automatic ? 212 : 232, 220);
+    const color = effect.automatic ? MYSTICAL_COLORS.emberLight : MYSTICAL_COLORS.violet;
+    surface.stroke(color[0], color[1], color[2]);
     const radius = Math.max(2, Math.round((3 + Math.min(5, effect.entityIds.length / 2)) * contraction));
     surface.circle(centerX, 3, radius * 2);
     for (let index = 0; index < Math.min(6, effect.entityIds.length + 2); index++) {
@@ -120,7 +122,7 @@ function drawConjurationEffects(surface: P5.Graphics, effects: readonly StageEff
       );
     }
     if (p > 0.35 && p < 0.7) {
-      surface.stroke(244, 224, 167);
+      surface.stroke(...MYSTICAL_COLORS.emberLight);
       surface.point(centerX, 3);
     }
   }
@@ -129,20 +131,20 @@ function drawConjurationEffects(surface: P5.Graphics, effects: readonly StageEff
 function drawAutoSigil(surface: P5.Graphics, charge: number): void {
   const lit = Math.max(0, Math.min(1, charge));
   surface.noFill();
-  surface.stroke(72, 128 + lit * 100, 157 + lit * 70);
+  surface.stroke(128 + lit * 55, 76 + lit * 56, 52 + lit * 24);
   surface.rect(39.5, 4.5, 4, 4);
   surface.point(41, 6);
 }
 
 function drawCooldown(surface: P5.Graphics, progress: number, castCount: number): void {
   const width = Math.max(1, Math.round(5 * Math.max(0, Math.min(1, progress))));
-  surface.stroke(51, 74, 97);
+  surface.stroke(...MYSTICAL_COLORS.graphite);
   surface.line(4, 6, 9, 6);
-  surface.stroke(98, 201, 190);
+  surface.stroke(...MYSTICAL_COLORS.violet);
   surface.line(4, 6, 4 + width, 6);
   if (castCount > 1) {
     surface.noStroke();
-    surface.fill(132, 173, 187);
+    surface.fill(...MYSTICAL_COLORS.violet);
     surface.textSize(3);
     surface.textAlign("left", "top");
     surface.text(`x${castCount}`, 4, 8);

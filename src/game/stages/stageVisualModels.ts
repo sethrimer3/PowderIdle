@@ -73,10 +73,10 @@ export function transferVisualModel(
 export function sandPalette(seed: number, moving: boolean): [number, number, number] {
   const variation = seed % 4;
   const palettes: Array<[number, number, number]> = [
-    [239, 195, 104],
-    [226, 174, 82],
-    [247, 211, 137],
-    [205, 157, 83],
+    [224, 132, 76],
+    [198, 103, 53],
+    [238, 158, 91],
+    [176, 82, 42],
   ];
   const base = palettes[variation]!;
   return moving

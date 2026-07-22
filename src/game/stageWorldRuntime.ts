@@ -20,6 +20,7 @@ import {
   screenToWorld,
   type ViewportRect,
 } from "./rendering/pixelSurface";
+import { MYSTICAL_COLORS, MYSTICAL_FONT_FAMILY } from "./rendering/mysticalTheme";
 import { CompressionStage } from "./stages/compression/compressionStage";
 import { renderCompression } from "./stages/compression/compressionRenderer";
 import { renderSandfall } from "./stages/sandfall/sandfallRenderer";
@@ -53,11 +54,11 @@ export class IntegratedStageWorld {
   readonly effects = new StageEffectSystem();
   private visualTime = 0;
 
-  initialize(): void {
+  initialize(font: P5.Font | string = MYSTICAL_FONT_FAMILY): void {
     this.surface = createGraphics(WORLD_SIZE, WORLD_SIZE);
     this.surface.pixelDensity(1);
     this.surface.noSmooth();
-    this.surface.textFont("monospace");
+    this.surface.textFont(font);
   }
 
   update(elapsedSeconds: number): void {
@@ -80,7 +81,7 @@ export class IntegratedStageWorld {
   render(areaX: number, areaY: number, available: number): void {
     if (!this.surface) this.initialize();
     const surface = this.surface!;
-    surface.background(3, 7, 18);
+    surface.background(...MYSTICAL_COLORS.void);
     const sandfallOrigin = stageWorldOrigin(this.controller.sandfall.definition);
     surface.push();
     surface.translate(sandfallOrigin.x, sandfallOrigin.y);
@@ -337,7 +338,8 @@ export class IntegratedStageWorld {
     const from = stageWorldOrigin(fromDefinition), to = stageWorldOrigin(toDefinition);
     const full = this.controller.compression.state.reservoirIds.length + models.length >=
       this.controller.compression.capacity(this.controller.upgradeLevels);
-    surface.stroke(full ? 112 : 44, full ? 61 : 111, full ? 78 : 126);
+    const routeColor = full ? MYSTICAL_COLORS.emberDim : MYSTICAL_COLORS.violetDim;
+    surface.stroke(routeColor[0], routeColor[1], routeColor[2]);
     surface.line(from.x + 22, from.y + 47, to.x + 22, to.y + 1);
     surface.line(from.x + 26, from.y + 47, to.x + 26, to.y + 1);
     for (let y = from.y + 49; y < to.y; y += 5) {
@@ -346,15 +348,19 @@ export class IntegratedStageWorld {
     }
     for (const model of models) {
       const seed = this.controller.matter.get(model.entityId).visualSeed;
-      surface.stroke(223 + seed % 24, 180 + seed % 20, 91);
+      surface.stroke(
+        MYSTICAL_COLORS.emberLight[0] + seed % 18,
+        MYSTICAL_COLORS.emberLight[1] + seed % 14,
+        MYSTICAL_COLORS.emberLight[2],
+      );
       surface.point(Math.round(model.x), Math.round(model.y));
       if (model.progress > 0.15) {
-        surface.stroke(87, 174, 166);
+        surface.stroke(...MYSTICAL_COLORS.violet);
         surface.point(Math.round(model.x), Math.round(model.y - 1));
       }
     }
     if (full) {
-      surface.stroke(195, 91, 113);
+      surface.stroke(...MYSTICAL_COLORS.ember);
       surface.line(to.x + 21, to.y + 1, to.x + 27, to.y + 1);
     }
   }

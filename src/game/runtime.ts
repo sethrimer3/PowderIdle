@@ -84,7 +84,13 @@ import { IntegratedStageWorld, type RuntimeSaveSections } from './stageWorldRunt
 import type { PowderIdleSaveV3, SaveValidationContext } from './persistence/saveSchema';
 import { pointerIsInWorld } from './input/stageInput';
 import { computeResponsiveGameLayout } from './layout/responsiveLayout';
+import { MYSTICAL_FONT_FAMILY, MYSTICAL_UI } from './rendering/mysticalTheme';
 import { stageUpgradeValue } from './stages/stageConfig';
+
+const MYSTICAL_FONT_URL = new URL(
+  '../../Assets/Font/Cinzel/Cinzel-VariableFont_wght.ttf',
+  import.meta.url
+).href;
 
 // Game constants
       const BASE_SCREEN_W = 360;
@@ -98,6 +104,7 @@ import { stageUpgradeValue } from './stages/stageConfig';
       let layoutScaleX = 1;
       let layoutScaleY = 1;
       let canvas: P5.Renderer;
+      let mysticalFont: P5.Font | string = MYSTICAL_FONT_FAMILY;
       const BASE_FALL_SPEED = 2;
       const CHAIN_REQUIREMENT = 100;
       const stageWorld = new IntegratedStageWorld();
@@ -111,32 +118,60 @@ import { stageUpgradeValue } from './stages/stageConfig';
         { key: 'achievements', label: 'Achievements', icon: '📜' }
       ];
 
-      const MENU_THEME = {
-        panelTop: '#010409',
-        panelBottom: '#020617',
-        panelBorder: '#1e293b',
-        panelShadow: 'rgba(1, 4, 9, 0.7)',
-        innerBorder: 'rgba(37, 99, 235, 0.35)',
-        cardTop: '#0b1120',
-        cardBottom: '#111827',
-        cardBorder: '#1f2937',
-        cardShadow: 'rgba(2, 6, 23, 0.75)',
-        accent: '#3b82f6',
-        accentHover: '#2563eb',
-        accentSoft: '#60a5fa',
-        success: '#22c55e',
-        text: '#e2e8f0',
-        mutedText: '#94a3b8',
-        invertedText: '#010409',
-        divider: '#1f2937',
-        buttonBase: '#111827',
-        buttonBorder: '#1f2a3d',
-        buttonDisabled: '#1f2937',
-        progressBg: '#0f172a',
-        headerText: '#60a5fa',
-        tabInactive: '#0f172a',
-        tabActive: '#1d4ed8',
-        tabBorder: '#1f2937'
+      interface MenuTheme {
+        panelTop: string;
+        panelBottom: string;
+        panelBorder: string;
+        panelShadow: string;
+        innerBorder: string;
+        cardTop: string;
+        cardBottom: string;
+        cardBorder: string;
+        cardShadow: string;
+        accent: string;
+        accentHover: string;
+        accentSoft: string;
+        success: string;
+        text: string;
+        mutedText: string;
+        invertedText: string;
+        divider: string;
+        buttonBase: string;
+        buttonBorder: string;
+        buttonDisabled: string;
+        progressBg: string;
+        headerText: string;
+        tabInactive: string;
+        tabActive: string;
+        tabBorder: string;
+      }
+
+      const MENU_THEME: MenuTheme = {
+        panelTop: MYSTICAL_UI.background,
+        panelBottom: MYSTICAL_UI.panel,
+        panelBorder: MYSTICAL_UI.graphiteLight,
+        panelShadow: 'rgba(8, 7, 9, 0.82)',
+        innerBorder: 'rgba(202, 181, 229, 0.28)',
+        cardTop: MYSTICAL_UI.panel,
+        cardBottom: MYSTICAL_UI.panelRaised,
+        cardBorder: MYSTICAL_UI.graphite,
+        cardShadow: 'rgba(8, 7, 9, 0.78)',
+        accent: MYSTICAL_UI.violetStrong,
+        accentHover: MYSTICAL_UI.emberLight,
+        accentSoft: MYSTICAL_UI.violet,
+        success: MYSTICAL_UI.violet,
+        text: MYSTICAL_UI.text,
+        mutedText: MYSTICAL_UI.violetMuted,
+        invertedText: MYSTICAL_UI.background,
+        divider: MYSTICAL_UI.graphite,
+        buttonBase: MYSTICAL_UI.panelRaised,
+        buttonBorder: MYSTICAL_UI.graphiteLight,
+        buttonDisabled: '#2a272d',
+        progressBg: '#242128',
+        headerText: MYSTICAL_UI.violet,
+        tabInactive: MYSTICAL_UI.panelRaised,
+        tabActive: MYSTICAL_UI.ember,
+        tabBorder: MYSTICAL_UI.graphiteLight
       };
 
       let powderTypes: PowderDefinition[] = [];
@@ -1907,16 +1942,20 @@ import { stageUpgradeValue } from './stages/stageConfig';
         return z * stdDev + mean;
       }
 
+      function preload() {
+        mysticalFont = loadFont(MYSTICAL_FONT_URL);
+      }
+
       function setup() {
         updateLayoutDimensions();
         canvas = createCanvas(SCREEN_W, SCREEN_H);
         pixelDensity(1);
         rectMode(CENTER);
         textAlign(CENTER, CENTER);
-        textFont('Press Start 2P');
+        textFont(mysticalFont);
         noStroke();
         frameRate(60);
-        stageWorld.initialize();
+        stageWorld.initialize(mysticalFont);
         updateLayoutDimensions(true);
         beginGameInitialization();
         addEventListener('beforeunload', saveIntegratedGame);
@@ -1930,7 +1969,7 @@ import { stageUpgradeValue } from './stages/stageConfig';
       }
 
       function draw() {
-        background('#050a16');
+        background(MYSTICAL_UI.background);
 
         buttons = [];
         jarVisible = false;
@@ -1960,18 +1999,18 @@ import { stageUpgradeValue } from './stages/stageConfig';
       }
 
       function drawLoadingState() {
-        fill('#22d3ee');
+        fill(MYSTICAL_UI.violet);
         textSize(scaledFont(14));
         text(loadingMessage, SCREEN_W / 2, SCREEN_H / 2);
         let messageY = SCREEN_H / 2 + scaledY(24);
         if (fallbackUsed) {
-          fill('#94a3b8');
+          fill(MYSTICAL_UI.violetMuted);
           textSize(scaledFont(10));
           text('Using bundled data assets.', SCREEN_W / 2, messageY);
           messageY += scaledY(18);
         }
         if (dataLoadError) {
-          fill('#fca5a5');
+          fill(MYSTICAL_UI.emberLight);
           textSize(scaledFont(10));
           text('Unable to load external data files.', SCREEN_W / 2, messageY);
         }
@@ -5565,7 +5604,7 @@ import { stageUpgradeValue } from './stages/stageConfig';
           text(`Crucible LOCKED | ${controller.sandfall.state.lifetimeCreated}/${condition.count} sand`, left, top + scaledY(44));
           text('Exit sealed | queued sand waits safely', left, top + scaledY(66));
         } else {
-          fill(full ? '#fca5a5' : MENU_THEME.mutedText);
+          fill(full ? MYSTICAL_UI.emberLight : MENU_THEME.mutedText);
           text(`Route: ${controller.transfers.length} transit | Reservoir ${reservoir}/${capacity}${full ? ' FULL' : ''}`, left, top + scaledY(44));
           fill(phase === 'ready' ? MENU_THEME.success : MENU_THEME.mutedText);
           text(`Crucible: ${phase === 'ready' ? 'READY - press C' : phase}${batchSize ? ` | batch ${batchSize}` : ''}`, left, top + scaledY(66));
@@ -7476,6 +7515,7 @@ declare global {
 
 export function installPowderIdle(): void {
   Object.assign(window, {
+    preload,
     setup,
     draw,
     windowResized,
