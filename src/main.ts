@@ -1,3 +1,3 @@
-import { installStageWorld } from './game/stageWorldRuntime';
+import { installPowderIdle } from './game/runtime';
 
-installStageWorld();
+installPowderIdle();

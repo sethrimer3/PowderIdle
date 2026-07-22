@@ -1,19 +1,295 @@
-import{computeCameraTarget}from'../camera/stageCamera';import{MatterStore}from'../matter/matterStore';import type{EntityId,MatterSnapshot,StageId}from'../matter/matterTypes';import{DEFAULT_SPIRAL}from'./stageLayout';import type{CompressionPhase,StageDefinition,StageTransfer}from'./stageTypes';
-export interface StageConfig{schemaVersion:1;stage2UnlockLifetimeSand:number;compressionInputCount:number;reservoirCapacity:number;transferDuration:number;timings:Record<Exclude<CompressionPhase,'gathering'|'ready'>,number>}
-export const DEFAULT_STAGE_CONFIG:StageConfig={schemaVersion:1,stage2UnlockLifetimeSand:100,compressionInputCount:100,reservoirCapacity:300,transferDuration:.65,timings:{levitating:.8,aligning:.65,compressing:.45,impact:.12,revealing:.65,releasing:.7,cooldown:.25}};
-export const STAGES:StageDefinition[]=DEFAULT_SPIRAL.map((gridPosition,i)=>({id:(i===0?'sandfall-atrium':i===1?'compression-crucible':`stage-${i+1}`)as StageId,order:i+1,name:i===0?'Sandfall Atrium':i===1?'Compression Crucible':`Stage ${i+1}`,gridPosition,inputMaterial:i===0?null:i===1?'sand':'stone',outputMaterial:i===0?'sand':'stone',implemented:i<2,unlockCondition:i===0?{kind:'initial'}:{kind:'lifetime-material',stageId:'sandfall-atrium',material:'sand',count:i===1?100:Number.MAX_SAFE_INTEGER},connectionTargets:i===0?['compression-crucible']:[]}));
-export interface StageSave{version:1;unlocked:StageId[];lifetimeSand:number;processedSand:number;phase:CompressionPhase;phaseTime:number;ritualIds:EntityId[];outputStoneIds:EntityId[];transfers:StageTransfer[];matter:MatterSnapshot}
-export class StageController{readonly matter=new MatterStore();readonly definitions=STAGES;unlocked=new Set<StageId>(['sandfall-atrium']);lifetimeSand=0;processedSand=0;phase:CompressionPhase='gathering';phaseTime=0;ritualIds:EntityId[]=[];outputStoneIds:EntityId[]=[];transfers:StageTransfer[]=[];conversionEvents=0;private transferSerial=0;private converted=false;constructor(public config:StageConfig=DEFAULT_STAGE_CONFIG){}
- castSand(count=1){for(let i=0;i<count;i++){const e=this.matter.create('sand',{kind:'stage',stageId:'sandfall-atrium',slot:'active'},'sandfall-atrium',{x:12+((this.lifetimeSand*17)%24),y:2});this.lifetimeSand++;e.vy=4}this.checkUnlock()}
- private checkUnlock(){if(this.lifetimeSand>=this.config.stage2UnlockLifetimeSand)this.unlocked.add('compression-crucible')}
- queueStage1Sand(id:EntityId){const e=this.matter.get(id);if(e.owner.kind!=='stage'||e.owner.stageId!=='sandfall-atrium')throw Error('Sand is not in Stage 1');this.matter.move(id,{kind:'stage',stageId:'sandfall-atrium',slot:'output'})}
- beginTransfer(id:EntityId){if(!this.unlocked.has('compression-crucible'))return false;if(this.reservoir().length+this.transfers.length>=this.config.reservoirCapacity)return false;const e=this.matter.get(id);if(e.owner.kind!=='stage'||e.owner.stageId!=='sandfall-atrium'||e.owner.slot!=='output')return false;const transferId=`s1-s2-${++this.transferSerial}`;this.matter.move(id,{kind:'transfer',transferId});this.transfers.push({id:transferId,entityId:id,connectionId:'stage-1-to-2',progress:0});return true}
- update(dt:number){dt=Math.max(0,Math.min(dt,.1));for(const t of this.transfers)t.progress+=dt/this.config.transferDuration;const done=this.transfers.filter(t=>t.progress>=1);this.transfers=this.transfers.filter(t=>t.progress<1);for(const t of done)this.matter.move(t.entityId,{kind:'stage',stageId:'compression-crucible',slot:'reservoir'});if(this.phase==='gathering'&&this.reservoir().length>=this.config.compressionInputCount)this.phase='ready';if(this.phase!=='gathering'&&this.phase!=='ready'){this.phaseTime+=dt;const duration=this.config.timings[this.phase];if(this.phaseTime>=duration)this.advancePhase()}this.matter.assertInvariants()}
- invokeRitual(){if(this.phase!=='ready'||this.reservoir().length<this.config.compressionInputCount)return false;this.ritualIds=this.reservoir().slice(0,this.config.compressionInputCount).map(e=>e.id);this.ritualIds.forEach(id=>this.matter.move(id,{kind:'stage',stageId:'compression-crucible',slot:'ritual'}));this.phase='levitating';this.phaseTime=0;this.converted=false;return true}
- private advancePhase(){this.phaseTime=0;const order:CompressionPhase[]=['levitating','aligning','compressing','impact','revealing','releasing','cooldown','gathering'];const next=order[order.indexOf(this.phase)+1]??'gathering';if(this.phase==='impact')this.convertOnce();if(this.phase==='cooldown'){this.ritualIds=[];this.converted=false}this.phase=next;if(this.phase==='gathering'&&this.reservoir().length>=this.config.compressionInputCount)this.phase='ready'}
- private convertOnce(){if(this.converted)return;this.converted=true;const stone=this.matter.compose('stone',this.ritualIds,{kind:'stage',stageId:'compression-crucible',slot:'output'},'compression-crucible');this.outputStoneIds.push(stone.id);this.processedSand+=this.ritualIds.length;this.conversionEvents++}
- reservoir(){return this.matter.owned((o,e)=>e.material==='sand'&&o.kind==='stage'&&o.stageId==='compression-crucible'&&o.slot==='reservoir')}
- cameraTarget(){return computeCameraTarget(this.definitions.filter(d=>this.unlocked.has(d.id)).map(d=>d.gridPosition))}
- serialize():StageSave{return{version:1,unlocked:[...this.unlocked],lifetimeSand:this.lifetimeSand,processedSand:this.processedSand,phase:this.phase,phaseTime:this.phaseTime,ritualIds:[...this.ritualIds],outputStoneIds:[...this.outputStoneIds],transfers:this.transfers.map(t=>({...t})),matter:this.matter.serialize()}}
- hydrate(s:StageSave){this.matter.hydrate(s.matter);this.unlocked=new Set(s.unlocked.filter(id=>this.definitions.some(d=>d.id===id&&d.implemented)));this.unlocked.add('sandfall-atrium');this.lifetimeSand=s.lifetimeSand;this.processedSand=s.processedSand;this.outputStoneIds=[...s.outputStoneIds];this.transfers=s.transfers.map(t=>({...t}));this.ritualIds=[...s.ritualIds];if(s.phase!=='gathering'&&s.phase!=='ready'){for(const id of this.ritualIds){const e=this.matter.get(id);if(e.owner.kind==='stage'&&e.owner.slot==='ritual')this.matter.move(id,{kind:'stage',stageId:'compression-crucible',slot:'reservoir'})}this.ritualIds=[];this.phase=this.reservoir().length>=this.config.compressionInputCount?'ready':'gathering';this.phaseTime=0}else{this.phase=s.phase;this.phaseTime=s.phaseTime}this.matter.assertInvariants()}
+import { computeCameraTarget, type CameraTarget } from "../camera/stageCamera";
+import { MatterStore } from "../matter/matterStore";
+import type { EntityId, MatterSnapshot, StageId } from "../matter/matterTypes";
+import {
+  CompressionStage,
+  type CompressionSave,
+} from "./compression/compressionStage";
+import { SandfallStage, type SandfallSave } from "./sandfall/sandfallStage";
+import { stageConnection } from "./stageConnections";
+import { stageDefinition } from "./stageDefinitions";
+import type {
+  StageConfig,
+  StageTransfer,
+  StageUpgradeId,
+  StageUpdateContext,
+} from "./stageTypes";
+
+export interface StageSaveV2 {
+  version: 2;
+  unlocked: StageId[];
+  nextTransferId: number;
+  transfers: StageTransfer[];
+  upgradeLevels: Record<StageUpgradeId, number>;
+  matter: MatterSnapshot;
+  sandfall: SandfallSave;
+  compression: CompressionSave;
+}
+export interface StageEvent {
+  id: string;
+  kind: "stage-unlocked" | "conversion";
+  stageId: StageId;
+  entityId?: EntityId;
+}
+const defaultLevels = (): Record<StageUpgradeId, number> => ({
+  "manual-cast-count": 0,
+  "cast-cooldown": 0,
+  gravity: 0,
+  "output-throughput": 0,
+  "auto-cast": 0,
+  "ritual-speed": 0,
+  "reservoir-capacity": 0,
+  "release-speed": 0,
+  "auto-ritual": 0,
+});
+
+export class StageController {
+  readonly matter = new MatterStore();
+  readonly sandfall: SandfallStage;
+  readonly compression: CompressionStage;
+  readonly unlocked = new Set<StageId>(["sandfall-atrium"]);
+  readonly transfers: StageTransfer[] = [];
+  readonly events: StageEvent[] = [];
+  readonly upgradeLevels = defaultLevels();
+  private nextTransferId = 1;
+  private transferBudget = 0;
+  constructor(readonly config: StageConfig) {
+    this.sandfall = new SandfallStage(
+      stageDefinition(config, "sandfall-atrium"),
+      this.matter,
+    );
+    this.compression = new CompressionStage(
+      stageDefinition(config, "compression-crucible"),
+      this.matter,
+      {
+        gathering: Number.POSITIVE_INFINITY,
+        ready: Number.POSITIVE_INFINITY,
+        ...config.ritualTimings,
+      },
+    );
+  }
+  castSand(baseCount = 1, x = 24): readonly EntityId[] {
+    const count = Math.max(
+      1,
+      baseCount + this.upgradeLevels["manual-cast-count"],
+    );
+    const cooldown = Math.max(
+      0.02,
+      0.1 - this.upgradeLevels["cast-cooldown"] * 0.01,
+    );
+    return this.sandfall.cast(count, x, cooldown);
+  }
+  invokeRitual(): boolean {
+    return this.compression.invoke();
+  }
+  update(dt: number): void {
+    if (!Number.isFinite(dt) || dt < 0)
+      throw new Error("Stage delta time must be finite and non-negative");
+    const context: StageUpdateContext = { dt, upgrades: this.upgradeLevels };
+    this.sandfall.update(context);
+    this.compression.update({ dt: 0, upgrades: this.upgradeLevels });
+    this.checkUnlocks();
+    this.startTransfers(dt);
+    this.updateTransfers(dt);
+    this.compression.update(context);
+    this.flushConversionEvents();
+    this.matter.assertInvariants();
+  }
+  cameraTarget(): CameraTarget {
+    return computeCameraTarget(
+      this.config.stages
+        .filter((stage) => this.unlocked.has(stage.id))
+        .map((stage) => stage.gridPosition),
+      this.config.camera.padding,
+    );
+  }
+  buyUpgrade(id: StageUpgradeId): boolean {
+    const definition = this.config.upgrades.find(
+      (upgrade) => upgrade.id === id,
+    );
+    if (!definition) return false;
+    const current = this.upgradeLevels[id];
+    if (current >= definition.maxLevel) return false;
+    this.upgradeLevels[id] = current + 1;
+    return true;
+  }
+  serialize(): StageSaveV2 {
+    return {
+      version: 2,
+      unlocked: [...this.unlocked],
+      nextTransferId: this.nextTransferId,
+      transfers: this.transfers.map((transfer) => ({ ...transfer })),
+      upgradeLevels: { ...this.upgradeLevels },
+      matter: this.matter.serialize(),
+      sandfall: this.sandfall.serialize(),
+      compression: this.compression.serialize(),
+    };
+  }
+  hydrate(save: StageSaveV2): void {
+    if (save.version !== 2) throw new Error("Unsupported stage save version");
+    this.matter.hydrate(save.matter);
+    this.unlocked.clear();
+    for (const id of save.unlocked) {
+      const definition = this.config.stages.find((stage) => stage.id === id);
+      if (definition?.implemented) this.unlocked.add(id);
+    }
+    this.unlocked.add("sandfall-atrium");
+    Object.assign(this.upgradeLevels, defaultLevels(), save.upgradeLevels);
+    this.sandfall.hydrate(save.sandfall);
+    this.compression.hydrate(save.compression);
+    this.transfers.splice(0);
+    const ids = new Set<string>();
+    for (const raw of save.transfers) {
+      if (ids.has(raw.id) || !Number.isFinite(raw.progress))
+        throw new Error("Invalid or duplicate hydrated transfer");
+      const connection = this.config.connections.find(
+        (item) => item.id === raw.connectionId,
+      );
+      if (
+        !connection ||
+        !this.unlocked.has(connection.to) ||
+        !this.matter.has(raw.entityId)
+      )
+        throw new Error("Hydrated transfer references unavailable state");
+      const owner = this.matter.get(raw.entityId).owner;
+      if (owner.kind !== "transfer" || owner.transferId !== raw.id)
+        throw new Error("Hydrated transfer owner mismatch");
+      ids.add(raw.id);
+      this.transfers.push({
+        ...raw,
+        progress: Math.max(0, Math.min(1, raw.progress)),
+      });
+    }
+    const observed = Math.max(
+      0,
+      ...[...ids].map((id) => Number(id.split("-").pop()) || 0),
+    );
+    this.nextTransferId = Math.max(save.nextTransferId, observed + 1);
+    this.validateStageCollections();
+    this.matter.assertInvariants();
+  }
+  private checkUnlocks(): void {
+    const definition = this.compression.definition,
+      condition = definition.unlockCondition;
+    if (
+      condition.kind === "lifetime-material" &&
+      this.sandfall.state.lifetimeCreated >= condition.count &&
+      !this.unlocked.has(definition.id)
+    ) {
+      this.unlocked.add(definition.id);
+      this.events.push({
+        id: `unlock:${definition.id}`,
+        kind: "stage-unlocked",
+        stageId: definition.id,
+      });
+    }
+  }
+  private startTransfers(dt: number): void {
+    if (!this.unlocked.has("compression-crucible")) return;
+    const throughput = 12 + this.upgradeLevels["output-throughput"] * 3;
+    this.transferBudget = Math.min(
+      throughput,
+      this.transferBudget + throughput * dt,
+    );
+    const capacity =
+      this.compression.baseCapacity +
+      this.upgradeLevels["reservoir-capacity"] * 50;
+    while (
+      this.transferBudget >= 1 &&
+      this.sandfall.state.outputIds.length &&
+      this.compression.state.reservoirIds.length + this.transfers.length <
+        capacity
+    ) {
+      const entityId = this.sandfall.state.outputIds[0]!,
+        id = `transfer-${this.nextTransferId++}`;
+      this.sandfall.removeOutput(entityId);
+      this.matter.move(
+        entityId,
+        { kind: "stage", stageId: "sandfall-atrium", slot: "output" },
+        { kind: "transfer", transferId: id },
+      );
+      this.transfers.push({
+        id,
+        entityId,
+        connectionId: "stage-1-to-2",
+        progress: 0,
+      });
+      this.transferBudget -= 1;
+    }
+  }
+  private updateTransfers(dt: number): void {
+    const connection = stageConnection(this.config, "stage-1-to-2");
+    for (let index = this.transfers.length - 1; index >= 0; index--) {
+      const transfer = this.transfers[index]!;
+      transfer.progress = Math.min(
+        1,
+        transfer.progress + dt / connection.duration,
+      );
+      if (transfer.progress < 1) continue;
+      const owner = this.matter.get(transfer.entityId).owner;
+      if (owner.kind !== "transfer" || owner.transferId !== transfer.id)
+        throw new Error(`Transfer ${transfer.id} lost ownership`);
+      this.matter.move(transfer.entityId, owner, {
+        kind: "stage",
+        stageId: "compression-crucible",
+        slot: "reservoir",
+      });
+      if (!this.compression.acceptEntity(transfer.entityId))
+        throw new Error("Transfer completed without reservoir capacity");
+      this.transfers.splice(index, 1);
+    }
+  }
+  private flushConversionEvents(): void {
+    for (const event of this.compression.conversionEvents) {
+      if (this.events.some((existing) => existing.id === event.id)) continue;
+      this.events.push({
+        id: event.id,
+        kind: "conversion",
+        stageId: "compression-crucible",
+        entityId: event.stoneId,
+      });
+    }
+  }
+  private validateStageCollections(): void {
+    const claims = new Set<EntityId>();
+    const requireOwner = (
+      id: EntityId,
+      slot: "active" | "output" | "reservoir",
+    ) => {
+      if (claims.has(id))
+        throw new Error(
+          `Entity ${id} is claimed by multiple stage collections`,
+        );
+      const owner = this.matter.get(id).owner;
+      const stageId =
+        slot === "reservoir" ? "compression-crucible" : "sandfall-atrium";
+      if (
+        owner.kind !== "stage" ||
+        owner.stageId !== stageId ||
+        owner.slot !== slot
+      )
+        throw new Error(`Entity ${id} disagrees with its stage collection`);
+      claims.add(id);
+    };
+    for (const id of this.sandfall.state.activeIds) requireOwner(id, "active");
+    for (const id of this.sandfall.state.outputIds) requireOwner(id, "output");
+    for (const id of this.compression.state.reservoirIds)
+      requireOwner(id, "reservoir");
+    for (const transfer of this.transfers) {
+      if (claims.has(transfer.entityId))
+        throw new Error(`Entity ${transfer.entityId} is claimed twice`);
+      claims.add(transfer.entityId);
+    }
+    for (const id of this.compression.state.outputIds) {
+      const owner = this.matter.get(id).owner;
+      if (
+        owner.kind !== "stage" ||
+        owner.stageId !== "compression-crucible" ||
+        owner.slot !== "output"
+      )
+        throw new Error(
+          `Stone ${id} is not owned by the Compression Crucible output`,
+        );
+    }
+  }
 }

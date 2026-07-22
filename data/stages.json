@@ -1,1 +1,199 @@
-{"schemaVersion":1,"stage2UnlockLifetimeSand":100,"compressionInputCount":100,"reservoirCapacity":300,"transferDuration":0.65,"timings":{"levitating":0.8,"aligning":0.65,"compressing":0.45,"impact":0.12,"revealing":0.65,"releasing":0.7,"cooldown":0.25}}
+{
+  "schemaVersion": 2,
+  "camera": { "transitionDuration": 1, "padding": 3 },
+  "stages": [
+    {
+      "id": "sandfall-atrium",
+      "name": "Sandfall Atrium",
+      "order": 1,
+      "gridPosition": { "col": 1, "row": 1 },
+      "implemented": true,
+      "inputMaterial": null,
+      "outputMaterial": "sand",
+      "unlockCondition": { "kind": "initial" },
+      "connectionTargets": ["compression-crucible"],
+      "settings": {
+        "width": 48,
+        "height": 48,
+        "funnelMinX": 21,
+        "funnelMaxX": 26
+      }
+    },
+    {
+      "id": "compression-crucible",
+      "name": "Compression Crucible",
+      "order": 2,
+      "gridPosition": { "col": 1, "row": 2 },
+      "implemented": true,
+      "inputMaterial": "sand",
+      "outputMaterial": "stone",
+      "unlockCondition": {
+        "kind": "lifetime-material",
+        "stageId": "sandfall-atrium",
+        "material": "sand",
+        "count": 100
+      },
+      "connectionTargets": [],
+      "settings": { "recipeInputCount": 100, "reservoirCapacity": 300 }
+    },
+    {
+      "id": "stage-3",
+      "name": "Stage 3",
+      "order": 3,
+      "gridPosition": { "col": 0, "row": 2 },
+      "implemented": false,
+      "inputMaterial": "stone",
+      "outputMaterial": "stone",
+      "unlockCondition": { "kind": "disabled" },
+      "connectionTargets": []
+    },
+    {
+      "id": "stage-4",
+      "name": "Stage 4",
+      "order": 4,
+      "gridPosition": { "col": 0, "row": 1 },
+      "implemented": false,
+      "inputMaterial": "stone",
+      "outputMaterial": "stone",
+      "unlockCondition": { "kind": "disabled" },
+      "connectionTargets": []
+    },
+    {
+      "id": "stage-5",
+      "name": "Stage 5",
+      "order": 5,
+      "gridPosition": { "col": 0, "row": 0 },
+      "implemented": false,
+      "inputMaterial": "stone",
+      "outputMaterial": "stone",
+      "unlockCondition": { "kind": "disabled" },
+      "connectionTargets": []
+    },
+    {
+      "id": "stage-6",
+      "name": "Stage 6",
+      "order": 6,
+      "gridPosition": { "col": 1, "row": 0 },
+      "implemented": false,
+      "inputMaterial": "stone",
+      "outputMaterial": "stone",
+      "unlockCondition": { "kind": "disabled" },
+      "connectionTargets": []
+    },
+    {
+      "id": "stage-7",
+      "name": "Stage 7",
+      "order": 7,
+      "gridPosition": { "col": 2, "row": 0 },
+      "implemented": false,
+      "inputMaterial": "stone",
+      "outputMaterial": "stone",
+      "unlockCondition": { "kind": "disabled" },
+      "connectionTargets": []
+    },
+    {
+      "id": "stage-8",
+      "name": "Stage 8",
+      "order": 8,
+      "gridPosition": { "col": 2, "row": 1 },
+      "implemented": false,
+      "inputMaterial": "stone",
+      "outputMaterial": "stone",
+      "unlockCondition": { "kind": "disabled" },
+      "connectionTargets": []
+    },
+    {
+      "id": "stage-9",
+      "name": "Stage 9",
+      "order": 9,
+      "gridPosition": { "col": 2, "row": 2 },
+      "implemented": false,
+      "inputMaterial": "stone",
+      "outputMaterial": "stone",
+      "unlockCondition": { "kind": "disabled" },
+      "connectionTargets": []
+    }
+  ],
+  "connections": [
+    {
+      "id": "stage-1-to-2",
+      "from": "sandfall-atrium",
+      "to": "compression-crucible",
+      "duration": 0.65
+    }
+  ],
+  "ritualTimings": {
+    "levitating": 0.8,
+    "aligning": 0.65,
+    "compressing": 0.45,
+    "impact": 0.12,
+    "revealing": 0.65,
+    "releasing": 0.7,
+    "cooldown": 0.25
+  },
+  "upgrades": [
+    {
+      "id": "manual-cast-count",
+      "stageId": "sandfall-atrium",
+      "baseValue": 1,
+      "perLevel": 1,
+      "maxLevel": 8
+    },
+    {
+      "id": "cast-cooldown",
+      "stageId": "sandfall-atrium",
+      "baseValue": 0.1,
+      "perLevel": -0.01,
+      "maxLevel": 7
+    },
+    {
+      "id": "gravity",
+      "stageId": "sandfall-atrium",
+      "baseValue": 18,
+      "perLevel": 3,
+      "maxLevel": 20
+    },
+    {
+      "id": "output-throughput",
+      "stageId": "sandfall-atrium",
+      "baseValue": 12,
+      "perLevel": 3,
+      "maxLevel": 20
+    },
+    {
+      "id": "auto-cast",
+      "stageId": "sandfall-atrium",
+      "baseValue": 0,
+      "perLevel": 1,
+      "maxLevel": 1
+    },
+    {
+      "id": "ritual-speed",
+      "stageId": "compression-crucible",
+      "baseValue": 1,
+      "perLevel": 0.1,
+      "maxLevel": 10
+    },
+    {
+      "id": "reservoir-capacity",
+      "stageId": "compression-crucible",
+      "baseValue": 300,
+      "perLevel": 50,
+      "maxLevel": 10
+    },
+    {
+      "id": "release-speed",
+      "stageId": "compression-crucible",
+      "baseValue": 1,
+      "perLevel": 0.1,
+      "maxLevel": 10
+    },
+    {
+      "id": "auto-ritual",
+      "stageId": "compression-crucible",
+      "baseValue": 0,
+      "perLevel": 1,
+      "maxLevel": 1
+    }
+  ]
+}
