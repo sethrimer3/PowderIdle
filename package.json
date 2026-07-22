@@ -3,8 +3,17 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "main": "dist-electron/main.js",
   "scripts": {
     "icons:build": "node scripts/generate-icons.mjs",
+    "electron:compile": "tsc -p tsconfig.electron.json",
+    "electron:dev": "npm run electron:compile && concurrently -k -s first \"vite --host 127.0.0.1\" \"wait-on http-get://127.0.0.1:5173 && cross-env POWDER_IDLE_DEV_URL=http://127.0.0.1:5173 electron .\"",
+    "electron:start": "npm run desktop:build && electron .",
+    "electron:pack": "npm run desktop:build && electron-builder --dir",
+    "electron:dist": "npm run desktop:build && electron-builder",
+    "electron:dist:win": "npm run desktop:build && electron-builder --win nsis",
+    "electron:smoke": "npm run desktop:build && cross-env POWDER_IDLE_SMOKE_TEST=1 electron .",
+    "desktop:build": "npm run icons:build && npm run build && npm run electron:compile",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
@@ -15,9 +24,29 @@
   "devDependencies": {
     "@types/node": "^26.1.1",
     "@types/p5": "^1.7.7",
+    "concurrently": "^10.0.3",
+    "cross-env": "^10.1.0",
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3",
     "sharp": "^0.35.3",
     "typescript": "^7.0.2",
     "vite": "^8.1.5",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "wait-on": "^9.1.0"
+  },
+  "dependencies": {
+    "p5": "1.9.0"
+  },
+  "build": {
+    "appId": "com.sethrimer3.powderidle",
+    "productName": "Powder Idle",
+    "asar": true,
+    "directories": { "output": "release" },
+    "files": ["dist/**/*", "dist-electron/**/*", "build/icons/**/*", "package.json"],
+    "artifactName": "${productName}-${version}-${platform}-${arch}.${ext}",
+    "win": { "target": ["nsis"], "icon": "build/icons/icon.ico", "executableName": "Powder Idle" },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": "always", "createStartMenuShortcut": true, "shortcutName": "Powder Idle" },
+    "linux": { "target": ["AppImage"], "icon": "build/icons/icon-512.png", "category": "Game" },
+    "mac": { "target": ["dmg", "zip"], "icon": "build/icons/icon.icns", "category": "public.app-category.games" }
   }
 }
