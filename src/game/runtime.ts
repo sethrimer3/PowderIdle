@@ -80,6 +80,7 @@ import {
   consumeFromInventory,
   takeFromInventory
 } from '../state/inventories';
+import { IntegratedStageWorld } from './stageWorldRuntime';
 
 // Game constants
       const BASE_SCREEN_W = 360;
@@ -98,6 +99,8 @@ import {
       const AUTO_DROP_INTERVAL = 1200;
       const AUTO_COMPRESS_INTERVAL = 1800;
       const CHAIN_REQUIREMENT = 100;
+      const stageWorld = new IntegratedStageWorld();
+      let stageSaveLoaded = false;
       const MODULE_UNLOCK_ORDER: MachineModuleKey[] = [];
       const DEFAULT_MENU_TABS = [
         { key: 'sandfall', label: 'Sandfall', icon: '🜃' },
@@ -1592,6 +1595,16 @@ import {
         resetPowderWorld();
         menuScroll = 0;
         menuScrollMax = 0;
+        if (!stageSaveLoaded) {
+          const restored = stageWorld.load();
+          if (restored) {
+            dust = Math.max(0, restored.dust);
+            upgradesState = createUpgradeState(restored.upgrades);
+            researchState = { ...researchState, ...restored.research };
+            powderCounts = powderCounts.map((value, index) => Math.max(value, restored.powderCounts[index] ?? 0));
+          }
+          stageSaveLoaded = true;
+        }
       }
 
       function getMilestoneState(key: string): MilestoneState | null {
@@ -1903,8 +1916,10 @@ import {
         textFont('Press Start 2P');
         noStroke();
         frameRate(60);
+        stageWorld.initialize();
         updateLayoutDimensions(true);
         beginGameInitialization();
+        addEventListener('beforeunload', saveIntegratedGame);
       }
 
       function windowResized() {
@@ -1925,18 +1940,15 @@ import {
           return;
         }
 
-        drawPowderField();
+        syncStageUpgradeHooks();
+        stageWorld.update(deltaTime / 1000);
+        stageWorld.render(MENU_W, 0, Math.min(PLAY_AREA_W, SCREEN_H));
 
         updateAutoDroppers();
         updateAutomationControllers();
-        updatePowders();
         autoUnlockAvailableModules();
         updateMilestones();
-        if (jarVisible) {
-          renderPowders();
-          drawJarOverlay();
-        }
-        drawDuneMultiplierIndicator();
+        powderCounts[0] = Math.max(powderCounts[0] ?? 0, stageWorld.controller.sandfall.state.lifetimeCreated);
         drawMenu();
       }
 
@@ -6673,9 +6685,9 @@ import {
             break;
           }
         }
-        if (!activeButton && jarVisible && isInsideJar(mouseX, mouseY)) {
-          let dropped = dropPowder(selectedPowder, mouseX);
-          if (dropped && selectedPowder === 0) {
+        if (!activeButton && mouseX > MENU_W) {
+          const dropped = stageWorld.handlePointer(mouseX, mouseY, 'mouse');
+          if (dropped) {
             grantManualDropDustReward();
           }
         }
@@ -6930,6 +6942,13 @@ import {
       function dropPowder(type: number, spawnX?: number): boolean {
         if (!(type === 0 || tierUpgrades[type - 1])) {
           return false;
+        }
+        if (type === 0) {
+          const localX = spawnX === undefined
+            ? 24
+            : constrain((spawnX - MENU_W) / Math.max(1, PLAY_AREA_W) * 48, 3, 44);
+          stageWorld.cast(localX);
+          return true;
         }
         if (gridRows <= 0 || gridCols <= 0) {
           refreshPowderGrid();
@@ -7345,6 +7364,34 @@ import {
             dropPowder(selectedPowder);
           }
         }
+        if (key === 'c' || key === 'C') {
+          stageWorld.invokeRitual();
+        }
+      }
+
+      function syncStageUpgradeHooks(): void {
+        stageWorld.controller.upgradeLevels.gravity = getUpgradeLevel('gravity');
+        stageWorld.controller.upgradeLevels['ritual-speed'] = getUpgradeLevel('compressor');
+        stageWorld.controller.upgradeLevels['output-throughput'] = getUpgradeLevel('harmonics');
+        stageWorld.controller.upgradeLevels['auto-cast'] = automationSettings.autoDrop ? 1 : 0;
+        stageWorld.controller.upgradeLevels['auto-ritual'] = automationSettings.autoCompress ? 1 : 0;
+      }
+
+      function saveIntegratedGame(): void {
+        stageWorld.save({
+          dust,
+          upgrades: { ...upgradesState },
+          research: { ...researchState },
+          milestones: milestoneStates.map(state => ({ ...state })),
+          powderCounts: [...powderCounts]
+        });
+      }
+
+      function touchStarted(): false | void {
+        if (gameInitialized && mouseX > MENU_W && stageWorld.handlePointer(mouseX, mouseY, 'touch')) {
+          grantManualDropDustReward();
+          return false;
+        }
       }
 
 export interface PowderIdleDebugApi {
@@ -7376,6 +7423,7 @@ export function installPowderIdle(): void {
     mouseDragged,
     mouseWheel,
     touchMoved,
+    touchStarted,
     touchEnded,
     keyPressed
   });
