@@ -48,14 +48,30 @@ async function runSmokeTest(window: BrowserWindow): Promise<void> {
       const check = () => {
         const api = window.__powderIdleDebug;
         if (api?.isInitialized()) {
-          const canvas = document.querySelector('canvas');
+        const canvas = Array.from(document.querySelectorAll('canvas')).sort((a, b) => {
+          const ar = a.getBoundingClientRect(), br = b.getBoundingClientRect();
+          return br.width * br.height - ar.width * ar.height;
+        })[0];
           const state = api.snapshot();
-          resolve({ canvas: !!canvas && canvas.width > 0 && canvas.height > 0, state });
+          if (!canvas || canvas.width <= 0 || canvas.height <= 0) return resolve({ canvas: false, visualSamples: 0, state });
+          const context = canvas.getContext('2d');
+          const colors = new Set();
+          if (context) {
+            const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+            for (let y = 0; y < canvas.height; y += Math.max(1, Math.floor(canvas.height / 12))) {
+              for (let x = 0; x < canvas.width; x += Math.max(1, Math.floor(canvas.width / 12))) {
+                const offset = (y * canvas.width + x) * 4;
+                colors.add([pixels[offset], pixels[offset + 1], pixels[offset + 2], pixels[offset + 3]].join(','));
+              }
+            }
+          }
+          resolve({ canvas: true, visualSamples: colors.size, state });
         } else if (Date.now() > deadline) reject(new Error('Renderer initialization timeout'));
         else setTimeout(check, 50);
       }; check();
-    })`, true) as { canvas: boolean; state: { fallbackUsed: boolean } };
-    if (!result.canvas || result.state.fallbackUsed || criticalRendererError) throw new Error(criticalRendererError ?? 'Renderer canvas or packaged data validation failed');
+    })`, true) as { canvas: boolean; visualSamples: number; state: { fallbackUsed: boolean } };
+    console.log(`[Powder Idle] Smoke snapshot: ${JSON.stringify(result)}`);
+    if (!result.canvas || result.visualSamples < 4 || result.state.fallbackUsed || criticalRendererError) throw new Error(criticalRendererError ?? 'Renderer canvas, visible output, or packaged data validation failed');
     console.log('[Powder Idle] Smoke test passed.');
     clearTimeout(timer);
     app.exit(0);
