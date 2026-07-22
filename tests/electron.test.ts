@@ -64,7 +64,8 @@ describe('packaged renderer contract', () => {
     expect(html).not.toMatch(/https?:\/\//);
     expect(html).not.toContain('cdnjs');
     const files = await readdir(path.join(root, 'dist/assets'));
-    expect(files.some((file) => file.startsWith('p5.min-') && file.endsWith('.js'))).toBe(true);
+    const scripts = await Promise.all(files.filter((file) => file.endsWith('.js')).map((file) => readFile(path.join(root, 'dist/assets', file), 'utf8')));
+    expect(scripts.some((script) => script.includes('2.3.1') && script.includes('p5.js'))).toBe(true);
   });
 
   it.each(['powders.json', 'machines.json', 'upgrades.json', 'progression.json', 'stages.json'])('packages data/%s', async (file) => {
