@@ -7387,6 +7387,7 @@ import { IntegratedStageWorld } from './stageWorldRuntime';
             stageWorld.controller.sandfall.cast(remaining, 24);
           }
         }
+        if (localDebug && (key === 'd' || key === 'D')) dust += 100;
       }
 
       function syncStageUpgradeHooks(): void {
