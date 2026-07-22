@@ -101,6 +101,7 @@ import { IntegratedStageWorld } from './stageWorldRuntime';
       const CHAIN_REQUIREMENT = 100;
       const stageWorld = new IntegratedStageWorld();
       let stageSaveLoaded = false;
+      let integratedSaveTimer = 0;
       const MODULE_UNLOCK_ORDER: MachineModuleKey[] = [];
       const DEFAULT_MENU_TABS = [
         { key: 'sandfall', label: 'Sandfall', icon: '🜃' },
@@ -1943,12 +1944,25 @@ import { IntegratedStageWorld } from './stageWorldRuntime';
         syncStageUpgradeHooks();
         stageWorld.update(deltaTime / 1000);
         stageWorld.render(MENU_W, 0, Math.min(PLAY_AREA_W, SCREEN_H));
+        integratedSaveTimer += deltaTime;
+        if (integratedSaveTimer >= 2000) {
+          integratedSaveTimer = 0;
+          saveIntegratedGame();
+        }
 
         updateAutoDroppers();
         updateAutomationControllers();
         autoUnlockAvailableModules();
         updateMilestones();
-        powderCounts[0] = Math.max(powderCounts[0] ?? 0, stageWorld.controller.sandfall.state.lifetimeCreated);
+        const ritualSand = stageWorld.controller.compression.state.batch?.conversionCompleted
+          ? 0
+          : (stageWorld.controller.compression.state.batch?.motes.length ?? 0);
+        powderCounts[0] = stageWorld.controller.sandfall.state.activeIds.length
+          + stageWorld.controller.sandfall.state.outputIds.length
+          + stageWorld.controller.transfers.length
+          + stageWorld.controller.compression.state.reservoirIds.length
+          + ritualSand;
+        powderCounts[1] = stageWorld.controller.compression.state.outputIds.length;
         drawMenu();
       }
 
@@ -6947,8 +6961,7 @@ import { IntegratedStageWorld } from './stageWorldRuntime';
           const localX = spawnX === undefined
             ? 24
             : constrain((spawnX - MENU_W) / Math.max(1, PLAY_AREA_W) * 48, 3, 44);
-          stageWorld.cast(localX);
-          return true;
+          return stageWorld.cast(localX).length > 0;
         }
         if (gridRows <= 0 || gridCols <= 0) {
           refreshPowderGrid();
@@ -7360,18 +7373,29 @@ import { IntegratedStageWorld } from './stageWorldRuntime';
           dropPowder(selectedPowder);
         }
         if (key === 'e' || key === 'E') {
-          for (let i = 0; i < 8; i++) {
-            dropPowder(selectedPowder);
-          }
+          if (selectedPowder === 0) stageWorld.cast(24, 8);
+          else for (let i = 0; i < 8; i++) dropPowder(selectedPowder);
         }
         if (key === 'c' || key === 'C') {
           stageWorld.invokeRitual();
+        }
+        const localDebug = (location.hostname === 'localhost' || location.hostname === '127.0.0.1') && new URLSearchParams(location.search).has('debugStages');
+        if (localDebug && (key === 'u' || key === 'U')) {
+          const condition = stageWorld.controller.compression.definition.unlockCondition;
+          if (condition.kind === 'lifetime-material') {
+            const remaining = Math.max(0, condition.count - stageWorld.controller.sandfall.state.lifetimeCreated);
+            stageWorld.controller.sandfall.cast(remaining, 24);
+          }
         }
       }
 
       function syncStageUpgradeHooks(): void {
         stageWorld.controller.upgradeLevels.gravity = getUpgradeLevel('gravity');
+        stageWorld.controller.upgradeLevels['manual-cast-count'] = Math.floor(getUpgradeLevel('refinery') / 2);
+        stageWorld.controller.upgradeLevels['cast-cooldown'] = Math.min(7, getUpgradeLevel('gravity'));
         stageWorld.controller.upgradeLevels['ritual-speed'] = getUpgradeLevel('compressor');
+        stageWorld.controller.upgradeLevels['reservoir-capacity'] = getUpgradeLevel('compressor');
+        stageWorld.controller.upgradeLevels['release-speed'] = getUpgradeLevel('compressor');
         stageWorld.controller.upgradeLevels['output-throughput'] = getUpgradeLevel('harmonics');
         stageWorld.controller.upgradeLevels['auto-cast'] = automationSettings.autoDrop ? 1 : 0;
         stageWorld.controller.upgradeLevels['auto-ritual'] = automationSettings.autoCompress ? 1 : 0;

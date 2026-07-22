@@ -24,9 +24,9 @@ npm run preview     # serve the production build locally
 
 ## Stage world framework
 
-The live game now uses a fixed-timestep, ID-based stage world. Stage 1, the Sandfall Atrium, begins at the center of the reserved 3×3 spiral. At 100 lifetime sand motes, Stage 2 reveals directly below it and the time-based camera expands to frame both chambers. Sand retains one authoritative owner while active, queued, in transit, buffered, ritual-locked, or contained in a composite stone.
+The existing menu, dust, upgrade, research, milestone, automation, achievement, and prestige shell now hosts a fixed-timestep, ID-based stage world through one p5 lifecycle. Stage 1 begins at the center of the reserved 3×3 spiral. At 100 lifetime sand motes, Stage 2 reveals directly below it and the time-based camera expands to frame both chambers. Sand retains one authoritative owner while active, queued, in transit, buffered, ritual-locked, or contained in a composite stone.
 
-The Compression Crucible visibly gathers 100 real sand entities, locks exactly that batch, runs a deterministic multi-phase ritual, and creates one mass-conserving stone whose contents and lineage reference every input. Future stage positions are typed and reserved but cannot produce resources. Configuration lives in `data/stages.json`; in-progress rituals normalize safely to `ready` when loaded. The older centralized runtime remains in `src/game/runtime.ts` as isolated prototype/reference code and is no longer the browser entry point.
+The Compression Crucible visibly gathers 100 real sand entities, locks exactly that batch, runs a deterministic multi-phase ritual, and creates one mass-conserving stone whose contents and lineage reference every input. Future stage positions are typed and reserved but cannot produce resources. Configuration lives in `data/stages.json`; in-progress rituals normalize safely to `ready` when loaded. Saves use a versioned envelope containing stage and legacy progression state. Version 1 stage saves are preserved under a diagnostic backup key before conservative migration. The pre-stage runtime had no persistent storage implementation, so there is no older browser save key to import.
 
 For local reveal testing, append `?debugStages=1` and press `U`. The shortcut is accepted only on localhost.
 

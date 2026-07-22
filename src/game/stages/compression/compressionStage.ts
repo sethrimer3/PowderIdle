@@ -1,28 +1,285 @@
-import { MatterStore } from '../../matter/matterStore';
-import type { EntityId } from '../../matter/matterTypes';
-import type { CompressionPhase,StageDefinition,StageRenderContext,StageSimulation,StageUpdateContext } from '../stageTypes';
-import { ritualTarget,type CompressionBatch } from './compressionRitual';
+import { MatterStore } from "../../matter/matterStore";
+import type { EntityId } from "../../matter/matterTypes";
+import type {
+  CompressionPhase,
+  StageDefinition,
+  StageRenderContext,
+  StageSimulation,
+  StageUpdateContext,
+} from "../stageTypes";
+import { ritualTarget, type CompressionBatch } from "./compressionRitual";
 
-export interface CompressionState { reservoirIds:EntityId[];outputIds:EntityId[];phase:CompressionPhase;batch:CompressionBatch|null;nextRitualId:number }
-export interface CompressionSave { state:CompressionState }
-const order:CompressionPhase[]=['levitating','aligning','compressing','impact','revealing','releasing','cooldown','gathering'];
-export class CompressionStage implements StageSimulation<CompressionState,CompressionSave> {
-  readonly state:CompressionState={reservoirIds:[],outputIds:[],phase:'gathering',batch:null,nextRitualId:1};
-  readonly conversionEvents:{id:string;ritualId:string;stoneId:EntityId}[]=[];
-  constructor(readonly definition:StageDefinition,private readonly matter:MatterStore,private readonly timings:Record<CompressionPhase,number>){ }
-  get recipeCount():number{return this.definition.settings?.recipeInputCount??100}
-  get baseCapacity():number{return this.definition.settings?.reservoirCapacity??300}
-  acceptEntity(entityId:EntityId):boolean{if(this.state.reservoirIds.length>=this.baseCapacity)return false;const entity=this.matter.get(entityId);if(entity.material!=='sand')return false;this.state.reservoirIds.push(entityId);this.settleReservoir();return true}
-  update(context:StageUpdateContext):void{this.settleReservoir();if(this.state.phase==='gathering'&&this.state.reservoirIds.length>=this.recipeCount)this.state.phase='ready';if(this.state.phase==='ready'&&context.upgrades['auto-ritual']>0)this.invoke();const batch=this.state.batch;if(!batch||batch.phase==='gathering'||batch.phase==='ready')return;const speed=1+context.upgrades['ritual-speed']*.1;batch.elapsed+=context.dt*speed;this.updateRitualPositions(batch);const duration=this.timings[batch.phase];if(batch.elapsed>=duration)this.advance(batch)}
-  invoke():boolean{if(this.state.phase!=='ready'||this.state.reservoirIds.length<this.recipeCount)return false;const ids=this.state.reservoirIds.splice(0,this.recipeCount);const ritualId=`ritual-${this.state.nextRitualId++}`;const motes=ids.map((entityId,index)=>{const entity=this.matter.get(entityId),target=ritualTarget(entityId,index,ids.length);this.matter.move(entityId,{kind:'stage',stageId:this.definition.id,slot:'reservoir'},{kind:'stage',stageId:this.definition.id,slot:'ritual'});return{entityId,startX:entity.x,startY:entity.y,targetX:target.x,targetY:target.y}});this.state.batch={ritualId,phase:'levitating',elapsed:0,motes,conversionCompleted:false,outputStoneId:null,outputEventId:null,stoneX:24,stoneY:24};this.state.phase='levitating';return true}
-  render(_context:StageRenderContext):void{}
-  drainOutputEntities():readonly EntityId[]{return this.state.outputIds}
-  serialize():CompressionSave{return{state:{...this.state,reservoirIds:[...this.state.reservoirIds],outputIds:[...this.state.outputIds],batch:this.state.batch?{...this.state.batch,motes:this.state.batch.motes.map(mote=>({...mote}))}:null}}}
-  hydrate(data:CompressionSave):void{const saved=data.state;this.state.reservoirIds=[...saved.reservoirIds];this.state.outputIds=[...saved.outputIds];this.state.nextRitualId=Math.max(1,saved.nextRitualId);if(saved.batch&&!saved.batch.conversionCompleted){for(const mote of saved.batch.motes){const owner=this.matter.get(mote.entityId).owner;if(owner.kind==='stage'&&owner.stageId===this.definition.id&&owner.slot==='ritual'){this.matter.move(mote.entityId,owner,{kind:'stage',stageId:this.definition.id,slot:'reservoir'});this.state.reservoirIds.push(mote.entityId)}}this.state.batch=null;this.state.phase=this.state.reservoirIds.length>=this.recipeCount?'ready':'gathering'}else{this.state.batch=saved.batch?{...saved.batch,motes:saved.batch.motes.map(mote=>({...mote}))}:null;this.state.phase=saved.phase}this.settleReservoir()}
-  outputPosition(index:number):{x:number;y:number}{return{x:6+(index%10)*4,y:42-Math.floor(index/10)*4}}
-  glyphContains(x:number,y:number):boolean{const dx=x-24,dy=y-24;return dx*dx+dy*dy<=36}
-  private settleReservoir():void{for(let index=0;index<this.state.reservoirIds.length;index++){const id=this.state.reservoirIds[index]!,column=index%38,row=Math.floor(index/38),wave=((id*13)%7-3)*.08;this.matter.setPosition(id,5+column+wave,43-Math.min(13,row))}}
-  private updateRitualPositions(batch:CompressionBatch):void{const duration=this.timings[batch.phase],p=Math.max(0,Math.min(1,batch.elapsed/duration));for(const mote of batch.motes){if(batch.conversionCompleted)break;let x=mote.targetX,y=mote.targetY;if(batch.phase==='levitating'){const eased=1-(1-p)**3;x=mote.startX+(mote.targetX-mote.startX)*eased;y=mote.startY+(mote.targetY-mote.startY)*eased}else if(batch.phase==='compressing'){const scale=(1-p)**3;x=24+(mote.targetX-24)*scale;y=24+(mote.targetY-24)*scale}this.matter.setPosition(mote.entityId,x,y)}if(batch.outputStoneId!==null&&batch.phase==='releasing'){const release=1-(1-p)**2,batchIndex=this.state.outputIds.indexOf(batch.outputStoneId),target=this.outputPosition(Math.max(0,batchIndex));batch.stoneX=24+(target.x-24)*release;batch.stoneY=24+(target.y-24)*release;this.matter.setPosition(batch.outputStoneId,batch.stoneX,batch.stoneY)}}
-  private advance(batch:CompressionBatch):void{batch.elapsed=0;if(batch.phase==='impact')this.convert(batch);const next=order[order.indexOf(batch.phase)+1]??'gathering';batch.phase=next;this.state.phase=next;if(next==='cooldown'&&batch.outputStoneId!==null){const target=this.outputPosition(this.state.outputIds.indexOf(batch.outputStoneId));this.matter.setPosition(batch.outputStoneId,target.x,target.y)}if(next==='gathering'){this.state.batch=null;this.state.phase=this.state.reservoirIds.length>=this.recipeCount?'ready':'gathering'}}
-  private convert(batch:CompressionBatch):void{if(batch.conversionCompleted)throw new Error(`Ritual ${batch.ritualId} already converted`);const ids=batch.motes.map(mote=>mote.entityId);if(ids.length!==this.recipeCount||new Set(ids).size!==ids.length)throw new Error('Ritual batch is invalid');const expected={kind:'stage',stageId:this.definition.id,slot:'ritual'} as const;const stoneId=this.matter.compose({material:'stone',inputMaterial:'sand',inputIds:ids,expectedOwner:expected,outputOwner:{kind:'stage',stageId:this.definition.id,slot:'output'},origin:this.definition.id});this.matter.setPosition(stoneId,24,24);batch.conversionCompleted=true;batch.outputStoneId=stoneId;batch.outputEventId=`conversion:${batch.ritualId}`;this.state.outputIds.push(stoneId);this.conversionEvents.push({id:batch.outputEventId,ritualId:batch.ritualId,stoneId})}
+export interface CompressionState {
+  reservoirIds: EntityId[];
+  outputIds: EntityId[];
+  phase: CompressionPhase;
+  batch: CompressionBatch | null;
+  nextRitualId: number;
+}
+export interface CompressionSave {
+  state: CompressionState;
+}
+const order: CompressionPhase[] = [
+  "levitating",
+  "aligning",
+  "compressing",
+  "impact",
+  "revealing",
+  "releasing",
+  "cooldown",
+  "gathering",
+];
+export class CompressionStage
+  implements StageSimulation<CompressionState, CompressionSave>
+{
+  readonly state: CompressionState = {
+    reservoirIds: [],
+    outputIds: [],
+    phase: "gathering",
+    batch: null,
+    nextRitualId: 1,
+  };
+  readonly conversionEvents: {
+    id: string;
+    ritualId: string;
+    stoneId: EntityId;
+  }[] = [];
+  private capacityBonus = 0;
+  constructor(
+    readonly definition: StageDefinition,
+    private readonly matter: MatterStore,
+    private readonly timings: Record<CompressionPhase, number>,
+  ) {}
+  get recipeCount(): number {
+    return this.definition.settings?.recipeInputCount ?? 100;
+  }
+  get baseCapacity(): number {
+    return this.definition.settings?.reservoirCapacity ?? 300;
+  }
+  acceptEntity(entityId: EntityId): boolean {
+    if (
+      this.state.reservoirIds.length >=
+      this.baseCapacity + this.capacityBonus
+    )
+      return false;
+    const entity = this.matter.get(entityId);
+    if (entity.material !== "sand") return false;
+    this.state.reservoirIds.push(entityId);
+    this.settleReservoir();
+    return true;
+  }
+  update(context: StageUpdateContext): void {
+    this.settleReservoir();
+    if (
+      this.state.phase === "gathering" &&
+      this.state.reservoirIds.length >= this.recipeCount
+    )
+      this.state.phase = "ready";
+    if (this.state.phase === "ready" && context.upgrades["auto-ritual"] > 0)
+      this.invoke();
+    const batch = this.state.batch;
+    if (!batch || batch.phase === "gathering" || batch.phase === "ready")
+      return;
+    this.capacityBonus = context.upgrades["reservoir-capacity"] * 50;
+    const speed =
+      batch.phase === "releasing"
+        ? 1 + context.upgrades["release-speed"] * 0.1
+        : 1 + context.upgrades["ritual-speed"] * 0.1;
+    batch.elapsed += context.dt * speed;
+    this.updateRitualPositions(batch);
+    const duration = this.timings[batch.phase];
+    if (batch.elapsed >= duration) this.advance(batch);
+  }
+  invoke(): boolean {
+    if (
+      this.state.phase !== "ready" ||
+      this.state.reservoirIds.length < this.recipeCount
+    )
+      return false;
+    const ids = this.state.reservoirIds.splice(0, this.recipeCount);
+    const ritualId = `ritual-${this.state.nextRitualId++}`;
+    const motes = ids.map((entityId, index) => {
+      const entity = this.matter.get(entityId),
+        target = ritualTarget(entityId, index, ids.length);
+      this.matter.move(
+        entityId,
+        { kind: "stage", stageId: this.definition.id, slot: "reservoir" },
+        { kind: "stage", stageId: this.definition.id, slot: "ritual" },
+      );
+      return {
+        entityId,
+        startX: entity.x,
+        startY: entity.y,
+        targetX: target.x,
+        targetY: target.y,
+      };
+    });
+    this.state.batch = {
+      ritualId,
+      phase: "levitating",
+      elapsed: 0,
+      motes,
+      conversionCompleted: false,
+      outputStoneId: null,
+      outputEventId: null,
+      stoneX: 24,
+      stoneY: 24,
+    };
+    this.state.phase = "levitating";
+    return true;
+  }
+  render(_context: StageRenderContext): void {}
+  drainOutputEntities(): readonly EntityId[] {
+    return this.state.outputIds;
+  }
+  serialize(): CompressionSave {
+    return {
+      state: {
+        ...this.state,
+        reservoirIds: [...this.state.reservoirIds],
+        outputIds: [...this.state.outputIds],
+        batch: this.state.batch
+          ? {
+              ...this.state.batch,
+              motes: this.state.batch.motes.map((mote) => ({ ...mote })),
+            }
+          : null,
+      },
+    };
+  }
+  hydrate(data: CompressionSave): void {
+    const saved = data.state;
+    this.state.reservoirIds = [...saved.reservoirIds];
+    this.state.outputIds = [...saved.outputIds];
+    this.state.nextRitualId = Math.max(1, saved.nextRitualId);
+    if (saved.batch && !saved.batch.conversionCompleted) {
+      for (const mote of saved.batch.motes) {
+        const owner = this.matter.get(mote.entityId).owner;
+        if (
+          owner.kind === "stage" &&
+          owner.stageId === this.definition.id &&
+          owner.slot === "ritual"
+        ) {
+          this.matter.move(mote.entityId, owner, {
+            kind: "stage",
+            stageId: this.definition.id,
+            slot: "reservoir",
+          });
+          this.state.reservoirIds.push(mote.entityId);
+        }
+      }
+      this.state.batch = null;
+      this.state.phase =
+        this.state.reservoirIds.length >= this.recipeCount
+          ? "ready"
+          : "gathering";
+    } else {
+      this.state.batch = saved.batch
+        ? {
+            ...saved.batch,
+            motes: saved.batch.motes.map((mote) => ({ ...mote })),
+          }
+        : null;
+      this.state.phase = saved.phase;
+    }
+    this.settleReservoir();
+  }
+  outputPosition(index: number): { x: number; y: number } {
+    return { x: 6 + (index % 10) * 4, y: 42 - Math.floor(index / 10) * 4 };
+  }
+  glyphContains(x: number, y: number): boolean {
+    const dx = x - 24,
+      dy = y - 24;
+    return dx * dx + dy * dy <= 36;
+  }
+  private settleReservoir(): void {
+    for (let index = 0; index < this.state.reservoirIds.length; index++) {
+      const id = this.state.reservoirIds[index]!,
+        column = index % 38,
+        row = Math.floor(index / 38),
+        wave = (((id * 13) % 7) - 3) * 0.08;
+      this.matter.setPosition(id, 5 + column + wave, 43 - Math.min(13, row));
+    }
+  }
+  private updateRitualPositions(batch: CompressionBatch): void {
+    const duration = this.timings[batch.phase],
+      p = Math.max(0, Math.min(1, batch.elapsed / duration));
+    for (const mote of batch.motes) {
+      if (batch.conversionCompleted) break;
+      let x = mote.targetX,
+        y = mote.targetY;
+      if (batch.phase === "levitating") {
+        const eased = 1 - (1 - p) ** 3;
+        x = mote.startX + (mote.targetX - mote.startX) * eased;
+        y = mote.startY + (mote.targetY - mote.startY) * eased;
+      } else if (batch.phase === "compressing") {
+        const scale = (1 - p) ** 3;
+        x = 24 + (mote.targetX - 24) * scale;
+        y = 24 + (mote.targetY - 24) * scale;
+      }
+      this.matter.setPosition(mote.entityId, x, y);
+    }
+    if (batch.outputStoneId !== null && batch.phase === "releasing") {
+      const release = 1 - (1 - p) ** 2,
+        batchIndex = this.state.outputIds.indexOf(batch.outputStoneId),
+        target = this.outputPosition(Math.max(0, batchIndex));
+      batch.stoneX = 24 + (target.x - 24) * release;
+      batch.stoneY = 24 + (target.y - 24) * release;
+      this.matter.setPosition(batch.outputStoneId, batch.stoneX, batch.stoneY);
+    }
+  }
+  private advance(batch: CompressionBatch): void {
+    batch.elapsed = 0;
+    if (batch.phase === "impact") this.convert(batch);
+    const next = order[order.indexOf(batch.phase) + 1] ?? "gathering";
+    batch.phase = next;
+    this.state.phase = next;
+    if (next === "cooldown" && batch.outputStoneId !== null) {
+      const target = this.outputPosition(
+        this.state.outputIds.indexOf(batch.outputStoneId),
+      );
+      this.matter.setPosition(batch.outputStoneId, target.x, target.y);
+    }
+    if (next === "gathering") {
+      this.state.batch = null;
+      this.state.phase =
+        this.state.reservoirIds.length >= this.recipeCount
+          ? "ready"
+          : "gathering";
+    }
+  }
+  private convert(batch: CompressionBatch): void {
+    if (batch.conversionCompleted)
+      throw new Error(`Ritual ${batch.ritualId} already converted`);
+    const ids = batch.motes.map((mote) => mote.entityId);
+    if (ids.length !== this.recipeCount || new Set(ids).size !== ids.length)
+      throw new Error("Ritual batch is invalid");
+    const expected = {
+      kind: "stage",
+      stageId: this.definition.id,
+      slot: "ritual",
+    } as const;
+    const stoneId = this.matter.compose({
+      material: "stone",
+      inputMaterial: "sand",
+      inputIds: ids,
+      expectedOwner: expected,
+      outputOwner: {
+        kind: "stage",
+        stageId: this.definition.id,
+        slot: "output",
+      },
+      origin: this.definition.id,
+    });
+    this.matter.setPosition(stoneId, 24, 24);
+    batch.conversionCompleted = true;
+    batch.outputStoneId = stoneId;
+    batch.outputEventId = `conversion:${batch.ritualId}`;
+    this.state.outputIds.push(stoneId);
+    this.conversionEvents.push({
+      id: batch.outputEventId,
+      ritualId: batch.ritualId,
+      stoneId,
+    });
+  }
 }
