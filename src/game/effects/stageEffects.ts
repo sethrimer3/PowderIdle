@@ -1,4 +1,5 @@
 import type { EntityId, StageId } from "../matter/matterTypes";
+import type { StageEvent } from "../stages/stageController";
 
 export type StageEffect =
   | {
@@ -81,4 +82,43 @@ export class StageEffectSystem {
 
 export function effectProgress(effect: StageEffect): number {
   return Math.max(0, Math.min(1, effect.elapsed / effect.duration));
+}
+
+export function effectFromStageEvent(event: StageEvent): StageEffect | null {
+  if (event.kind === "cast")
+    return {
+      kind: "conjuration",
+      stageId: event.stageId,
+      entityIds: event.entityIds,
+      x: event.x,
+      elapsed: 0,
+      duration: 0.42,
+      automatic: event.automatic,
+      seed: event.entityIds[0] ?? 1,
+    };
+  if (event.kind === "stage-unlocked")
+    return {
+      kind: "unlock-trace",
+      stageId: event.stageId,
+      elapsed: 0,
+      duration: 1.5,
+      seed: event.stageId.length * 31,
+    };
+  if (event.kind === "ritual-started")
+    return {
+      kind: "invocation",
+      stageId: event.stageId,
+      elapsed: 0,
+      duration: 0.52,
+      automatic: event.automatic,
+      seed: Number(event.ritualId.split("-").pop()) || 1,
+    };
+  return {
+    kind: "impact",
+    stageId: event.stageId,
+    entityIds: [event.entityId],
+    elapsed: 0,
+    duration: 0.3,
+    seed: event.entityId,
+  };
 }

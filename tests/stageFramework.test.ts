@@ -448,7 +448,7 @@ describe("bounded event queues", () => {
       c.debugSeedReservoirSand(1);
       c.update(0);
       expect(c.invokeRitual()).toBe(true);
-      advance(c, 0.05);
+      advance(c, 1.6);
       expect(c.drainEvents().filter((event) => event.kind === "conversion")).toHaveLength(1);
     }
     expect(c.drainEvents()).toHaveLength(0);

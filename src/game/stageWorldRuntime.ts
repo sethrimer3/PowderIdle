@@ -2,6 +2,11 @@ import type P5 from "p5";
 import stageData from "../../data/stages.json";
 import { validateStageConfig } from "../config/validateStageData";
 import { StageCamera } from "./camera/stageCamera";
+import {
+  StageEffectSystem,
+  effectFromStageEvent,
+  effectProgress,
+} from "./effects/stageEffects";
 import { StageInputModalityGate } from "./input/stageInput";
 import type { MatterSnapshot, StageId } from "./matter/matterTypes";
 import {
@@ -18,9 +23,10 @@ import {
 import { CompressionStage } from "./stages/compression/compressionStage";
 import { renderCompression } from "./stages/compression/compressionRenderer";
 import { renderSandfall } from "./stages/sandfall/sandfallRenderer";
-import { stageWorldOrigin } from "./stages/stageConfig";
+import { stageUpgradeValue, stageWorldOrigin } from "./stages/stageConfig";
 import { StageController, type StageSaveV3 } from "./stages/stageController";
 import type { StageUpgradeId } from "./stages/stageTypes";
+import { transferVisualModel } from "./stages/stageVisualModels";
 
 const FIXED_STEP = 1 / 60;
 const WORLD_SIZE = 144;
@@ -44,6 +50,8 @@ export class IntegratedStageWorld {
   private lastUnlocked = 1;
   private view: ViewportRect | null = null;
   private readonly inputGate = new StageInputModalityGate();
+  readonly effects = new StageEffectSystem();
+  private visualTime = 0;
 
   initialize(): void {
     this.surface = createGraphics(WORLD_SIZE, WORLD_SIZE);
@@ -53,9 +61,13 @@ export class IntegratedStageWorld {
   }
 
   update(elapsedSeconds: number): void {
-    this.accumulator += Math.min(0.25, Math.max(0, elapsedSeconds));
+    const elapsed = Math.min(0.25, Math.max(0, elapsedSeconds));
+    this.visualTime += elapsed;
+    this.effects.update(elapsed);
+    this.accumulator += elapsed;
     while (this.accumulator >= FIXED_STEP) {
       this.controller.update(FIXED_STEP);
+      this.consumeStageEvents();
       this.camera.update(FIXED_STEP);
       this.accumulator -= FIXED_STEP;
     }
@@ -72,7 +84,20 @@ export class IntegratedStageWorld {
     const sandfallOrigin = stageWorldOrigin(this.controller.sandfall.definition);
     surface.push();
     surface.translate(sandfallOrigin.x, sandfallOrigin.y);
-    renderSandfall(surface, this.controller.matter, this.controller.sandfall.state);
+    renderSandfall(surface, this.controller.matter, this.controller.sandfall.state, {
+      time: this.visualTime,
+      effects: this.effects.forStage(this.controller.sandfall.definition.id),
+      destinationUnlocked: this.controller.unlocked.has(this.controller.compression.definition.id),
+      transferCount: this.controller.transfers.length,
+      reservoirFull:
+        this.controller.compression.state.reservoirIds.length + this.controller.transfers.length >=
+        this.controller.compression.capacity(this.controller.upgradeLevels),
+      gravity: stageUpgradeValue(this.controller.config, this.controller.upgradeLevels, "gravity"),
+      castCount: stageUpgradeValue(this.controller.config, this.controller.upgradeLevels, "manual-cast-count"),
+      cooldownProgress: 1 - Math.min(1, this.controller.sandfall.state.castCooldown /
+        Math.max(0.02, stageUpgradeValue(this.controller.config, this.controller.upgradeLevels, "cast-cooldown"))),
+      autoCast: stageUpgradeValue(this.controller.config, this.controller.upgradeLevels, "auto-cast") > 0,
+    });
     surface.pop();
     if (this.controller.unlocked.has(this.controller.compression.definition.id)) {
       const compressionOrigin = stageWorldOrigin(this.controller.compression.definition);
@@ -83,6 +108,15 @@ export class IntegratedStageWorld {
         this.controller.matter,
         this.controller.compression.state,
         this.controller.compression.recipeCount,
+        {
+          time: this.visualTime,
+          effects: this.effects.forStage(this.controller.compression.definition.id),
+          capacity: this.controller.compression.capacity(this.controller.upgradeLevels),
+          ritualSpeed: stageUpgradeValue(this.controller.config, this.controller.upgradeLevels, "ritual-speed"),
+          releaseSpeed: stageUpgradeValue(this.controller.config, this.controller.upgradeLevels, "release-speed"),
+          autoRitual: stageUpgradeValue(this.controller.config, this.controller.upgradeLevels, "auto-ritual") > 0,
+          unlockProgress: this.unlockProgress(),
+        },
       );
       surface.pop();
       this.renderTransfers(surface);
@@ -96,14 +130,15 @@ export class IntegratedStageWorld {
       this.camera.current.zoom,
     );
     drawingContext.imageSmoothingEnabled = false;
+    const shake = this.effects.cameraOffset();
     image(
       surface,
       this.view.x,
       this.view.y,
       this.view.size,
       this.view.size,
-      this.view.sourceX,
-      this.view.sourceY,
+      this.view.sourceX + shake.x,
+      this.view.sourceY + shake.y,
       this.view.sourceSize,
       this.view.sourceSize,
     );
@@ -121,6 +156,8 @@ export class IntegratedStageWorld {
     this.lastUnlocked = this.controller.unlocked.size;
     this.camera.reset(this.controller.cameraTarget());
     this.inputGate.reset();
+    this.effects.reset();
+    this.visualTime = 0;
   }
 
   handlePointer(screenX: number, screenY: number, kind: "mouse" | "touch"): boolean {
@@ -187,6 +224,7 @@ export class IntegratedStageWorld {
       this.controller.hydrate(candidate.serialize());
       this.lastUnlocked = this.controller.unlocked.size;
       this.camera.reset(this.controller.cameraTarget());
+      this.effects.reset();
       return validated;
     } catch (error) {
       this.preserveRaw(raw, `invalid-v${readSchemaVersionSafe(raw)}`);
@@ -289,16 +327,49 @@ export class IntegratedStageWorld {
   }
 
   private renderTransfers(surface: P5.Graphics): void {
-    surface.stroke(238, 195, 105);
-    for (const transfer of this.controller.transfers) {
-      const connection = this.controller.config.connections.find((item) => item.id === transfer.connectionId);
-      if (!connection) continue;
-      const from = stageWorldOrigin(this.controller.config.stages.find((stage) => stage.id === connection.from)!);
-      const to = stageWorldOrigin(this.controller.config.stages.find((stage) => stage.id === connection.to)!);
-      const x = from.x + 24 + (to.x - from.x) * transfer.progress;
-      const y = from.y + 47 + (to.y - from.y - 46) * transfer.progress;
-      surface.point(Math.round(x), Math.round(y));
+    const models = transferVisualModel(this.controller.config, this.controller.transfers);
+    const connection = this.controller.config.connections.find(
+      (item) => item.from === this.controller.sandfall.definition.id,
+    );
+    if (!connection) return;
+    const fromDefinition = this.controller.config.stages.find((stage) => stage.id === connection.from)!;
+    const toDefinition = this.controller.config.stages.find((stage) => stage.id === connection.to)!;
+    const from = stageWorldOrigin(fromDefinition), to = stageWorldOrigin(toDefinition);
+    const full = this.controller.compression.state.reservoirIds.length + models.length >=
+      this.controller.compression.capacity(this.controller.upgradeLevels);
+    surface.stroke(full ? 112 : 44, full ? 61 : 111, full ? 78 : 126);
+    surface.line(from.x + 22, from.y + 47, to.x + 22, to.y + 1);
+    surface.line(from.x + 26, from.y + 47, to.x + 26, to.y + 1);
+    for (let y = from.y + 49; y < to.y; y += 5) {
+      surface.point(from.x + 21, y);
+      surface.point(from.x + 27, y);
     }
+    for (const model of models) {
+      const seed = this.controller.matter.get(model.entityId).visualSeed;
+      surface.stroke(223 + seed % 24, 180 + seed % 20, 91);
+      surface.point(Math.round(model.x), Math.round(model.y));
+      if (model.progress > 0.15) {
+        surface.stroke(87, 174, 166);
+        surface.point(Math.round(model.x), Math.round(model.y - 1));
+      }
+    }
+    if (full) {
+      surface.stroke(195, 91, 113);
+      surface.line(to.x + 21, to.y + 1, to.x + 27, to.y + 1);
+    }
+  }
+
+  private consumeStageEvents(): void {
+    for (const event of this.controller.drainEvents()) {
+      const effect = effectFromStageEvent(event);
+      if (effect) this.effects.emit(effect);
+    }
+  }
+
+  private unlockProgress(): number {
+    const effect = this.effects.forStage(this.controller.compression.definition.id)
+      .find((entry) => entry.kind === "unlock-trace");
+    return effect ? effectProgress(effect) : 1;
   }
 }
 

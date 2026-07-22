@@ -83,6 +83,8 @@ import {
 import { IntegratedStageWorld, type RuntimeSaveSections } from './stageWorldRuntime';
 import type { PowderIdleSaveV3, SaveValidationContext } from './persistence/saveSchema';
 import { pointerIsInWorld } from './input/stageInput';
+import { computeResponsiveGameLayout } from './layout/responsiveLayout';
+import { stageUpgradeValue } from './stages/stageConfig';
 
 // Game constants
       const BASE_SCREEN_W = 360;
@@ -5526,7 +5528,7 @@ import { pointerIsInWorld } from './input/stageInput';
         y = drawSectionHeader('Grain Selection', y);
         y = drawPowderSelectRow(y + scaledY(8));
         y = drawSectionHeader('Production Statistics', y + scaledY(16));
-        y = drawSandfallStats(y + scaledY(12));
+        y = drawStageStatusCard(y + scaledY(12));
         y = drawModuleProductionStats(y + scaledY(12));
         return y;
       }
@@ -5573,6 +5575,49 @@ import { pointerIsInWorld } from './input/stageInput';
         } else {
           text('All modules unlocked', left, infoY);
         }
+        pop();
+        return y + cardH / 2 + scaledY(10);
+      }
+
+      function drawStageStatusCard(y: number): number {
+        const cardW = menuContentArea.width || MENU_W - scaledX(32);
+        const cardH = scaledY(184);
+        const x = menuContentArea.center || MENU_W / 2;
+        drawGlassCard(x, y, cardW, cardH, MENU_THEME.accent);
+        const left = x - cardW / 2 + scaledX(16);
+        const top = y - cardH / 2 + scaledY(24);
+        const controller = stageWorld.controller;
+        const economy = controller.economyView();
+        const condition = controller.compression.definition.unlockCondition;
+        const capacity = controller.compression.capacity(controller.upgradeLevels);
+        const reservoir = controller.compression.state.reservoirIds.length;
+        const full = reservoir + controller.transfers.length >= capacity;
+        const phase = controller.compression.state.phase;
+        const batchSize = controller.compression.state.batch?.motes.length ?? 0;
+        const castValue = stageUpgradeValue(controller.config, controller.upgradeLevels, 'manual-cast-count');
+        const gravityValue = stageUpgradeValue(controller.config, controller.upgradeLevels, 'gravity');
+        push();
+        textAlign(LEFT, CENTER);
+        fill(MENU_THEME.text);
+        textSize(scaledFont(11));
+        text(`Selected: ${powderTypes[selectedPowder]?.name ?? 'Sand'} â€¢ ${Math.floor(powderCounts[selectedPowder] || 0)} visible`, left, top);
+        fill(MENU_THEME.mutedText);
+        textSize(scaledFont(9));
+        text(`Atrium: ${controller.sandfall.state.lifetimeCreated} lifetime â€¢ ${economy.activeByMaterial.sand} active`, left, top + scaledY(22));
+        if (!controller.unlocked.has('compression-crucible') && condition.kind === 'lifetime-material') {
+          text(`Crucible LOCKED â€¢ ${controller.sandfall.state.lifetimeCreated}/${condition.count} sand`, left, top + scaledY(44));
+          text('Exit sealed â€¢ queued sand waits safely', left, top + scaledY(66));
+        } else {
+          fill(full ? '#fca5a5' : MENU_THEME.mutedText);
+          text(`Route: ${controller.transfers.length} transit â€¢ Reservoir ${reservoir}/${capacity}${full ? ' FULL' : ''}`, left, top + scaledY(44));
+          fill(phase === 'ready' ? MENU_THEME.success : MENU_THEME.mutedText);
+          text(`Crucible: ${phase === 'ready' ? 'READY â€” press C' : phase}${batchSize ? ` â€¢ batch ${batchSize}` : ''}`, left, top + scaledY(66));
+          fill(MENU_THEME.mutedText);
+          text(`Output: ${economy.spendableByMaterial.stone} stone${economy.spendableByMaterial.stone === 1 ? '' : 's'}`, left, top + scaledY(88));
+        }
+        fill(MENU_THEME.mutedText);
+        text(`Cast x${castValue} â€¢ Gravity ${gravityValue.toFixed(0)} â€¢ Auto Cast ${controller.upgradeLevels['auto-cast'] > 0 ? 'ON' : 'OFF'}`, left, top + scaledY(116));
+        text(`Ritual x${stageUpgradeValue(controller.config, controller.upgradeLevels, 'ritual-speed').toFixed(1)} â€¢ Auto Ritual ${controller.upgradeLevels['auto-ritual'] > 0 ? 'ON' : 'OFF'}`, left, top + scaledY(138));
         pop();
         return y + cardH / 2 + scaledY(10);
       }
@@ -5991,9 +6036,16 @@ import { pointerIsInWorld } from './input/stageInput';
         if (researchProjects.length === 0) {
           return y;
         }
-        let btnW = Math.min(scaledX(200), (menuContentArea.width || SCREEN_W) / 2);
+        const areaWidth = menuContentArea.width || MENU_W;
+        const columns = Math.max(
+          1,
+          Math.min(2, Math.floor(areaWidth / Math.max(130, scaledX(140))))
+        );
+        let btnW = Math.min(
+          scaledX(180),
+          (areaWidth - scaledX(10) * (columns - 1)) / columns
+        );
         let btnH = scaledY(46);
-        let xs = getRowPositions(researchProjects.length);
         for (let i = 0; i < researchProjects.length; i++) {
           let project = researchProjects[i]!;
           let level = researchState[project.key] ?? 0;
@@ -6001,8 +6053,13 @@ import { pointerIsInWorld } from './input/stageInput';
             project.baseCost * Math.pow(project.costMult ?? 3, level)
           );
           let canBuy = dust >= cost;
-          let x = xs[i]!;
-          drawNeonButton(x, y, btnW, btnH, {
+          const column = i % columns;
+          const row = Math.floor(i / columns);
+          const rowCount = Math.min(columns, researchProjects.length - row * columns);
+          const xs = getRowPositions(rowCount);
+          let x = xs[column]!;
+          const rowY = y + row * (btnH + scaledY(10));
+          drawNeonButton(x, rowY, btnW, btnH, {
             active: level > 0,
             enabled: canBuy,
             accentColor: MENU_THEME.accent,
@@ -6012,20 +6069,20 @@ import { pointerIsInWorld } from './input/stageInput';
           textAlign(CENTER, CENTER);
           textSize(scaledFont(12));
           fill(canBuy ? MENU_THEME.invertedText : MENU_THEME.text);
-          text(`${project.name} R${level}`, x, y - scaledY(12));
+          text(`${project.name} R${level}`, x, rowY - scaledY(12));
           textSize(scaledFont(11));
           fill(MENU_THEME.mutedText);
-          text(project.description, x, y + scaledY(2));
+          text(project.description, x, rowY + scaledY(2), btnW - scaledX(12), scaledY(16));
           textSize(scaledFont(11));
           fill(MENU_THEME.text);
-          text(`Cost: ${cost}`, x, y + scaledY(16));
+          text(`Cost: ${cost}`, x, rowY + scaledY(16));
           pop();
           addButton(
             {
               action: 'buyResearch',
               key: project.key,
               x,
-              y,
+              y: rowY,
               w: btnW,
               h: btnH
             },
@@ -6033,7 +6090,7 @@ import { pointerIsInWorld } from './input/stageInput';
           );
         }
         textSize(scaledFont(14));
-        return y + btnH + scaledY(18);
+        return y + Math.ceil(researchProjects.length / columns) * (btnH + scaledY(10)) + scaledY(8);
       }
 
       function drawAutomationControls(y: number): number {
@@ -6053,16 +6110,22 @@ import { pointerIsInWorld } from './input/stageInput';
             description: 'Convert powders whenever possible.'
           }
         ];
-        let btnW = Math.min(scaledX(170), (menuContentArea.width || SCREEN_W) / 2);
+        const areaWidth = menuContentArea.width || MENU_W;
+        const columns = areaWidth < scaledX(380) ? 1 : 2;
+        let btnW = Math.min(scaledX(170), columns === 1 ? areaWidth : areaWidth / 2 - scaledX(8));
         let btnH = scaledY(40);
-        let xs = getRowPositions(controls.length);
         for (let i = 0; i < controls.length; i++) {
           let control = controls[i]!;
           let enabled = automationSettings[control.key];
           let unlocked = automationUnlocks[control.key];
-          let x = xs[i]!;
+          const column = i % columns;
+          const row = Math.floor(i / columns);
+          const rowCount = Math.min(columns, controls.length - row * columns);
+          const xs = getRowPositions(rowCount);
+          let x = xs[column]!;
+          const rowY = y + row * (btnH + scaledY(8));
           if (unlocked) {
-            drawNeonButton(x, y, btnW, btnH, {
+            drawNeonButton(x, rowY, btnW, btnH, {
               active: enabled,
               enabled: true,
               accentColor: MENU_THEME.accent,
@@ -6071,23 +6134,23 @@ import { pointerIsInWorld } from './input/stageInput';
             });
             fill(enabled ? MENU_THEME.invertedText : MENU_THEME.text);
             textSize(scaledFont(11));
-            text(`${control.label}: ${enabled ? 'ON' : 'OFF'}`, x, y - scaledY(10));
+            text(`${control.label}: ${enabled ? 'ON' : 'OFF'}`, x, rowY - scaledY(10));
             textSize(scaledFont(10));
             fill(MENU_THEME.mutedText);
-            text(control.description, x, y + scaledY(6));
+            text(control.description, x, rowY + scaledY(6));
             addButton(
               {
                 action: 'toggleAutomation',
                 key: control.key,
                 x,
-                y,
+                y: rowY,
                 w: btnW,
                 h: btnH
               },
               { scrollAware: true }
             );
           } else {
-            drawNeonButton(x, y, btnW, btnH, {
+            drawNeonButton(x, rowY, btnW, btnH, {
               active: false,
               enabled: false,
               accentColor: MENU_THEME.accent,
@@ -6096,7 +6159,7 @@ import { pointerIsInWorld } from './input/stageInput';
             });
             fill(MENU_THEME.mutedText);
             textSize(scaledFont(11));
-            text(`${control.label}: Locked`, x, y - scaledY(10));
+            text(`${control.label}: Locked`, x, rowY - scaledY(10));
             let milestone = getMilestoneForType(
               control.key === 'autoDrop' ? 'unlockAutoDrop' : 'unlockAutoCompress'
             );
@@ -6107,15 +6170,15 @@ import { pointerIsInWorld } from './input/stageInput';
                   milestone.resource === 'cores' ? 'cores' : 'dust'
                 })`,
                 x,
-                y + scaledY(4)
+                rowY + scaledY(4)
               );
             } else {
-              text('Progress deeper to unlock automation.', x, y + scaledY(4));
+              text('Progress deeper to unlock automation.', x, rowY + scaledY(4));
             }
           }
         }
         textSize(scaledFont(14));
-        return y + btnH + scaledY(14);
+        return y + Math.ceil(controls.length / columns) * (btnH + scaledY(8)) + scaledY(6);
       }
 
       function drawPowderSelectRow(y: number): number {
@@ -6261,8 +6324,15 @@ import { pointerIsInWorld } from './input/stageInput';
       }
 
       function drawUpgradeRows(y: number): number {
-        let columns = Math.min(3, upgradeConfigs.length);
         let areaWidth = menuContentArea.width || SCREEN_W - scaledX(80);
+        let columns = Math.max(
+          1,
+          Math.min(
+            3,
+            Math.floor(areaWidth / Math.max(120, scaledX(125))),
+            upgradeConfigs.length
+          )
+        );
         let btnW = Math.min(
           scaledX(120),
           Math.max(scaledX(80), areaWidth / Math.max(1, columns) - scaledX(12))
@@ -6296,7 +6366,7 @@ import { pointerIsInWorld } from './input/stageInput';
               rowY - scaledY(8)
             );
             fill(MENU_THEME.mutedText);
-            text(config.description, x, rowY + scaledY(6));
+            text(config.description, x, rowY + scaledY(6), btnW - scaledX(10), scaledY(14));
             addButton(
               {
                 action: 'buyUpgrade',
@@ -7241,16 +7311,13 @@ import { pointerIsInWorld } from './input/stageInput';
       }
 
       function updateLayoutDimensions(resize = false) {
-        let margin = 24;
-        let availableWidth = Math.max(windowWidth - margin, BASE_SCREEN_W);
-        let availableHeight = Math.max(windowHeight - margin, BASE_SCREEN_H);
-        SCREEN_W = Math.round(Math.max(availableWidth, BASE_SCREEN_W));
-        SCREEN_H = Math.round(Math.max(availableHeight, BASE_SCREEN_H));
-        let halfWidth = Math.round(SCREEN_W / 2);
-        MENU_W = halfWidth;
-        PLAY_AREA_W = SCREEN_W - MENU_W;
-        layoutScaleX = SCREEN_W / BASE_SCREEN_W;
-        layoutScaleY = SCREEN_H / BASE_SCREEN_H;
+        const responsive = computeResponsiveGameLayout(windowWidth, windowHeight);
+        SCREEN_W = responsive.screenWidth;
+        SCREEN_H = responsive.screenHeight;
+        MENU_W = responsive.menuWidth;
+        PLAY_AREA_W = responsive.playWidth;
+        layoutScaleX = responsive.menuScale;
+        layoutScaleY = responsive.verticalScale;
         let pixelScale = Math.min(layoutScaleX, layoutScaleY);
         cellPixelSize = Math.max(1, Math.floor(BASE_CELL_PIXEL_SIZE * pixelScale));
         updateCollageLayout();

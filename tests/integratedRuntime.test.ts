@@ -31,12 +31,31 @@ describe("integrated runtime", () => {
         {},
         { get: () => () => undefined },
       ) as unknown as P5.Graphics;
-    renderSandfall(surface, controller.matter, controller.sandfall.state);
+    renderSandfall(surface, controller.matter, controller.sandfall.state, {
+      time: 0,
+      effects: [],
+      destinationUnlocked: false,
+      transferCount: 0,
+      reservoirFull: false,
+      gravity: 18,
+      castCount: 1,
+      cooldownProgress: 1,
+      autoCast: false,
+    });
     renderCompression(
       surface,
       controller.matter,
       controller.compression.state,
       controller.compression.recipeCount,
+      {
+        time: 0,
+        effects: [],
+        capacity: 300,
+        ritualSpeed: 1,
+        releaseSpeed: 1,
+        autoRitual: false,
+        unlockProgress: 1,
+      },
     );
     expect(controller.serialize()).toEqual(before);
   });
