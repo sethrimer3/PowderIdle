@@ -6,6 +6,7 @@ const dataFiles = [
   'machines.json',
   'upgrades.json',
   'progression.json'
+  ,'stages.json'
 ] as const;
 
 export default defineConfig({

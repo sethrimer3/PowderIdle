@@ -22,6 +22,14 @@ npm run preview     # serve the production build locally
 
 `dist/` and `node_modules/` are generated and intentionally ignored.
 
+## Stage world framework
+
+The live game now uses a fixed-timestep, ID-based stage world. Stage 1, the Sandfall Atrium, begins at the center of the reserved 3×3 spiral. At 100 lifetime sand motes, Stage 2 reveals directly below it and the time-based camera expands to frame both chambers. Sand retains one authoritative owner while active, queued, in transit, buffered, ritual-locked, or contained in a composite stone.
+
+The Compression Crucible visibly gathers 100 real sand entities, locks exactly that batch, runs a deterministic multi-phase ritual, and creates one mass-conserving stone whose contents and lineage reference every input. Future stage positions are typed and reserved but cannot produce resources. Configuration lives in `data/stages.json`; in-progress rituals normalize safely to `ready` when loaded. The older centralized runtime remains in `src/game/runtime.ts` as isolated prototype/reference code and is no longer the browser entry point.
+
+For local reveal testing, append `?debugStages=1` and press `U`. The shortcut is accepted only on localhost.
+
 ## Source organization
 
 - `src/main.ts` installs the browser entry point.
