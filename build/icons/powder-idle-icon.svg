@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Powder Idle alchemical compression seal</title>
+  <desc id="desc">Orange sand descends through a violet alchemical seal into a faceted compression stone.</desc>
+  <rect width="1024" height="1024" rx="192" fill="#151319"/>
+  <circle cx="512" cy="512" r="366" fill="none" stroke="#cbb6e4" stroke-width="44"/>
+  <path d="M512 118 552 174 512 230 472 174Z M906 512 850 552 794 512 850 472Z M512 906 472 850 512 794 552 850Z M118 512 174 472 230 512 174 552Z" fill="#cbb6e4"/>
+  <path d="M284 328 512 196 740 328 740 592 512 724 284 592Z" fill="none" stroke="#796a89" stroke-width="22" stroke-linejoin="round"/>
+  <path d="M354 306 512 580 670 306 M306 560H718" fill="none" stroke="#796a89" stroke-width="18" stroke-linecap="round"/>
+  <g fill="#cf6d3c">
+    <circle cx="430" cy="300" r="29"/><circle cx="566" cy="334" r="25"/>
+    <circle cx="488" cy="398" r="34"/><circle cx="594" cy="446" r="21"/>
+    <circle cx="440" cy="486" r="24"/><circle cx="526" cy="514" r="31"/>
+  </g>
+  <path d="M512 548 676 666 614 826 410 826 348 666Z" fill="#342f3b" stroke="#cbb6e4" stroke-width="28" stroke-linejoin="round"/>
+  <path d="M512 548 512 790 410 826 348 666Z" fill="#4a4052"/>
+  <path d="M512 548 676 666 512 790Z" fill="#5b4b58"/>
+  <path d="M410 826 512 790 614 826Z" fill="#231f29"/>
+  <path d="m512 602 34 76-34 84-34-84Z" fill="#e8def1"/>
+  <circle cx="512" cy="678" r="14" fill="#fff7dd"/>
+</svg>

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "icons:build": "node scripts/generate-icons.mjs",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
@@ -14,6 +15,7 @@
   "devDependencies": {
     "@types/node": "^26.1.1",
     "@types/p5": "^1.7.7",
+    "sharp": "^0.35.3",
     "typescript": "^7.0.2",
     "vite": "^8.1.5",
     "vitest": "^4.1.10"
