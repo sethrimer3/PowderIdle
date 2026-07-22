@@ -6,6 +6,7 @@ import type {
   StageRenderContext,
   StageSimulation,
   StageUpdateContext,
+  StageUpgradeId,
 } from "../stageTypes";
 import { ritualTarget, type CompressionBatch } from "./compressionRitual";
 
@@ -39,31 +40,61 @@ export class CompressionStage
     batch: null,
     nextRitualId: 1,
   };
-  readonly conversionEvents: {
+  private readonly pendingEvents: {
     id: string;
     ritualId: string;
     stoneId: EntityId;
   }[] = [];
-  private capacityBonus = 0;
   constructor(
     readonly definition: StageDefinition,
     private readonly matter: MatterStore,
     private readonly timings: Record<CompressionPhase, number>,
+    private readonly upgradeValue: (
+      id: StageUpgradeId,
+      upgrades: StageUpdateContext["upgrades"],
+    ) => number,
   ) {}
   get recipeCount(): number {
     return this.definition.settings?.recipeInputCount ?? 100;
   }
-  get baseCapacity(): number {
-    return this.definition.settings?.reservoirCapacity ?? 300;
+  capacity(upgrades: StageUpdateContext["upgrades"]): number {
+    return Math.max(0, Math.floor(this.upgradeValue("reservoir-capacity", upgrades)));
   }
-  acceptEntity(entityId: EntityId): boolean {
-    if (
-      this.state.reservoirIds.length >=
-      this.baseCapacity + this.capacityBonus
-    )
-      return false;
+  acceptEntity(
+    entityId: EntityId,
+    upgrades: StageUpdateContext["upgrades"],
+  ): boolean {
+    if (this.state.reservoirIds.length >= this.capacity(upgrades)) return false;
     const entity = this.matter.get(entityId);
-    if (entity.material !== "sand") return false;
+    if (
+      entity.material !== "sand" ||
+      entity.owner.kind !== "stage" ||
+      entity.owner.stageId !== this.definition.id ||
+      entity.owner.slot !== "reservoir" ||
+      this.state.reservoirIds.includes(entityId)
+    ) return false;
+    this.state.reservoirIds.push(entityId);
+    this.settleReservoir();
+    return true;
+  }
+  acceptTransferredEntity(
+    entityId: EntityId,
+    transferId: string,
+    upgrades: StageUpdateContext["upgrades"],
+  ): boolean {
+    if (this.state.reservoirIds.length >= this.capacity(upgrades)) return false;
+    const entity = this.matter.get(entityId);
+    if (
+      entity.material !== "sand" ||
+      entity.owner.kind !== "transfer" ||
+      entity.owner.transferId !== transferId ||
+      this.state.reservoirIds.includes(entityId)
+    ) return false;
+    this.matter.move(entityId, entity.owner, {
+      kind: "stage",
+      stageId: this.definition.id,
+      slot: "reservoir",
+    });
     this.state.reservoirIds.push(entityId);
     this.settleReservoir();
     return true;
@@ -80,11 +111,10 @@ export class CompressionStage
     const batch = this.state.batch;
     if (!batch || batch.phase === "gathering" || batch.phase === "ready")
       return;
-    this.capacityBonus = context.upgrades["reservoir-capacity"] * 50;
     const speed =
       batch.phase === "releasing"
-        ? 1 + context.upgrades["release-speed"] * 0.1
-        : 1 + context.upgrades["ritual-speed"] * 0.1;
+        ? this.upgradeValue("release-speed", context.upgrades)
+        : this.upgradeValue("ritual-speed", context.upgrades);
     batch.elapsed += context.dt * speed;
     this.updateRitualPositions(batch);
     const duration = this.timings[batch.phase];
@@ -132,6 +162,17 @@ export class CompressionStage
   drainOutputEntities(): readonly EntityId[] {
     return this.state.outputIds;
   }
+  drainEvents(): Array<{ id: string; ritualId: string; stoneId: EntityId }> {
+    return this.pendingEvents.splice(0);
+  }
+  reset(): void {
+    this.state.reservoirIds = [];
+    this.state.outputIds = [];
+    this.state.phase = "gathering";
+    this.state.batch = null;
+    this.state.nextRitualId = 1;
+    this.pendingEvents.splice(0);
+  }
   serialize(): CompressionSave {
     return {
       state: {
@@ -152,36 +193,14 @@ export class CompressionStage
     this.state.reservoirIds = [...saved.reservoirIds];
     this.state.outputIds = [...saved.outputIds];
     this.state.nextRitualId = Math.max(1, saved.nextRitualId);
-    if (saved.batch && !saved.batch.conversionCompleted) {
-      for (const mote of saved.batch.motes) {
-        const owner = this.matter.get(mote.entityId).owner;
-        if (
-          owner.kind === "stage" &&
-          owner.stageId === this.definition.id &&
-          owner.slot === "ritual"
-        ) {
-          this.matter.move(mote.entityId, owner, {
-            kind: "stage",
-            stageId: this.definition.id,
-            slot: "reservoir",
-          });
-          this.state.reservoirIds.push(mote.entityId);
+    this.state.batch = saved.batch
+      ? {
+          ...saved.batch,
+          motes: saved.batch.motes.map((mote) => ({ ...mote })),
         }
-      }
-      this.state.batch = null;
-      this.state.phase =
-        this.state.reservoirIds.length >= this.recipeCount
-          ? "ready"
-          : "gathering";
-    } else {
-      this.state.batch = saved.batch
-        ? {
-            ...saved.batch,
-            motes: saved.batch.motes.map((mote) => ({ ...mote })),
-          }
-        : null;
-      this.state.phase = saved.phase;
-    }
+      : null;
+    this.state.phase = saved.phase;
+    this.pendingEvents.splice(0);
     this.settleReservoir();
   }
   outputPosition(index: number): { x: number; y: number } {
@@ -276,7 +295,7 @@ export class CompressionStage
     batch.outputStoneId = stoneId;
     batch.outputEventId = `conversion:${batch.ritualId}`;
     this.state.outputIds.push(stoneId);
-    this.conversionEvents.push({
+    this.pendingEvents.push({
       id: batch.outputEventId,
       ritualId: batch.ritualId,
       stoneId,

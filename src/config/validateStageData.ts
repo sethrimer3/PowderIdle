@@ -5,6 +5,7 @@ import type {
   StageDefinition,
   StageUpgradeDefinition,
 } from "../game/stages/stageTypes";
+import type { StageUpgradeId } from "../game/stages/stageTypes";
 
 const materials = new Set<MaterialType>(["sand", "stone"]);
 const stageIds = new Set<StageId>([
@@ -26,6 +27,17 @@ const timingKeys: Exclude<CompressionPhase, "gathering" | "ready">[] = [
   "revealing",
   "releasing",
   "cooldown",
+];
+const requiredUpgradeIds: StageUpgradeId[] = [
+  "manual-cast-count",
+  "cast-cooldown",
+  "gravity",
+  "output-throughput",
+  "auto-cast",
+  "ritual-speed",
+  "reservoir-capacity",
+  "release-speed",
+  "auto-ritual",
 ];
 const fail = (message: string): never => {
   throw new Error(`data/stages.json: ${message}`);
@@ -183,16 +195,25 @@ export function validateStageConfig(value: unknown): StageConfig {
   const rawUpgrades = Array.isArray(root.upgrades)
     ? root.upgrades
     : fail("upgrades must be an array");
+  const upgradeIds = new Set<string>();
   const upgrades = rawUpgrades.map((raw, index) => {
     const item = object(raw, `upgrades[${index}]`);
+    const id = string(item.id, "upgrade id") as StageUpgradeDefinition["id"];
+    if (!requiredUpgradeIds.includes(id) || upgradeIds.has(id))
+      fail(`upgrade ${id} is invalid or duplicate`);
+    upgradeIds.add(id);
+    const stageId = string(item.stageId, "upgrade stage") as StageId;
+    if (!ids.has(stageId)) fail(`upgrade ${id} references missing stage ${stageId}`);
     return {
-      id: string(item.id, "upgrade id") as StageUpgradeDefinition["id"],
-      stageId: string(item.stageId, "upgrade stage") as StageId,
+      id,
+      stageId,
       baseValue: finite(item.baseValue, "baseValue"),
       perLevel: finite(item.perLevel, "perLevel"),
       maxLevel: positiveInt(item.maxLevel, "maxLevel"),
     };
   });
+  for (const id of requiredUpgradeIds)
+    if (!upgradeIds.has(id)) fail(`missing required upgrade ${id}`);
   return {
     schemaVersion: 2,
     camera: {

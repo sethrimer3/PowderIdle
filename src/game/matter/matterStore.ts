@@ -16,8 +16,20 @@ export interface CompositeRecipe {
   origin: StageId;
 }
 
-function sameOwner(left: MatterOwner, right: MatterOwner): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+export function matterOwnersEqual(left: MatterOwner, right: MatterOwner): boolean {
+  if (left.kind !== right.kind) return false;
+  switch (left.kind) {
+    case "stage":
+      return (
+        right.kind === "stage" &&
+        left.stageId === right.stageId &&
+        left.slot === right.slot
+      );
+    case "transfer":
+      return right.kind === "transfer" && left.transferId === right.transferId;
+    case "contained":
+      return right.kind === "contained" && left.entityId === right.entityId;
+  }
 }
 
 export class MatterStore {
@@ -62,7 +74,7 @@ export class MatterStore {
   }
   move(id: EntityId, expected: MatterOwner, next: MatterOwner): void {
     const entity = this.mutable(id);
-    if (!sameOwner(entity.owner, expected))
+    if (!matterOwnersEqual(entity.owner, expected))
       throw new Error(`Entity ${id} owner mismatch`);
     entity.owner = { ...next };
   }
@@ -86,7 +98,7 @@ export class MatterStore {
     for (const entity of inputs)
       if (
         entity.material !== recipe.inputMaterial ||
-        !sameOwner(entity.owner, recipe.expectedOwner)
+        !matterOwnersEqual(entity.owner, recipe.expectedOwner)
       )
         throw new Error(`Entity ${entity.id} is not a valid recipe input`);
     const output = this.create(
@@ -107,7 +119,7 @@ export class MatterStore {
     const result: EntityId[] = [];
     for (const entity of this.entities.values())
       if (
-        sameOwner(entity.owner, owner) &&
+        matterOwnersEqual(entity.owner, owner) &&
         (!material || entity.material === material)
       )
         result.push(entity.id);
@@ -140,6 +152,10 @@ export class MatterStore {
         lineage: [...entity.lineage],
       })),
     };
+  }
+  reset(): void {
+    this.entities.clear();
+    this.nextId = 1;
   }
   hydrate(snapshot: MatterSnapshot): void {
     this.entities.clear();

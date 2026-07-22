@@ -92,7 +92,10 @@ export interface StageSimulation<State, SaveData> {
   readonly state: State;
   update(context: StageUpdateContext): void;
   render(context: StageRenderContext): void;
-  acceptEntity(entityId: EntityId): boolean;
+  acceptEntity(
+    entityId: EntityId,
+    upgrades: Readonly<Record<StageUpgradeId, number>>,
+  ): boolean;
   drainOutputEntities(): readonly EntityId[];
   handlePointer?(input: StagePointerInput): boolean;
   serialize(): SaveData;

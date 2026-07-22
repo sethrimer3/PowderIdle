@@ -5,6 +5,7 @@ import type {
   StageRenderContext,
   StageSimulation,
   StageUpdateContext,
+  StageUpgradeId,
 } from "../stageTypes";
 import { SandfallPhysics } from "./sandfallPhysics";
 
@@ -30,6 +31,10 @@ export class SandfallStage
   constructor(
     readonly definition: StageDefinition,
     private readonly matter: MatterStore,
+    private readonly upgradeValue: (
+      id: StageUpgradeId,
+      upgrades: StageUpdateContext["upgrades"],
+    ) => number,
   ) {
     const settings = definition.settings ?? {};
     this.physics = new SandfallPhysics(matter, {
@@ -37,7 +42,7 @@ export class SandfallStage
       height: settings.height ?? 48,
       funnelMinX: settings.funnelMinX ?? 21,
       funnelMaxX: settings.funnelMaxX ?? 26,
-      gravity: 18,
+      gravity: 1,
       maxStepsPerUpdate: 6,
     });
   }
@@ -59,7 +64,7 @@ export class SandfallStage
     return ids;
   }
   update(context: StageUpdateContext): void {
-    const gravity = 18 + context.upgrades.gravity * 3;
+    const gravity = Math.max(0.01, this.upgradeValue("gravity", context.upgrades));
     this.state.castCooldown = Math.max(0, this.state.castCooldown - context.dt);
     this.physics.setGravity(gravity);
     this.physics.update(this.state.activeIds, context.dt, (id) =>
@@ -72,6 +77,13 @@ export class SandfallStage
         this.cast(1);
       }
     }
+  }
+  reset(): void {
+    this.state.lifetimeCreated = 0;
+    this.state.activeIds = [];
+    this.state.outputIds = [];
+    this.state.castCooldown = 0;
+    this.state.autoCastElapsed = 0;
   }
   render(_context: StageRenderContext): void {}
   acceptEntity(_entityId: EntityId): boolean {
