@@ -38,7 +38,7 @@ Schema V3 stores a timestamp, the complete stage world, economy resources and in
 
 V2 integrated saves and V1 stage-world saves migrate conservatively. Missing fields receive initialized defaults; V1 cannot reconstruct legacy dust or progression. Before migration, the untouched raw save is stored under a timestamped diagnostic key. Invalid saves are also backed up and left in place, and failures are logged without stopping the game.
 
-For local testing, append `?debugStages=1`: `U` creates the remaining sand required to reveal Stage 2, `D` grants 100 dust, and `P` grants the minimum earned-dust threshold and exercises prestige. These shortcuts are accepted only on localhost.
+For local testing, append `?debugStages=1`: `U` creates the remaining sand required to reveal Stage 2, `B` casts one real Crucible recipe batch through Stage 1, `D` grants 100 dust, and `P` grants the minimum earned-dust threshold and exercises prestige. These shortcuts are accepted only on localhost.
 
 ## Source organization
 
@@ -48,6 +48,9 @@ For local testing, append `?debugStages=1`: `U` creates the remaining sand requi
 - `src/config/validateGameData.ts` validates untrusted JSON before initialization.
 - `src/game/persistence/saveSchema.ts` defines and validates schema V3.
 - `src/game/stages/stageConfig.ts` evaluates configured upgrades, origins, and routes.
+- `src/game/stages/stageVisualModels.ts` derives bounded reservoir, transfer, sand-palette, and output-slot visuals from authoritative entity state.
+- `src/game/effects/stageEffects.ts` owns short-lived, capped visual effects emitted by real stage events; effects never create matter or alter hit testing.
+- `src/game/layout/responsiveLayout.ts` keeps the stage viewport square and independently scales narrow menu content.
 - `src/state/` contains independently testable entity/inventory logic.
 - `src/simulation/` contains deterministic economy, funnel, and progression calculations.
 - `tests/` covers JSON validation, costs, tier unlocks, prestige, entity identity and mass, inventories, funnel bounds, and layer progression.
@@ -73,6 +76,6 @@ Fetched values are treated as `unknown` and validated field by field. A failed r
 
 ## Preserved baseline behavior
 
-The TypeScript migration intentionally does not rebalance physics, costs, rewards, cadence, unlocks, dimensions, colors, labels, input semantics, or archived module code. The live `machines.json` exposes only the unified Sandfall Atrium. Because the archived unlock order is empty in that configuration, the existing Sandfall status text can display `Next Unlock: undefined — 100 Sand`; this baseline content mismatch is documented rather than silently redesigned during the migration.
+The TypeScript migration intentionally does not rebalance physics, costs, rewards, cadence, unlocks, dimensions, input semantics, or archived module code. The live `machines.json` exposes only the unified Sandfall Atrium; the Stage status card therefore reports authoritative Atrium, route, reservoir, ritual, output, and configured-upgrade state instead of consulting the archived module unlock order.
 
 One strongly supported fallback-only bug was normalized: legacy embedded research entries that specify `maxLevel` but omit `costMult` now receive the deliberate `3` multiplier used by the research progression model instead of producing `NaN` costs.

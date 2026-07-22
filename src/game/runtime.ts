@@ -5275,7 +5275,9 @@ import { stageUpgradeValue } from './stages/stageConfig';
         menuContentArea.height = Math.max(0, contentBottom - contentTop);
 
         let visibleHeight = Math.max(0, menuContentArea.height);
-        let contentStart = menuContentArea.top - menuScroll;
+        // Start below the clipping edge so centered section-header text is never
+        // sliced in half at the top of a scrollable menu.
+        let contentStart = menuContentArea.top + scaledY(12) - menuScroll;
         let contentEnd = contentStart;
         let clipWidth = menuContentArea.width;
         if (clipWidth > 0 && visibleHeight > 0) {
@@ -5533,59 +5535,14 @@ import { stageUpgradeValue } from './stages/stageConfig';
         return y;
       }
 
-      function drawSandfallStats(y: number): number {
-        let cardW = menuContentArea.width || SCREEN_W - scaledX(60);
-        let cardH = scaledY(138);
-        let x = menuContentArea.center || SCREEN_W / 2;
-        drawGlassCard(x, y, cardW, cardH, MENU_THEME.accent);
-        let left = x - cardW / 2 + scaledX(16);
-        let topY = y - cardH / 2 + scaledY(26);
-        let selected = powderTypes[selectedPowder];
-        let selectedName = selected?.name || 'Unknown';
-        let selectedCount = Math.floor(powderCounts[selectedPowder] || 0).toLocaleString();
-        push();
-        textAlign(LEFT, CENTER);
-        fill(MENU_THEME.text);
-        textSize(scaledFont(12));
-        text(`Selected Powder: ${selectedName}`, left, topY);
-        fill(MENU_THEME.mutedText);
-        textSize(scaledFont(10));
-        text(`Inventory: ${selectedCount}`, left, topY + scaledY(18));
-        let autoDropStatus = automationSettings.autoDrop ? 'ON' : 'OFF';
-        let autoCompressStatus = automationSettings.autoCompress ? 'ON' : 'OFF';
-        text(
-          `Auto Drop: ${autoDropStatus}  •  Auto Compress: ${autoCompressStatus}`,
-          left,
-          topY + scaledY(36)
-        );
-        let duneText = `Dune Multiplier: x${duneDustMultiplier.toFixed(2)}`;
-        text(duneText, left, topY + scaledY(54));
-        let nextIndex = getNextTierToUnlock();
-        let infoY = topY + scaledY(72);
-        if (nextIndex >= 0) {
-          let moduleKey = MODULE_UNLOCK_ORDER[nextIndex];
-          let module = machineDefinitions.find((m) => m.key === moduleKey);
-          let cost = tierUnlockCosts[nextIndex] || 0;
-          let resource = powderTypes[nextIndex] ? powderTypes[nextIndex].name : 'Powder';
-          text(
-            `Next Unlock: ${module ? module.name : moduleKey} — ${cost.toLocaleString()} ${resource}`,
-            left,
-            infoY
-          );
-        } else {
-          text('All modules unlocked', left, infoY);
-        }
-        pop();
-        return y + cardH / 2 + scaledY(10);
-      }
-
       function drawStageStatusCard(y: number): number {
         const cardW = menuContentArea.width || MENU_W - scaledX(32);
         const cardH = scaledY(184);
         const x = menuContentArea.center || MENU_W / 2;
-        drawGlassCard(x, y, cardW, cardH, MENU_THEME.accent);
+        const centerY = y + cardH / 2;
+        drawGlassCard(x, centerY, cardW, cardH, MENU_THEME.accent);
         const left = x - cardW / 2 + scaledX(16);
-        const top = y - cardH / 2 + scaledY(24);
+        const top = y + scaledY(24);
         const controller = stageWorld.controller;
         const economy = controller.economyView();
         const condition = controller.compression.definition.unlockCondition;
@@ -5600,26 +5557,26 @@ import { stageUpgradeValue } from './stages/stageConfig';
         textAlign(LEFT, CENTER);
         fill(MENU_THEME.text);
         textSize(scaledFont(11));
-        text(`Selected: ${powderTypes[selectedPowder]?.name ?? 'Sand'} â€¢ ${Math.floor(powderCounts[selectedPowder] || 0)} visible`, left, top);
+        text(`Selected: ${powderTypes[selectedPowder]?.name ?? 'Sand'} | ${Math.floor(powderCounts[selectedPowder] || 0)} visible`, left, top);
         fill(MENU_THEME.mutedText);
         textSize(scaledFont(9));
-        text(`Atrium: ${controller.sandfall.state.lifetimeCreated} lifetime â€¢ ${economy.activeByMaterial.sand} active`, left, top + scaledY(22));
+        text(`Atrium: ${controller.sandfall.state.lifetimeCreated} lifetime | ${economy.activeByMaterial.sand} active`, left, top + scaledY(22));
         if (!controller.unlocked.has('compression-crucible') && condition.kind === 'lifetime-material') {
-          text(`Crucible LOCKED â€¢ ${controller.sandfall.state.lifetimeCreated}/${condition.count} sand`, left, top + scaledY(44));
-          text('Exit sealed â€¢ queued sand waits safely', left, top + scaledY(66));
+          text(`Crucible LOCKED | ${controller.sandfall.state.lifetimeCreated}/${condition.count} sand`, left, top + scaledY(44));
+          text('Exit sealed | queued sand waits safely', left, top + scaledY(66));
         } else {
           fill(full ? '#fca5a5' : MENU_THEME.mutedText);
-          text(`Route: ${controller.transfers.length} transit â€¢ Reservoir ${reservoir}/${capacity}${full ? ' FULL' : ''}`, left, top + scaledY(44));
+          text(`Route: ${controller.transfers.length} transit | Reservoir ${reservoir}/${capacity}${full ? ' FULL' : ''}`, left, top + scaledY(44));
           fill(phase === 'ready' ? MENU_THEME.success : MENU_THEME.mutedText);
-          text(`Crucible: ${phase === 'ready' ? 'READY â€” press C' : phase}${batchSize ? ` â€¢ batch ${batchSize}` : ''}`, left, top + scaledY(66));
+          text(`Crucible: ${phase === 'ready' ? 'READY - press C' : phase}${batchSize ? ` | batch ${batchSize}` : ''}`, left, top + scaledY(66));
           fill(MENU_THEME.mutedText);
           text(`Output: ${economy.spendableByMaterial.stone} stone${economy.spendableByMaterial.stone === 1 ? '' : 's'}`, left, top + scaledY(88));
         }
         fill(MENU_THEME.mutedText);
-        text(`Cast x${castValue} â€¢ Gravity ${gravityValue.toFixed(0)} â€¢ Auto Cast ${controller.upgradeLevels['auto-cast'] > 0 ? 'ON' : 'OFF'}`, left, top + scaledY(116));
-        text(`Ritual x${stageUpgradeValue(controller.config, controller.upgradeLevels, 'ritual-speed').toFixed(1)} â€¢ Auto Ritual ${controller.upgradeLevels['auto-ritual'] > 0 ? 'ON' : 'OFF'}`, left, top + scaledY(138));
+        text(`Cast x${castValue} | Gravity ${gravityValue.toFixed(0)} | Auto Cast ${controller.upgradeLevels['auto-cast'] > 0 ? 'ON' : 'OFF'}`, left, top + scaledY(116));
+        text(`Ritual x${stageUpgradeValue(controller.config, controller.upgradeLevels, 'ritual-speed').toFixed(1)} | Auto Ritual ${controller.upgradeLevels['auto-ritual'] > 0 ? 'ON' : 'OFF'}`, left, top + scaledY(138));
         pop();
-        return y + cardH / 2 + scaledY(10);
+        return y + cardH + scaledY(10);
       }
 
       function formatGrainRate(value: number): string {
@@ -5645,10 +5602,11 @@ import { stageUpgradeValue } from './stages/stageConfig';
         let rowHeight = scaledY(18);
         let cardH = scaledY(90) + rows * rowHeight;
         let x = menuContentArea.center || SCREEN_W / 2;
-        drawGlassCard(x, y, cardW, cardH, MENU_THEME.accentSoft);
+        const centerY = y + cardH / 2;
+        drawGlassCard(x, centerY, cardW, cardH, MENU_THEME.accentSoft);
         let left = x - cardW / 2 + scaledX(16);
         let right = x + cardW / 2 - scaledX(16);
-        let topY = y - cardH / 2 + scaledY(24);
+        let topY = y + scaledY(24);
         push();
         textAlign(LEFT, CENTER);
         fill(MENU_THEME.text);
@@ -5660,7 +5618,7 @@ import { stageUpgradeValue } from './stages/stageConfig';
           fill(MENU_THEME.mutedText);
           text('Unlock modules to track production.', left, rowY);
           pop();
-          return y + cardH / 2 + scaledY(10);
+          return y + cardH + scaledY(10);
         }
         for (let entry of modules) {
           fill(MENU_THEME.mutedText);
@@ -5673,7 +5631,7 @@ import { stageUpgradeValue } from './stages/stageConfig';
           rowY += rowHeight;
         }
         pop();
-        return y + cardH / 2 + scaledY(10);
+        return y + cardH + scaledY(10);
       }
 
       function drawModuleSummaryCard(machine: MachineDefinition, y: number): number {
@@ -7350,6 +7308,9 @@ import { stageUpgradeValue } from './stages/stageConfig';
           }
         }
         if (localDebug && (key === 'd' || key === 'D')) dust += 100;
+        if (localDebug && (key === 'b' || key === 'B')) {
+          stageWorld.controller.sandfall.cast(stageWorld.controller.compression.recipeCount, 24);
+        }
         if (localDebug && (key === 'p' || key === 'P')) {
           totalDustEarned = Math.max(totalDustEarned, 200);
           performPrestige();
