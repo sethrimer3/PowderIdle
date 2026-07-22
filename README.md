@@ -2,13 +2,15 @@
 
 Powder Idle is a browser-based p5.js idle game. Its runtime is written in strict TypeScript, while balance and content remain editable in the four JSON files under `data/`.
 
-## Development
+## Browser development
 
 Requirements: a current Node.js LTS release and npm.
 
 ```bash
 npm install
 npm run dev
+npm test
+npm run build
 ```
 
 Vite prints the local development URL. Other supported commands are:
@@ -21,6 +23,40 @@ npm run preview     # serve the production build locally
 ```
 
 `dist/` and `node_modules/` are generated and intentionally ignored.
+
+## Electron development
+
+```bash
+npm run electron:dev
+```
+
+Development uses a separate `Powder Idle Development` Electron user-data profile, protecting production saves while preserving development saves between launches. DevTools are available only in this mode.
+
+## Local production launch
+
+```bash
+npm run electron:start
+```
+
+Production uses Electron's stable `Powder Idle` application identity and normal OS-managed user-data directory. The existing V3 local-storage save format persists between production launches; no desktop-specific save format is introduced. Smoke tests use a separate `Powder Idle Smoke Test` profile.
+
+## Packaging
+
+```bash
+npm run electron:pack
+npm run electron:dist
+npm run electron:dist:win
+```
+
+Unpacked applications and installers are written to `release/`. `electron:dist` builds only the current host target; Windows NSIS builds use `electron:dist:win`. Linux AppImage and macOS DMG/ZIP targets are configured, but must be built and runtime-verified on their respective host platforms. Development packages are unsigned. Code signing and macOS notarization remain future release-distribution work.
+
+The packaged renderer is served entirely from the secure local `app://powder-idle` origin. p5, Cinzel, configuration JSON, scripts, styles, and images are bundled, so normal play has no remote runtime dependency.
+
+Regenerate every checked-in desktop icon asset from its source SVG with:
+
+```bash
+npm run icons:build
+```
 
 ## Stage world framework
 
@@ -59,7 +95,7 @@ The runtime deliberately keeps the tightly coupled p5 rendering and legacy modul
 
 ## p5.js integration
 
-`index.html` loads p5.js 1.9.0 from the existing CDN. The TypeScript entry explicitly installs `setup`, `draw`, resize, mouse, touch, and keyboard callbacks on `window`, preserving p5 global-mode behavior. Vite compiles the TypeScript module for development and production.
+Vite bundles p5.js 2.3.1 from the local npm dependency. The TypeScript entry explicitly installs `setup`, `draw`, resize, mouse, touch, and keyboard callbacks on `window` before constructing p5, preserving global-mode behavior in browser and Electron builds.
 
 Controls remain unchanged:
 
@@ -70,9 +106,9 @@ Controls remain unchanged:
 
 ## JSON data and fallbacks
 
-The game fetches `data/powders.json`, `data/machines.json`, `data/upgrades.json`, and `data/progression.json` over HTTP at startup.
+The game fetches `data/powders.json`, `data/machines.json`, `data/upgrades.json`, and `data/progression.json` from the current application origin at startup. Stage configuration is bundled from `data/stages.json`.
 
-Fetched values are treated as `unknown` and validated field by field. A failed request or invalid file logs the affected path and loads that file's embedded fallback. Under the `file:` protocol, external fetches are skipped and all embedded fallbacks are used immediately. Vite uses relative production asset paths so `dist/index.html` can retain that local-file behavior where the browser permits local modules.
+Fetched values are treated as `unknown` and validated field by field. A failed request or invalid file logs the affected path and loads that file's embedded fallback. Packaged Electron uses the secure standard `app://powder-idle` protocol, so validated files load normally without relying on `file:` behavior or showing the fallback warning.
 
 ## Preserved baseline behavior
 

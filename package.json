@@ -40,6 +40,7 @@
   "build": {
     "appId": "com.sethrimer3.powderidle",
     "productName": "Powder Idle",
+    "electronDist": "node_modules/electron/dist",
     "asar": true,
     "directories": {
       "output": "release"
