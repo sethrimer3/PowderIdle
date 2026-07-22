@@ -88,6 +88,11 @@ export class MatterStore {
     entity.vy = vy;
     entity.movement = movement;
   }
+  setVelocity(id: EntityId, vx: number, vy: number): void {
+    const entity = this.mutable(id);
+    entity.vx = vx;
+    entity.vy = vy;
+  }
   compose(recipe: CompositeRecipe): EntityId {
     if (
       recipe.inputIds.length === 0 ||

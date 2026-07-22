@@ -38,14 +38,6 @@ export function renderSandfall(
   drawCornerRunes(surface, 2, 2);
   drawCornerRunes(surface, 46, 2, -1);
 
-  surface.stroke(...MYSTICAL_COLORS.violetDim);
-  surface.line(2, 36, 17, 42);
-  surface.line(46, 36, 30, 42);
-  surface.line(17, 42, 21, 46);
-  surface.line(30, 42, 26, 46);
-  surface.stroke(...MYSTICAL_COLORS.emberDim);
-  surface.line(21, 46, 26, 46);
-
   for (const id of state.activeIds) {
     const entity = matter.get(id);
     const moving = Math.abs(entity.vy) > 0.05 || entity.movement > 0.35;
@@ -75,17 +67,6 @@ export function renderSandfall(
     context.reservoirFull ? MYSTICAL_COLORS.emberLight[2] : context.destinationUnlocked ? MYSTICAL_COLORS.violet[2] : MYSTICAL_COLORS.graphite[2],
   );
   surface.circle(24, 46, 3 + aperturePulse * 2);
-  if (!context.destinationUnlocked || context.reservoirFull) {
-    surface.line(22, 46, 26, 46);
-    surface.line(24, 44, 24, 47);
-  } else {
-    surface.point(24, 47);
-    if (state.outputIds.length) {
-      surface.stroke(...MYSTICAL_COLORS.violet);
-      surface.point(23, 44);
-      surface.point(25, 43);
-    }
-  }
 
   drawConjurationEffects(surface, context.effects);
   if (context.autoCast) drawAutoSigil(surface, state.autoCastElapsed);

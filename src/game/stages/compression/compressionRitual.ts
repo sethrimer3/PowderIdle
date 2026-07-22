@@ -1,4 +1,4 @@
-import type { EntityId } from "../../matter/matterTypes";
+import type { EntityId, MaterialType } from "../../matter/matterTypes";
 import type { CompressionPhase } from "../stageTypes";
 export interface RitualMote {
   entityId: EntityId;
@@ -17,6 +17,7 @@ export interface CompressionBatch {
   outputEventId: string | null;
   stoneX: number;
   stoneY: number;
+  material: MaterialType;
 }
 export function ritualTarget(
   id: EntityId,

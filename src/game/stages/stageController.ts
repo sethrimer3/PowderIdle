@@ -6,6 +6,7 @@ import {
   type CompressionSave,
 } from "./compression/compressionStage";
 import { SandfallStage, type SandfallSave } from "./sandfall/sandfallStage";
+import { Stage3Stage, type Stage3Save } from "./stage3/stage3Stage";
 import { stageConnection } from "./stageConnections";
 import { stageDefinition } from "./stageDefinitions";
 import { connectionForSource, stageUpgradeValue } from "./stageConfig";
@@ -26,6 +27,8 @@ export interface StageSaveV3 {
   matter: MatterSnapshot;
   sandfall: SandfallSave;
   compression: CompressionSave;
+  stage3: Stage3Save;
+  quartzTransfers: StageTransfer[];
 }
 export interface StageResetOptions {
   preservePermanentBonuses: boolean;
@@ -73,12 +76,16 @@ export class StageController {
   readonly matter = new MatterStore();
   readonly sandfall: SandfallStage;
   readonly compression: CompressionStage;
+  readonly stage3: Stage3Stage;
   readonly unlocked = new Set<StageId>(["sandfall-atrium"]);
   readonly transfers: StageTransfer[] = [];
+  readonly quartzTransfers: StageTransfer[] = [];
   private readonly pendingEvents: StageEvent[] = [];
   readonly upgradeLevels = defaultLevels();
   private nextTransferId = 1;
   private transferBudget = 0;
+  private quartzTransferBudget = 0;
+  private static readonly QUARTZ_THROUGHPUT = 4;
   constructor(readonly config: StageConfig) {
     this.sandfall = new SandfallStage(
       stageDefinition(config, "sandfall-atrium"),
@@ -95,6 +102,7 @@ export class StageController {
       },
       (id, levels) => stageUpgradeValue(config, levels, id),
     );
+    this.stage3 = new Stage3Stage(stageDefinition(config, "stage-3"), this.matter);
     for (const id of Object.keys(this.upgradeLevels) as StageUpgradeId[])
       stageUpgradeValue(config, this.upgradeLevels, id);
   }
@@ -123,6 +131,8 @@ export class StageController {
     this.checkUnlocks();
     this.startTransfers(dt);
     this.updateTransfers(dt);
+    this.startQuartzTransfers(dt);
+    this.updateQuartzTransfers(dt);
     this.compression.update(context);
     this.flushCastEvents();
     this.flushInvocationEvents();
@@ -176,13 +186,16 @@ export class StageController {
     this.matter.reset();
     this.sandfall.reset();
     this.compression.reset();
+    this.stage3.reset();
     this.transfers.splice(0);
+    this.quartzTransfers.splice(0);
     this.unlocked.clear();
     this.unlocked.add("sandfall-atrium");
     Object.assign(this.upgradeLevels, defaultLevels());
     this.pendingEvents.splice(0);
     this.nextTransferId = 1;
     this.transferBudget = 0;
+    this.quartzTransferBudget = 0;
   }
   debugSeedOutputSand(count: number): EntityId[] {
     const ids: EntityId[] = [];
@@ -218,10 +231,12 @@ export class StageController {
       nextTransferId: this.nextTransferId,
       transferBudget: this.transferBudget,
       transfers: this.transfers.map((transfer) => ({ ...transfer })),
+      quartzTransfers: this.quartzTransfers.map((transfer) => ({ ...transfer })),
       upgradeLevels: { ...this.upgradeLevels },
       matter: this.matter.serialize(),
       sandfall: this.sandfall.serialize(),
       compression: this.compression.serialize(),
+      stage3: this.stage3.serialize(),
     };
   }
   hydrate(save: StageSaveV3): void {
@@ -244,7 +259,23 @@ export class StageController {
     }
     this.sandfall.hydrate(save.sandfall);
     this.compression.hydrate(save.compression);
+    this.stage3.hydrate(save.stage3 ?? this.stage3.serialize());
     this.transfers.splice(0);
+    this.quartzTransfers.splice(0);
+    for (const raw of save.quartzTransfers ?? []) {
+      const connection = this.config.connections.find((item) => item.id === raw.connectionId);
+      if (
+        !connection ||
+        connection.from !== this.compression.definition.id ||
+        connection.to !== this.stage3.definition.id ||
+        !this.unlocked.has(connection.to) ||
+        !this.matter.has(raw.entityId)
+      )
+        continue;
+      const owner = this.matter.get(raw.entityId).owner;
+      if (owner.kind !== "transfer" || owner.transferId !== raw.id) continue;
+      this.quartzTransfers.push({ ...raw, progress: Math.max(0, Math.min(1, raw.progress)) });
+    }
     const ids = new Set<string>();
     for (const raw of save.transfers) {
       if (ids.has(raw.id) || !Number.isFinite(raw.progress))
@@ -281,11 +312,23 @@ export class StageController {
     this.matter.assertInvariants();
   }
   private checkUnlocks(): void {
-    const definition = this.compression.definition,
-      condition = definition.unlockCondition;
+    this.tryUnlock(
+      this.compression.definition,
+      this.sandfall.state.lifetimeCreated,
+    );
+    this.tryUnlock(
+      this.stage3.definition,
+      this.compression.state.lifetimeQuartzCreated,
+    );
+  }
+  private tryUnlock(
+    definition: StageConfig["stages"][number],
+    counterValue: number,
+  ): void {
+    const condition = definition.unlockCondition;
     if (
       condition.kind === "lifetime-material" &&
-      this.sandfall.state.lifetimeCreated >= condition.count &&
+      counterValue >= condition.count &&
       !this.unlocked.has(definition.id)
     ) {
       this.unlocked.add(definition.id);
@@ -294,6 +337,38 @@ export class StageController {
         kind: "stage-unlocked",
         stageId: definition.id,
       });
+    }
+  }
+  private startQuartzTransfers(dt: number): void {
+    const connection = connectionForSource(this.config, this.compression.definition.id);
+    if (!connection || !this.unlocked.has(connection.to)) return;
+    this.quartzTransferBudget = Math.min(
+      StageController.QUARTZ_THROUGHPUT,
+      this.quartzTransferBudget + StageController.QUARTZ_THROUGHPUT * dt,
+    );
+    while (this.quartzTransferBudget >= 1) {
+      const entityId = this.compression.peekQuartzOutput();
+      if (entityId === null) break;
+      const id = `quartz-transfer-${this.nextTransferId++}`;
+      this.compression.removeOutput(entityId);
+      this.matter.move(
+        entityId,
+        { kind: "stage", stageId: this.compression.definition.id, slot: "output" },
+        { kind: "transfer", transferId: id },
+      );
+      this.quartzTransfers.push({ id, entityId, connectionId: connection.id, progress: 0 });
+      this.quartzTransferBudget -= 1;
+    }
+  }
+  private updateQuartzTransfers(dt: number): void {
+    for (let index = this.quartzTransfers.length - 1; index >= 0; index--) {
+      const transfer = this.quartzTransfers[index]!;
+      const connection = stageConnection(this.config, transfer.connectionId);
+      transfer.progress = Math.min(1, transfer.progress + dt / connection.duration);
+      if (transfer.progress < 1) continue;
+      if (this.stage3.acceptTransferredEntity(transfer.entityId, transfer.id))
+        this.quartzTransfers.splice(index, 1);
+      else transfer.progress = 1;
     }
   }
   private startTransfers(dt: number): void {
@@ -385,6 +460,10 @@ export class StageController {
     for (const id of this.sandfall.state.outputIds) requireOwner(id, "sandfall-atrium", "output");
     for (const id of this.compression.state.reservoirIds)
       requireOwner(id, "compression-crucible", "reservoir");
+    for (const id of this.compression.state.stoneReservoirIds)
+      requireOwner(id, "compression-crucible", "reservoir");
+    for (const id of this.stage3.state.reservoirIds)
+      requireOwner(id, "stage-3", "reservoir");
     const batch = this.compression.state.batch;
     if (batch) {
       const moteIds = batch.motes.map((mote) => mote.entityId);
@@ -407,6 +486,11 @@ export class StageController {
       ) throw new Error("Ritual output event ID is inconsistent");
     }
     for (const transfer of this.transfers) {
+      if (claims.has(transfer.entityId))
+        throw new Error(`Entity ${transfer.entityId} is claimed twice`);
+      claims.add(transfer.entityId);
+    }
+    for (const transfer of this.quartzTransfers) {
       if (claims.has(transfer.entityId))
         throw new Error(`Entity ${transfer.entityId} is claimed twice`);
       claims.add(transfer.entityId);

@@ -7,7 +7,7 @@ import type {
 } from "../game/stages/stageTypes";
 import type { StageUpgradeId } from "../game/stages/stageTypes";
 
-const materials = new Set<MaterialType>(["sand", "stone"]);
+const materials = new Set<MaterialType>(["sand", "stone", "quartz"]);
 const stageIds = new Set<StageId>([
   "sandfall-atrium",
   "compression-crucible",

@@ -1,5 +1,5 @@
 export type EntityId = number;
-export type MaterialType = "sand" | "stone";
+export type MaterialType = "sand" | "stone" | "quartz";
 export type StageId =
   | "sandfall-atrium"
   | "compression-crucible"

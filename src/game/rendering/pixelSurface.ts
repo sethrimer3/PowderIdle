@@ -7,6 +7,11 @@ export interface ViewportRect {
   sourceSize: number;
   scale: number;
 }
+// Baseline of 2 CSS/device-independent pixels per simulation pixel at zoom=1,
+// applied before camera zoom multiplies it further (deliberately independent
+// of devicePixelRatio, which the offscreen surface never touches).
+export const BASELINE_PIXEL_SCALE = 2;
+
 export function computeViewportRect(
   areaX: number,
   areaY: number,
@@ -16,9 +21,11 @@ export function computeViewportRect(
   zoom: number,
 ): ViewportRect {
   const sourceSize = 144 / zoom,
-    idealScale = available / sourceSize,
+    idealScale = (available / sourceSize) * BASELINE_PIXEL_SCALE,
     settled = Math.abs(zoom - Math.round(zoom)) < 0.0001,
-    scale = settled ? Math.max(1, Math.floor(idealScale)) : idealScale,
+    scale = settled
+      ? Math.max(1, Math.floor(available / sourceSize)) * BASELINE_PIXEL_SCALE
+      : idealScale,
     size = Math.floor(sourceSize * scale),
     x = Math.floor(areaX + (available - size) / 2),
     y = Math.floor(areaY + (available - size) / 2);

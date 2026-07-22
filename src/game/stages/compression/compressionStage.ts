@@ -1,5 +1,5 @@
 import { MatterStore } from "../../matter/matterStore";
-import type { EntityId } from "../../matter/matterTypes";
+import type { EntityId, MaterialType } from "../../matter/matterTypes";
 import type {
   CompressionPhase,
   StageDefinition,
@@ -18,13 +18,18 @@ import { outputSlot, reservoirPosition } from "../stageVisualModels";
 
 export interface CompressionState {
   reservoirIds: EntityId[];
+  stoneReservoirIds: EntityId[];
   outputIds: EntityId[];
   phase: CompressionPhase;
   batch: CompressionBatch | null;
   nextRitualId: number;
+  lifetimeQuartzCreated: number;
 }
 export interface CompressionSave {
   state: CompressionState;
+}
+function nextMaterial(input: MaterialType): MaterialType {
+  return input === "stone" ? "quartz" : "stone";
 }
 const order: CompressionPhase[] = [
   "levitating",
@@ -41,10 +46,12 @@ export class CompressionStage
 {
   readonly state: CompressionState = {
     reservoirIds: [],
+    stoneReservoirIds: [],
     outputIds: [],
     phase: "gathering",
     batch: null,
     nextRitualId: 1,
+    lifetimeQuartzCreated: 0,
   };
   private readonly pendingEvents: {
     id: string;
@@ -74,16 +81,25 @@ export class CompressionStage
     entityId: EntityId,
     upgrades: StageUpdateContext["upgrades"],
   ): boolean {
-    if (this.state.reservoirIds.length >= this.capacity(upgrades)) return false;
     const entity = this.matter.get(entityId);
     if (
-      entity.material !== "sand" ||
       entity.owner.kind !== "stage" ||
       entity.owner.stageId !== this.definition.id ||
-      entity.owner.slot !== "reservoir" ||
-      this.state.reservoirIds.includes(entityId)
+      entity.owner.slot !== "reservoir"
     ) return false;
-    this.state.reservoirIds.push(entityId);
+    if (entity.material === "sand") {
+      if (
+        this.state.reservoirIds.length >= this.capacity(upgrades) ||
+        this.state.reservoirIds.includes(entityId)
+      ) return false;
+      this.state.reservoirIds.push(entityId);
+    } else if (entity.material === "stone") {
+      if (
+        this.state.stoneReservoirIds.length >= this.capacity(upgrades) ||
+        this.state.stoneReservoirIds.includes(entityId)
+      ) return false;
+      this.state.stoneReservoirIds.push(entityId);
+    } else return false;
     this.settleReservoir();
     return true;
   }
@@ -92,20 +108,34 @@ export class CompressionStage
     transferId: string,
     upgrades: StageUpdateContext["upgrades"],
   ): boolean {
-    if (this.state.reservoirIds.length >= this.capacity(upgrades)) return false;
     const entity = this.matter.get(entityId);
     if (
-      entity.material !== "sand" ||
       entity.owner.kind !== "transfer" ||
-      entity.owner.transferId !== transferId ||
-      this.state.reservoirIds.includes(entityId)
+      entity.owner.transferId !== transferId
     ) return false;
-    this.matter.move(entityId, entity.owner, {
-      kind: "stage",
-      stageId: this.definition.id,
-      slot: "reservoir",
-    });
-    this.state.reservoirIds.push(entityId);
+    if (entity.material === "sand") {
+      if (
+        this.state.reservoirIds.length >= this.capacity(upgrades) ||
+        this.state.reservoirIds.includes(entityId)
+      ) return false;
+      this.matter.move(entityId, entity.owner, {
+        kind: "stage",
+        stageId: this.definition.id,
+        slot: "reservoir",
+      });
+      this.state.reservoirIds.push(entityId);
+    } else if (entity.material === "stone") {
+      if (
+        this.state.stoneReservoirIds.length >= this.capacity(upgrades) ||
+        this.state.stoneReservoirIds.includes(entityId)
+      ) return false;
+      this.matter.move(entityId, entity.owner, {
+        kind: "stage",
+        stageId: this.definition.id,
+        slot: "reservoir",
+      });
+      this.state.stoneReservoirIds.push(entityId);
+    } else return false;
     this.settleReservoir();
     return true;
   }
@@ -113,7 +143,8 @@ export class CompressionStage
     this.settleReservoir();
     if (
       this.state.phase === "gathering" &&
-      this.state.reservoirIds.length >= this.recipeCount
+      (this.state.reservoirIds.length >= this.recipeCount ||
+        this.state.stoneReservoirIds.length >= this.recipeCount)
     )
       this.state.phase = "ready";
     if (
@@ -138,12 +169,16 @@ export class CompressionStage
     if (batch.elapsed >= duration) this.advance(batch);
   }
   invoke(automatic = false): boolean {
-    if (
-      this.state.phase !== "ready" ||
-      this.state.reservoirIds.length < this.recipeCount
-    )
-      return false;
-    const ids = this.state.reservoirIds.splice(0, this.recipeCount);
+    if (this.state.phase !== "ready") return false;
+    let material: MaterialType, source: EntityId[];
+    if (this.state.reservoirIds.length >= this.recipeCount) {
+      material = "sand";
+      source = this.state.reservoirIds;
+    } else if (this.state.stoneReservoirIds.length >= this.recipeCount) {
+      material = "stone";
+      source = this.state.stoneReservoirIds;
+    } else return false;
+    const ids = source.splice(0, this.recipeCount);
     const ritualId = `ritual-${this.state.nextRitualId++}`;
     const motes = ids.map((entityId, index) => {
       const entity = this.matter.get(entityId),
@@ -171,6 +206,7 @@ export class CompressionStage
       outputEventId: null,
       stoneX: 24,
       stoneY: 24,
+      material,
     };
     this.state.phase = "levitating";
     if (this.pendingInvocations.length >= 8) this.pendingInvocations.shift();
@@ -189,10 +225,12 @@ export class CompressionStage
   }
   reset(): void {
     this.state.reservoirIds = [];
+    this.state.stoneReservoirIds = [];
     this.state.outputIds = [];
     this.state.phase = "gathering";
     this.state.batch = null;
     this.state.nextRitualId = 1;
+    this.state.lifetimeQuartzCreated = 0;
     this.pendingEvents.splice(0);
     this.pendingInvocations.splice(0);
   }
@@ -201,6 +239,7 @@ export class CompressionStage
       state: {
         ...this.state,
         reservoirIds: [...this.state.reservoirIds],
+        stoneReservoirIds: [...this.state.stoneReservoirIds],
         outputIds: [...this.state.outputIds],
         batch: this.state.batch
           ? {
@@ -214,11 +253,14 @@ export class CompressionStage
   hydrate(data: CompressionSave): void {
     const saved = data.state;
     this.state.reservoirIds = [...saved.reservoirIds];
+    this.state.stoneReservoirIds = [...(saved.stoneReservoirIds ?? [])];
     this.state.outputIds = [...saved.outputIds];
     this.state.nextRitualId = Math.max(1, saved.nextRitualId);
+    this.state.lifetimeQuartzCreated = saved.lifetimeQuartzCreated ?? 0;
     this.state.batch = saved.batch
       ? {
           ...saved.batch,
+          material: saved.batch.material ?? "sand",
           motes: saved.batch.motes.map((mote) => ({ ...mote })),
         }
       : null;
@@ -235,9 +277,24 @@ export class CompressionStage
       dy = y - 24;
     return dx * dx + dy * dy <= 36;
   }
+  removeOutput(id: EntityId): void {
+    const index = this.state.outputIds.indexOf(id);
+    if (index >= 0) this.state.outputIds.splice(index, 1);
+  }
+  peekQuartzOutput(): EntityId | null {
+    const pending = this.state.batch?.outputStoneId ?? null;
+    for (const id of this.state.outputIds)
+      if (id !== pending && this.matter.get(id).material === "quartz") return id;
+    return null;
+  }
   private settleReservoir(): void {
     for (let index = 0; index < this.state.reservoirIds.length; index++) {
       const id = this.state.reservoirIds[index]!;
+      const position = reservoirPosition(index, id);
+      this.matter.setPosition(id, position.x, position.y);
+    }
+    for (let index = 0; index < this.state.stoneReservoirIds.length; index++) {
+      const id = this.state.stoneReservoirIds[index]!;
       const position = reservoirPosition(index, id);
       this.matter.setPosition(id, position.x, position.y);
     }
@@ -296,7 +353,8 @@ export class CompressionStage
     if (next === "gathering") {
       this.state.batch = null;
       this.state.phase =
-        this.state.reservoirIds.length >= this.recipeCount
+        this.state.reservoirIds.length >= this.recipeCount ||
+        this.state.stoneReservoirIds.length >= this.recipeCount
           ? "ready"
           : "gathering";
     }
@@ -312,9 +370,10 @@ export class CompressionStage
       stageId: this.definition.id,
       slot: "ritual",
     } as const;
+    const outputMaterial = nextMaterial(batch.material);
     const stoneId = this.matter.compose({
-      material: "stone",
-      inputMaterial: "sand",
+      material: outputMaterial,
+      inputMaterial: batch.material,
       inputIds: ids,
       expectedOwner: expected,
       outputOwner: {
@@ -325,6 +384,7 @@ export class CompressionStage
       origin: this.definition.id,
     });
     this.matter.setPosition(stoneId, 24, 24);
+    if (outputMaterial === "quartz") this.state.lifetimeQuartzCreated++;
     batch.conversionCompleted = true;
     batch.outputStoneId = stoneId;
     batch.outputEventId = `conversion:${batch.ritualId}`;

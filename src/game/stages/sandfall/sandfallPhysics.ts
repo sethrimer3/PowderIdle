@@ -4,106 +4,92 @@ import { MatterStore } from "../../matter/matterStore";
 export interface SandfallPhysicsConfig {
   width: number;
   height: number;
-  funnelMinX: number;
-  funnelMaxX: number;
   gravity: number;
-  maxStepsPerUpdate: number;
 }
+
+const ATTRACTION_G = 3;
+const ATTRACTION_EPS = 0.5;
+const MAX_FORCE = 30;
+const INTERACTION_RADIUS = 5;
+const WALL_MARGIN = 2;
+
 export class SandfallPhysics {
-  private readonly occupancy: Uint32Array;
   constructor(
     private readonly matter: MatterStore,
     private readonly config: SandfallPhysicsConfig,
-  ) {
-    this.occupancy = new Uint32Array(config.width * config.height);
-  }
+  ) {}
   setGravity(gravity: number): void {
     this.config.gravity = gravity;
   }
-  update(
-    ids: readonly EntityId[],
-    dt: number,
-    onFunnel: (id: EntityId) => void,
-  ): void {
-    this.occupancy.fill(0);
+  update(ids: readonly EntityId[], dt: number): void {
+    if (ids.length === 0) return;
+    const cell = INTERACTION_RADIUS;
+    const key = (x: number, y: number) =>
+      `${Math.floor(x / cell)},${Math.floor(y / cell)}`;
+    const positions = new Map<EntityId, { x: number; y: number }>();
+    const grid = new Map<string, EntityId[]>();
     for (const id of ids) {
       const entity = this.matter.get(id);
-      this.occupancy[this.index(Math.round(entity.x), Math.round(entity.y))] =
-        id;
+      positions.set(id, { x: entity.x, y: entity.y });
+      const bucketKey = key(entity.x, entity.y);
+      const bucket = grid.get(bucketKey);
+      if (bucket) bucket.push(id);
+      else grid.set(bucketKey, [id]);
     }
-    for (let index = ids.length - 1; index >= 0; index--) {
-      const id = ids[index]!,
-        entity = this.matter.get(id);
-      let x = Math.round(entity.x),
-        y = Math.round(entity.y),
-        movement =
-          entity.movement +
-          entity.vy * dt +
-          0.5 * this.config.gravity * dt * dt,
-        velocity = entity.vy + this.config.gravity * dt,
-        steps = Math.min(this.config.maxStepsPerUpdate, Math.floor(movement));
-      this.occupancy[this.index(x, y)] = 0;
-      movement -= steps;
-      while (steps-- > 0) {
-        if (
-          y >= this.config.height - 3 &&
-          x >= this.config.funnelMinX &&
-          x <= this.config.funnelMaxX
-        ) {
-          onFunnel(id);
-          break;
+    const accel = new Map<EntityId, { ax: number; ay: number }>();
+    for (const id of ids) accel.set(id, { ax: 0, ay: this.config.gravity });
+    const radiusSq = INTERACTION_RADIUS * INTERACTION_RADIUS;
+    for (const id of ids) {
+      const p = positions.get(id)!;
+      const cx = Math.floor(p.x / cell),
+        cy = Math.floor(p.y / cell);
+      for (let dx = -1; dx <= 1; dx++)
+        for (let dy = -1; dy <= 1; dy++) {
+          const bucket = grid.get(`${cx + dx},${cy + dy}`);
+          if (!bucket) continue;
+          for (const other of bucket) {
+            if (other <= id) continue;
+            const q = positions.get(other)!;
+            const ddx = q.x - p.x,
+              ddy = q.y - p.y,
+              distSq = ddx * ddx + ddy * ddy;
+            if (distSq > radiusSq) continue;
+            const dist = Math.sqrt(distSq) || 1,
+              force = Math.min(MAX_FORCE, ATTRACTION_G / (distSq + ATTRACTION_EPS)),
+              fx = (ddx / dist) * force,
+              fy = (ddy / dist) * force,
+              a1 = accel.get(id)!,
+              a2 = accel.get(other)!;
+            a1.ax += fx;
+            a1.ay += fy;
+            a2.ax -= fx;
+            a2.ay -= fy;
+          }
         }
-        const preference = ((id + y) & 1) === 0 ? 1 : -1;
-        if (this.empty(x, y + 1)) {
-          y++;
-          continue;
-        }
-        if (this.empty(x + preference, y + 1)) {
-          x += preference;
-          y++;
-          continue;
-        }
-        if (this.empty(x - preference, y + 1)) {
-          x -= preference;
-          y++;
-          continue;
-        }
-        const toward =
-          x < this.config.funnelMinX ? 1 : x > this.config.funnelMaxX ? -1 : 0;
-        if (
-          y >= this.config.height - 6 &&
-          toward !== 0 &&
-          this.empty(x + toward, y)
-        ) {
-          x += toward;
-          continue;
-        }
-        velocity = 0;
-        movement = 0;
-        break;
-      }
-      const owner = this.matter.get(id).owner;
-      if (
-        owner.kind === "stage" &&
-        owner.stageId === "sandfall-atrium" &&
-        owner.slot === "active"
-      ) {
-        this.matter.setPosition(id, x, y);
-        this.matter.setMotion(id, velocity, movement);
-        this.occupancy[this.index(x, y)] = id;
-      }
     }
-  }
-  private empty(x: number, y: number): boolean {
-    return (
-      x > 1 &&
-      x < this.config.width - 2 &&
-      y >= 0 &&
-      y < this.config.height - 2 &&
-      this.occupancy[this.index(x, y)] === 0
-    );
-  }
-  private index(x: number, y: number): number {
-    return y * this.config.width + x;
+    for (const id of ids) {
+      const entity = this.matter.get(id),
+        a = accel.get(id)!;
+      let vx = entity.vx + a.ax * dt,
+        vy = entity.vy + a.ay * dt,
+        x = entity.x + vx * dt,
+        y = entity.y + vy * dt;
+      if (x < WALL_MARGIN) {
+        x = WALL_MARGIN;
+        vx = 0;
+      } else if (x > this.config.width - WALL_MARGIN) {
+        x = this.config.width - WALL_MARGIN;
+        vx = 0;
+      }
+      if (y < 0) {
+        y = 0;
+        vy = 0;
+      } else if (y > this.config.height - WALL_MARGIN) {
+        y = this.config.height - WALL_MARGIN;
+        vy = 0;
+      }
+      this.matter.setPosition(id, x, y);
+      this.matter.setVelocity(id, vx, vy);
+    }
   }
 }
