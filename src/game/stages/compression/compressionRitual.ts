@@ -37,3 +37,28 @@ export function phaseProgress(
 ): number {
   return Math.max(0, Math.min(1, batch.elapsed / duration));
 }
+
+const minimumDurations: Partial<Record<CompressionPhase, number>> = {
+  levitating: 0.3,
+  aligning: 0.25,
+  compressing: 0.2,
+  impact: 0.08,
+  revealing: 0.3,
+  releasing: 0.24,
+  cooldown: 0.1,
+};
+
+export function readablePhaseSpeed(
+  phase: CompressionPhase,
+  configuredSpeed: number,
+  configuredDuration: number,
+): number {
+  const requested = Math.max(0.05, configuredSpeed);
+  const minimum = minimumDurations[phase] ?? 0.05;
+  return Math.min(requested, configuredDuration / minimum);
+}
+
+export function compressionScale(progress: number): number {
+  const p = Math.max(0, Math.min(1, progress));
+  return (1 - p) ** 3;
+}

@@ -39,12 +39,24 @@ export interface MaterialEconomyView {
   processingByMaterial: { sand: number; stone: number };
   containedByMaterial: { sand: number; stone: number };
 }
-export interface StageEvent {
-  id: string;
-  kind: "stage-unlocked" | "conversion";
-  stageId: StageId;
-  entityId?: EntityId;
-}
+export type StageEvent =
+  | { id: string; kind: "stage-unlocked"; stageId: StageId }
+  | { id: string; kind: "conversion"; stageId: StageId; entityId: EntityId }
+  | {
+      id: string;
+      kind: "cast";
+      stageId: StageId;
+      entityIds: readonly EntityId[];
+      x: number;
+      automatic: boolean;
+    }
+  | {
+      id: string;
+      kind: "ritual-started";
+      stageId: StageId;
+      ritualId: string;
+      automatic: boolean;
+    };
 const defaultLevels = (): Record<StageUpgradeId, number> => ({
   "manual-cast-count": 0,
   "cast-cooldown": 0,
@@ -112,6 +124,8 @@ export class StageController {
     this.startTransfers(dt);
     this.updateTransfers(dt);
     this.compression.update(context);
+    this.flushCastEvents();
+    this.flushInvocationEvents();
     this.flushConversionEvents();
     this.validateStageCollections();
     this.matter.assertInvariants();
@@ -410,5 +424,26 @@ export class StageController {
         );
       claims.add(id);
     }
+  }
+  private flushCastEvents(): void {
+    for (const event of this.sandfall.drainCastEvents())
+      this.pendingEvents.push({
+        id: `cast:${event.entityIds[0] ?? 0}`,
+        kind: "cast",
+        stageId: this.sandfall.definition.id,
+        entityIds: event.entityIds,
+        x: event.x,
+        automatic: event.automatic,
+      });
+  }
+  private flushInvocationEvents(): void {
+    for (const event of this.compression.drainInvocations())
+      this.pendingEvents.push({
+        id: `invoke:${event.ritualId}`,
+        kind: "ritual-started",
+        stageId: this.compression.definition.id,
+        ritualId: event.ritualId,
+        automatic: event.automatic,
+      });
   }
 }

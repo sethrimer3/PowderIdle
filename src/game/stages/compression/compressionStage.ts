@@ -8,7 +8,13 @@ import type {
   StageUpdateContext,
   StageUpgradeId,
 } from "../stageTypes";
-import { ritualTarget, type CompressionBatch } from "./compressionRitual";
+import {
+  compressionScale,
+  readablePhaseSpeed,
+  ritualTarget,
+  type CompressionBatch,
+} from "./compressionRitual";
+import { outputSlot, reservoirPosition } from "../stageVisualModels";
 
 export interface CompressionState {
   reservoirIds: EntityId[];
@@ -45,6 +51,10 @@ export class CompressionStage
     ritualId: string;
     stoneId: EntityId;
   }[] = [];
+  private readonly pendingInvocations: Array<{
+    ritualId: string;
+    automatic: boolean;
+  }> = [];
   constructor(
     readonly definition: StageDefinition,
     private readonly matter: MatterStore,
@@ -110,7 +120,7 @@ export class CompressionStage
       this.state.phase === "ready" &&
       this.upgradeValue("auto-ritual", context.upgrades) > 0
     )
-      this.invoke();
+      this.invoke(true);
     const batch = this.state.batch;
     if (!batch || batch.phase === "gathering" || batch.phase === "ready")
       return;
@@ -118,12 +128,16 @@ export class CompressionStage
       batch.phase === "releasing"
         ? this.upgradeValue("release-speed", context.upgrades)
         : this.upgradeValue("ritual-speed", context.upgrades);
-    batch.elapsed += context.dt * speed;
+    batch.elapsed += context.dt * readablePhaseSpeed(
+      batch.phase,
+      speed,
+      this.timings[batch.phase],
+    );
     this.updateRitualPositions(batch);
     const duration = this.timings[batch.phase];
     if (batch.elapsed >= duration) this.advance(batch);
   }
-  invoke(): boolean {
+  invoke(automatic = false): boolean {
     if (
       this.state.phase !== "ready" ||
       this.state.reservoirIds.length < this.recipeCount
@@ -159,6 +173,8 @@ export class CompressionStage
       stoneY: 24,
     };
     this.state.phase = "levitating";
+    if (this.pendingInvocations.length >= 8) this.pendingInvocations.shift();
+    this.pendingInvocations.push({ ritualId, automatic });
     return true;
   }
   render(_context: StageRenderContext): void {}
@@ -168,6 +184,9 @@ export class CompressionStage
   drainEvents(): Array<{ id: string; ritualId: string; stoneId: EntityId }> {
     return this.pendingEvents.splice(0);
   }
+  drainInvocations(): Array<{ ritualId: string; automatic: boolean }> {
+    return this.pendingInvocations.splice(0);
+  }
   reset(): void {
     this.state.reservoirIds = [];
     this.state.outputIds = [];
@@ -175,6 +194,7 @@ export class CompressionStage
     this.state.batch = null;
     this.state.nextRitualId = 1;
     this.pendingEvents.splice(0);
+    this.pendingInvocations.splice(0);
   }
   serialize(): CompressionSave {
     return {
@@ -204,10 +224,11 @@ export class CompressionStage
       : null;
     this.state.phase = saved.phase;
     this.pendingEvents.splice(0);
+    this.pendingInvocations.splice(0);
     this.settleReservoir();
   }
   outputPosition(index: number): { x: number; y: number } {
-    return { x: 6 + (index % 10) * 4, y: 42 - Math.floor(index / 10) * 4 };
+    return outputSlot(index);
   }
   glyphContains(x: number, y: number): boolean {
     const dx = x - 24,
@@ -216,28 +237,38 @@ export class CompressionStage
   }
   private settleReservoir(): void {
     for (let index = 0; index < this.state.reservoirIds.length; index++) {
-      const id = this.state.reservoirIds[index]!,
-        column = index % 38,
-        row = Math.floor(index / 38),
-        wave = (((id * 13) % 7) - 3) * 0.08;
-      this.matter.setPosition(id, 5 + column + wave, 43 - Math.min(13, row));
+      const id = this.state.reservoirIds[index]!;
+      const position = reservoirPosition(index, id);
+      this.matter.setPosition(id, position.x, position.y);
     }
   }
   private updateRitualPositions(batch: CompressionBatch): void {
-    const duration = this.timings[batch.phase],
+      const duration = this.timings[batch.phase],
       p = Math.max(0, Math.min(1, batch.elapsed / duration));
-    for (const mote of batch.motes) {
+    for (let index = 0; index < batch.motes.length; index++) {
+      const mote = batch.motes[index]!;
       if (batch.conversionCompleted) break;
       let x = mote.targetX,
         y = mote.targetY;
       if (batch.phase === "levitating") {
-        const eased = 1 - (1 - p) ** 3;
+        const stagger = ((mote.entityId * 17 + index) % 11) / 70;
+        const local = Math.max(0, Math.min(1, (p - stagger) / (1 - stagger)));
+        const eased = 1 - (1 - local) ** 3;
         x = mote.startX + (mote.targetX - mote.startX) * eased;
         y = mote.startY + (mote.targetY - mote.startY) * eased;
+      } else if (batch.phase === "aligning") {
+        const angle = p * 0.35 * (index % 2 === 0 ? 1 : -1);
+        const dx = mote.targetX - 24,
+          dy = mote.targetY - 24;
+        x = 24 + dx * Math.cos(angle) - dy * Math.sin(angle);
+        y = 24 + dx * Math.sin(angle) + dy * Math.cos(angle);
       } else if (batch.phase === "compressing") {
-        const scale = (1 - p) ** 3;
-        x = 24 + (mote.targetX - 24) * scale;
-        y = 24 + (mote.targetY - 24) * scale;
+        const scale = compressionScale(p);
+        const angle = p * p * 1.2 * (index % 2 === 0 ? 1 : -1);
+        const dx = mote.targetX - 24,
+          dy = mote.targetY - 24;
+        x = 24 + (dx * Math.cos(angle) - dy * Math.sin(angle)) * scale;
+        y = 24 + (dx * Math.sin(angle) + dy * Math.cos(angle)) * scale;
       }
       this.matter.setPosition(mote.entityId, x, y);
     }
@@ -246,7 +277,7 @@ export class CompressionStage
         batchIndex = this.state.outputIds.indexOf(batch.outputStoneId),
         target = this.outputPosition(Math.max(0, batchIndex));
       batch.stoneX = 24 + (target.x - 24) * release;
-      batch.stoneY = 24 + (target.y - 24) * release;
+      batch.stoneY = 24 + (target.y - 24) * release - Math.sin(release * Math.PI) * 3;
       this.matter.setPosition(batch.outputStoneId, batch.stoneX, batch.stoneY);
     }
   }

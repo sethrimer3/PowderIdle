@@ -17,6 +17,11 @@ export interface SandfallState {
   autoCastElapsed: number;
 }
 export interface SandfallSave extends SandfallState {}
+export interface SandCastEvent {
+  entityIds: readonly EntityId[];
+  x: number;
+  automatic: boolean;
+}
 export class SandfallStage
   implements StageSimulation<SandfallState, SandfallSave>
 {
@@ -28,6 +33,7 @@ export class SandfallStage
     autoCastElapsed: 0,
   };
   private readonly physics: SandfallPhysics;
+  private readonly pendingCastEvents: SandCastEvent[] = [];
   constructor(
     readonly definition: StageDefinition,
     private readonly matter: MatterStore,
@@ -46,7 +52,7 @@ export class SandfallStage
       maxStepsPerUpdate: 6,
     });
   }
-  cast(count: number, x = 24, cooldown = 0): EntityId[] {
+  cast(count: number, x = 24, cooldown = 0, automatic = false): EntityId[] {
     if (this.state.castCooldown > 0) return [];
     const ids: EntityId[] = [];
     for (let i = 0; i < count; i++) {
@@ -61,6 +67,10 @@ export class SandfallStage
       ids.push(id);
     }
     this.state.castCooldown = Math.max(0, cooldown);
+    if (ids.length) {
+      if (this.pendingCastEvents.length >= 24) this.pendingCastEvents.shift();
+      this.pendingCastEvents.push({ entityIds: ids, x, automatic });
+    }
     return ids;
   }
   update(context: StageUpdateContext): void {
@@ -79,6 +89,7 @@ export class SandfallStage
           Math.max(1, Math.floor(autoCast)),
           24,
           Math.max(0.02, this.upgradeValue("cast-cooldown", context.upgrades)),
+          true,
         );
       }
     }
@@ -89,6 +100,10 @@ export class SandfallStage
     this.state.outputIds = [];
     this.state.castCooldown = 0;
     this.state.autoCastElapsed = 0;
+    this.pendingCastEvents.splice(0);
+  }
+  drainCastEvents(): SandCastEvent[] {
+    return this.pendingCastEvents.splice(0);
   }
   render(_context: StageRenderContext): void {}
   acceptEntity(_entityId: EntityId): boolean {
@@ -109,6 +124,7 @@ export class SandfallStage
       activeIds: [...data.activeIds],
       outputIds: [...data.outputIds],
     });
+    this.pendingCastEvents.splice(0);
   }
   removeOutput(id: EntityId): void {
     const index = this.state.outputIds.indexOf(id);
