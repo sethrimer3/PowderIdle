@@ -8,6 +8,7 @@ import {
 import { SandfallStage, type SandfallSave } from "./sandfall/sandfallStage";
 import { stageConnection } from "./stageConnections";
 import { stageDefinition } from "./stageDefinitions";
+import { connectionForSource, stageUpgradeValue } from "./stageConfig";
 import type {
   StageConfig,
   StageTransfer,
@@ -15,15 +16,28 @@ import type {
   StageUpdateContext,
 } from "./stageTypes";
 
-export interface StageSaveV2 {
-  version: 2;
+export interface StageSaveV3 {
+  version: 3;
   unlocked: StageId[];
   nextTransferId: number;
+  transferBudget: number;
   transfers: StageTransfer[];
   upgradeLevels: Record<StageUpgradeId, number>;
   matter: MatterSnapshot;
   sandfall: SandfallSave;
   compression: CompressionSave;
+}
+export interface StageResetOptions {
+  preservePermanentBonuses: boolean;
+}
+export interface MaterialEconomyView {
+  totalByMaterial: { sand: number; stone: number };
+  displayedByMaterial: { sand: number; stone: number };
+  spendableByMaterial: { sand: number; stone: number };
+  activeByMaterial: { sand: number; stone: number };
+  queuedByMaterial: { sand: number; stone: number };
+  processingByMaterial: { sand: number; stone: number };
+  containedByMaterial: { sand: number; stone: number };
 }
 export interface StageEvent {
   id: string;
@@ -49,7 +63,7 @@ export class StageController {
   readonly compression: CompressionStage;
   readonly unlocked = new Set<StageId>(["sandfall-atrium"]);
   readonly transfers: StageTransfer[] = [];
-  readonly events: StageEvent[] = [];
+  private readonly pendingEvents: StageEvent[] = [];
   readonly upgradeLevels = defaultLevels();
   private nextTransferId = 1;
   private transferBudget = 0;
@@ -57,6 +71,7 @@ export class StageController {
     this.sandfall = new SandfallStage(
       stageDefinition(config, "sandfall-atrium"),
       this.matter,
+      (id, levels) => stageUpgradeValue(config, levels, id),
     );
     this.compression = new CompressionStage(
       stageDefinition(config, "compression-crucible"),
@@ -66,17 +81,22 @@ export class StageController {
         ready: Number.POSITIVE_INFINITY,
         ...config.ritualTimings,
       },
+      (id, levels) => stageUpgradeValue(config, levels, id),
     );
+    for (const id of Object.keys(this.upgradeLevels) as StageUpgradeId[])
+      stageUpgradeValue(config, this.upgradeLevels, id);
   }
-  castSand(baseCount = 1, x = 24): readonly EntityId[] {
-    const count = Math.max(
-      1,
-      baseCount + this.upgradeLevels["manual-cast-count"],
-    );
-    const cooldown = Math.max(
-      0.02,
-      0.1 - this.upgradeLevels["cast-cooldown"] * 0.01,
-    );
+  castSand(requestedCount?: number, x = 24): readonly EntityId[] {
+    const count = Math.max(1, Math.floor(requestedCount ?? stageUpgradeValue(
+      this.config,
+      this.upgradeLevels,
+      "manual-cast-count",
+    )));
+    const cooldown = Math.max(0.02, stageUpgradeValue(
+      this.config,
+      this.upgradeLevels,
+      "cast-cooldown",
+    ));
     return this.sandfall.cast(count, x, cooldown);
   }
   invokeRitual(): boolean {
@@ -93,6 +113,7 @@ export class StageController {
     this.updateTransfers(dt);
     this.compression.update(context);
     this.flushConversionEvents();
+    this.validateStageCollections();
     this.matter.assertInvariants();
   }
   cameraTarget(): CameraTarget {
@@ -113,11 +134,75 @@ export class StageController {
     this.upgradeLevels[id] = current + 1;
     return true;
   }
-  serialize(): StageSaveV2 {
+  drainEvents(): StageEvent[] {
+    return this.pendingEvents.splice(0);
+  }
+  economyView(): MaterialEconomyView {
+    const batch = this.compression.state.batch;
+    const ritualSand = batch && !batch.conversionCompleted ? batch.motes.length : 0;
+    const activeSand = this.sandfall.state.activeIds.length + this.sandfall.state.outputIds.length;
+    const queuedSand = this.transfers.length;
+    const reservoirSand = this.compression.state.reservoirIds.length;
+    const stone = this.compression.state.outputIds.length;
+    const containedSand = this.matter.serialize().entities.filter(
+      (entity) => entity.material === "sand" && entity.owner.kind === "contained",
+    ).length;
+    const displayedSand = activeSand + queuedSand + reservoirSand + ritualSand;
     return {
-      version: 2,
+      totalByMaterial: { sand: displayedSand + containedSand, stone },
+      displayedByMaterial: { sand: displayedSand, stone },
+      spendableByMaterial: { sand: reservoirSand, stone },
+      activeByMaterial: { sand: activeSand, stone: 0 },
+      queuedByMaterial: { sand: queuedSand, stone: 0 },
+      processingByMaterial: { sand: ritualSand, stone: 0 },
+      containedByMaterial: { sand: containedSand, stone: 0 },
+    };
+  }
+  resetForPrestige(_options: StageResetOptions): void {
+    this.matter.reset();
+    this.sandfall.reset();
+    this.compression.reset();
+    this.transfers.splice(0);
+    this.unlocked.clear();
+    this.unlocked.add("sandfall-atrium");
+    Object.assign(this.upgradeLevels, defaultLevels());
+    this.pendingEvents.splice(0);
+    this.nextTransferId = 1;
+    this.transferBudget = 0;
+  }
+  debugSeedOutputSand(count: number): EntityId[] {
+    const ids: EntityId[] = [];
+    for (let index = 0; index < count; index++) {
+      const id = this.matter.create(
+        "sand",
+        { kind: "stage", stageId: this.sandfall.definition.id, slot: "output" },
+        this.sandfall.definition.id,
+      );
+      this.sandfall.state.outputIds.push(id);
+      ids.push(id);
+    }
+    return ids;
+  }
+  debugSeedReservoirSand(count: number): EntityId[] {
+    const ids: EntityId[] = [];
+    for (let index = 0; index < count; index++) {
+      const id = this.matter.create(
+        "sand",
+        { kind: "stage", stageId: this.compression.definition.id, slot: "reservoir" },
+        this.sandfall.definition.id,
+      );
+      if (!this.compression.acceptEntity(id, this.upgradeLevels))
+        throw new Error("Debug reservoir seed exceeded configured capacity");
+      ids.push(id);
+    }
+    return ids;
+  }
+  serialize(): StageSaveV3 {
+    return {
+      version: 3,
       unlocked: [...this.unlocked],
       nextTransferId: this.nextTransferId,
+      transferBudget: this.transferBudget,
       transfers: this.transfers.map((transfer) => ({ ...transfer })),
       upgradeLevels: { ...this.upgradeLevels },
       matter: this.matter.serialize(),
@@ -125,8 +210,8 @@ export class StageController {
       compression: this.compression.serialize(),
     };
   }
-  hydrate(save: StageSaveV2): void {
-    if (save.version !== 2) throw new Error("Unsupported stage save version");
+  hydrate(save: StageSaveV3): void {
+    if (save.version !== 3) throw new Error("Unsupported stage save version");
     this.matter.hydrate(save.matter);
     this.unlocked.clear();
     for (const id of save.unlocked) {
@@ -165,6 +250,9 @@ export class StageController {
       ...[...ids].map((id) => Number(id.split("-").pop()) || 0),
     );
     this.nextTransferId = Math.max(save.nextTransferId, observed + 1);
+    this.transferBudget = Number.isFinite(save.transferBudget)
+      ? Math.max(0, save.transferBudget)
+      : 0;
     this.validateStageCollections();
     this.matter.assertInvariants();
   }
@@ -177,7 +265,7 @@ export class StageController {
       !this.unlocked.has(definition.id)
     ) {
       this.unlocked.add(definition.id);
-      this.events.push({
+      this.pendingEvents.push({
         id: `unlock:${definition.id}`,
         kind: "stage-unlocked",
         stageId: definition.id,
@@ -185,15 +273,18 @@ export class StageController {
     }
   }
   private startTransfers(dt: number): void {
-    if (!this.unlocked.has("compression-crucible")) return;
-    const throughput = 12 + this.upgradeLevels["output-throughput"] * 3;
+    const connection = connectionForSource(this.config, this.sandfall.definition.id);
+    if (!connection || !this.unlocked.has(connection.to)) return;
+    const throughput = Math.max(0, stageUpgradeValue(
+      this.config,
+      this.upgradeLevels,
+      "output-throughput",
+    ));
     this.transferBudget = Math.min(
       throughput,
       this.transferBudget + throughput * dt,
     );
-    const capacity =
-      this.compression.baseCapacity +
-      this.upgradeLevels["reservoir-capacity"] * 50;
+    const capacity = this.compression.capacity(this.upgradeLevels);
     while (
       this.transferBudget >= 1 &&
       this.sandfall.state.outputIds.length &&
@@ -211,38 +302,34 @@ export class StageController {
       this.transfers.push({
         id,
         entityId,
-        connectionId: "stage-1-to-2",
+        connectionId: connection.id,
         progress: 0,
       });
       this.transferBudget -= 1;
     }
   }
   private updateTransfers(dt: number): void {
-    const connection = stageConnection(this.config, "stage-1-to-2");
     for (let index = this.transfers.length - 1; index >= 0; index--) {
       const transfer = this.transfers[index]!;
+      const connection = stageConnection(this.config, transfer.connectionId);
       transfer.progress = Math.min(
         1,
         transfer.progress + dt / connection.duration,
       );
       if (transfer.progress < 1) continue;
-      const owner = this.matter.get(transfer.entityId).owner;
-      if (owner.kind !== "transfer" || owner.transferId !== transfer.id)
-        throw new Error(`Transfer ${transfer.id} lost ownership`);
-      this.matter.move(transfer.entityId, owner, {
-        kind: "stage",
-        stageId: "compression-crucible",
-        slot: "reservoir",
-      });
-      if (!this.compression.acceptEntity(transfer.entityId))
-        throw new Error("Transfer completed without reservoir capacity");
-      this.transfers.splice(index, 1);
+      if (
+        this.compression.acceptTransferredEntity(
+          transfer.entityId,
+          transfer.id,
+          this.upgradeLevels,
+        )
+      ) this.transfers.splice(index, 1);
+      else transfer.progress = 1;
     }
   }
   private flushConversionEvents(): void {
-    for (const event of this.compression.conversionEvents) {
-      if (this.events.some((existing) => existing.id === event.id)) continue;
-      this.events.push({
+    for (const event of this.compression.drainEvents()) {
+      this.pendingEvents.push({
         id: event.id,
         kind: "conversion",
         stageId: "compression-crucible",
@@ -254,15 +341,14 @@ export class StageController {
     const claims = new Set<EntityId>();
     const requireOwner = (
       id: EntityId,
-      slot: "active" | "output" | "reservoir",
+      stageId: StageId,
+      slot: "active" | "output" | "reservoir" | "ritual",
     ) => {
       if (claims.has(id))
         throw new Error(
           `Entity ${id} is claimed by multiple stage collections`,
         );
       const owner = this.matter.get(id).owner;
-      const stageId =
-        slot === "reservoir" ? "compression-crucible" : "sandfall-atrium";
       if (
         owner.kind !== "stage" ||
         owner.stageId !== stageId ||
@@ -271,16 +357,34 @@ export class StageController {
         throw new Error(`Entity ${id} disagrees with its stage collection`);
       claims.add(id);
     };
-    for (const id of this.sandfall.state.activeIds) requireOwner(id, "active");
-    for (const id of this.sandfall.state.outputIds) requireOwner(id, "output");
+    for (const id of this.sandfall.state.activeIds) requireOwner(id, "sandfall-atrium", "active");
+    for (const id of this.sandfall.state.outputIds) requireOwner(id, "sandfall-atrium", "output");
     for (const id of this.compression.state.reservoirIds)
-      requireOwner(id, "reservoir");
+      requireOwner(id, "compression-crucible", "reservoir");
+    const batch = this.compression.state.batch;
+    if (batch) {
+      const moteIds = batch.motes.map((mote) => mote.entityId);
+      if (new Set(moteIds).size !== moteIds.length)
+        throw new Error("Ritual contains duplicate entities");
+      for (const id of moteIds) {
+        const entity = this.matter.get(id);
+        if (batch.conversionCompleted) {
+          if (entity.owner.kind !== "contained" || entity.owner.entityId !== batch.outputStoneId)
+            throw new Error(`Converted ritual entity ${id} is not contained by its stone`);
+        } else requireOwner(id, "compression-crucible", "ritual");
+      }
+      if (batch.outputStoneId !== null && !this.compression.state.outputIds.includes(batch.outputStoneId))
+        throw new Error("Ritual output stone is missing from output collection");
+      if (batch.outputEventId !== null && batch.outputStoneId === null)
+        throw new Error("Ritual output event is missing its stone");
+    }
     for (const transfer of this.transfers) {
       if (claims.has(transfer.entityId))
         throw new Error(`Entity ${transfer.entityId} is claimed twice`);
       claims.add(transfer.entityId);
     }
     for (const id of this.compression.state.outputIds) {
+      if (claims.has(id)) throw new Error(`Entity ${id} is claimed twice`);
       const owner = this.matter.get(id).owner;
       if (
         owner.kind !== "stage" ||
@@ -290,6 +394,7 @@ export class StageController {
         throw new Error(
           `Stone ${id} is not owned by the Compression Crucible output`,
         );
+      claims.add(id);
     }
   }
 }

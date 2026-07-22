@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import stageJson from "../data/stages.json";
 import { validateStageConfig } from "../src/config/validateStageData";
 import { computeCameraTarget } from "../src/game/camera/stageCamera";
-import { MatterStore } from "../src/game/matter/matterStore";
+import { MatterStore, matterOwnersEqual } from "../src/game/matter/matterStore";
 import {
   screenToWorld,
   computeViewportRect,
@@ -10,6 +10,8 @@ import {
 import { CompressionStage } from "../src/game/stages/compression/compressionStage";
 import { stageDefinition } from "../src/game/stages/stageDefinitions";
 import { StageController } from "../src/game/stages/stageController";
+import { stageUpgradeValue, stageWorldOrigin } from "../src/game/stages/stageConfig";
+import { StageInputModalityGate, pointerIsInWorld } from "../src/game/input/stageInput";
 
 const config = validateStageConfig(stageJson);
 const controller = () => new StageController(config);
@@ -27,7 +29,7 @@ function seedReservoir(
       "sandfall-atrium",
       { x: 5 + (i % 38), y: 43 - Math.floor(i / 38) },
     );
-    expect(stage.acceptEntity(id)).toBe(true);
+    expect(stage.acceptEntity(id, upgrades())).toBe(true);
     ids.push(id);
   }
   return ids;
@@ -167,7 +169,7 @@ describe("compression ritual", () => {
     const batch = c.compression.state.batch!;
     expect(batch.conversionCompleted).toBe(true);
     const stoneId = batch.outputStoneId!;
-    expect(c.compression.conversionEvents).toHaveLength(1);
+    expect(c.drainEvents().filter((event) => event.kind === "conversion")).toHaveLength(1);
     expect(c.matter.get(stoneId).contents).toHaveLength(100);
     for (const id of ids.slice(0, 100))
       expect(c.matter.get(id).owner).toEqual({
@@ -178,7 +180,7 @@ describe("compression ritual", () => {
     expect(c.matter.get(stoneId).x).toBe(24);
     advance(c, 1);
     expect(c.matter.get(stoneId).x).not.toBe(24);
-    expect(c.compression.conversionEvents).toHaveLength(1);
+    expect(c.drainEvents()).toHaveLength(0);
   });
   it("normalizes pre-impact saves and retains post-impact stones", () => {
     const before = controller();
@@ -187,8 +189,8 @@ describe("compression ritual", () => {
     before.invokeRitual();
     const normalized = controller();
     normalized.hydrate(before.serialize());
-    expect(normalized.compression.state.phase).toBe("ready");
-    expect(normalized.compression.state.reservoirIds).toHaveLength(100);
+    expect(normalized.compression.state.phase).toBe("levitating");
+    expect(normalized.compression.state.batch?.motes).toHaveLength(100);
     const after = controller();
     seedReservoir(after.compression, after.matter, 100);
     after.update(0);
@@ -242,6 +244,214 @@ describe("camera and pointer geometry", () => {
       );
     expect(center).toEqual({ x: 72, y: 72 });
     expect(screenToWorld(view, view.x - 1, view.y)).toBeNull();
+  });
+});
+
+describe("prestige reset", () => {
+  it("returns every stage-owned and transient system to a fresh Stage 1 state", () => {
+    const c = controller();
+    c.castSand(100);
+    c.debugSeedReservoirSand(100);
+    c.update(0);
+    expect(c.invokeRitual()).toBe(true);
+    c.debugSeedOutputSand(1);
+    c.update(0.1);
+    expect(c.transfers.length).toBeGreaterThan(0);
+
+    c.resetForPrestige({ preservePermanentBonuses: true });
+
+    expect(c.matter.serialize().entities).toHaveLength(0);
+    expect(c.sandfall.state.lifetimeCreated).toBe(0);
+    expect(c.sandfall.state.activeIds).toHaveLength(0);
+    expect(c.compression.state.batch).toBeNull();
+    expect(c.compression.state.outputIds).toHaveLength(0);
+    expect(c.transfers).toHaveLength(0);
+    expect([...c.unlocked]).toEqual(["sandfall-atrium"]);
+    expect(c.cameraTarget().centerY).toBe(72);
+    c.update(1 / 60);
+    expect(c.economyView().displayedByMaterial).toEqual({ sand: 0, stone: 0 });
+    expect(c.drainEvents()).toHaveLength(0);
+  });
+});
+
+describe("atomic capacity admission", () => {
+  it("uses configured base and upgraded capacity at the transfer boundary", () => {
+    const base = controller();
+    expect(base.compression.capacity(base.upgradeLevels)).toBe(300);
+    base.upgradeLevels["reservoir-capacity"] = 1;
+    expect(base.compression.capacity(base.upgradeLevels)).toBe(350);
+    base.castSand(100);
+    base.debugSeedReservoirSand(349);
+    const [boundary] = base.debugSeedOutputSand(1);
+    base.update(1);
+    expect(base.compression.state.reservoirIds).toContain(boundary);
+    expect(base.matter.get(boundary!).owner).toEqual({
+      kind: "stage",
+      stageId: "compression-crucible",
+      slot: "reservoir",
+    });
+  });
+
+  it("keeps ownership unchanged when a full reservoir rejects admission", () => {
+    const c = controller();
+    c.debugSeedReservoirSand(300);
+    const id = c.matter.create(
+      "sand",
+      { kind: "transfer", transferId: "blocked" },
+      "sandfall-atrium",
+    );
+    expect(c.compression.acceptTransferredEntity(id, "blocked", c.upgradeLevels)).toBe(false);
+    expect(c.matter.get(id).owner).toEqual({ kind: "transfer", transferId: "blocked" });
+    expect(c.compression.state.reservoirIds).not.toContain(id);
+  });
+
+  it("leaves queued output in its source collection under reservoir backpressure", () => {
+    const c = controller();
+    c.castSand(100);
+    c.debugSeedReservoirSand(300);
+    const [queued] = c.debugSeedOutputSand(1);
+    c.update(1);
+    expect(c.transfers).toHaveLength(0);
+    expect(c.sandfall.state.outputIds).toContain(queued);
+    expect(c.matter.get(queued!).owner).toEqual({
+      kind: "stage",
+      stageId: "sandfall-atrium",
+      slot: "output",
+    });
+  });
+});
+
+describe("authoritative material economy", () => {
+  it("separates active, queued, spendable, processing, output, and contained matter", () => {
+    const c = controller();
+    c.debugSeedReservoirSand(100);
+    expect(c.economyView().spendableByMaterial.sand).toBe(100);
+    c.update(0);
+    expect(c.invokeRitual()).toBe(true);
+    expect(c.economyView().spendableByMaterial.sand).toBe(0);
+    expect(c.economyView().processingByMaterial.sand).toBe(100);
+    advance(c, 2);
+    const view = c.economyView();
+    expect(view.processingByMaterial.sand).toBe(0);
+    expect(view.spendableByMaterial.stone).toBe(1);
+    expect(view.containedByMaterial.sand).toBe(100);
+    expect(view.displayedByMaterial).toEqual({ sand: 0, stone: 1 });
+  });
+});
+
+describe("configuration authority", () => {
+  it("evaluates clamped upgrade values and stage origins from configuration", () => {
+    const c = controller();
+    c.upgradeLevels.gravity = 999;
+    expect(stageUpgradeValue(config, c.upgradeLevels, "gravity")).toBe(78);
+    const moved = structuredClone(stageJson);
+    moved.stages[0]!.gridPosition = { col: 2, row: 0 };
+    moved.stages[6]!.gridPosition = { col: 1, row: 1 };
+    const movedConfig = validateStageConfig(moved);
+    expect(stageWorldOrigin(movedConfig.stages[0]!)).toEqual({ x: 96, y: 0 });
+  });
+
+  it("resolves transfers through the configured connection and rejects missing upgrades", () => {
+    const changed = structuredClone(stageJson);
+    changed.connections[0]!.id = "configured-route";
+    const c = new StageController(validateStageConfig(changed));
+    c.castSand(100);
+    c.debugSeedOutputSand(1);
+    c.update(0.1);
+    expect(c.transfers[0]?.connectionId).toBe("configured-route");
+    const missing = structuredClone(stageJson);
+    missing.upgrades = missing.upgrades.filter((upgrade) => upgrade.id !== "gravity");
+    expect(() => validateStageConfig(missing)).toThrow(/missing required upgrade gravity/);
+  });
+});
+
+describe("events and ownership invariants", () => {
+  it("compares every owner variant without serialization", () => {
+    expect(matterOwnersEqual(
+      { kind: "stage", stageId: "sandfall-atrium", slot: "active" },
+      { kind: "stage", stageId: "sandfall-atrium", slot: "active" },
+    )).toBe(true);
+    expect(matterOwnersEqual({ kind: "transfer", transferId: "a" }, { kind: "transfer", transferId: "b" })).toBe(false);
+    expect(matterOwnersEqual({ kind: "contained", entityId: 4 }, { kind: "contained", entityId: 4 })).toBe(true);
+  });
+
+  it("emits conversions once and removes drained events", () => {
+    const c = controller();
+    c.debugSeedReservoirSand(100);
+    c.update(0);
+    c.invokeRitual();
+    advance(c, 2);
+    expect(c.drainEvents().filter((event) => event.kind === "conversion")).toHaveLength(1);
+    expect(c.drainEvents()).toHaveLength(0);
+    for (let index = 0; index < 10; index++) c.update(1 / 60);
+    expect(c.drainEvents()).toHaveLength(0);
+  });
+
+  it("rejects duplicate ritual entries and contained entities in stage collections", () => {
+    const c = controller();
+    c.debugSeedReservoirSand(100);
+    c.update(0);
+    c.invokeRitual();
+    const duplicate = c.serialize();
+    duplicate.compression.state.batch!.motes.push({ ...duplicate.compression.state.batch!.motes[0]! });
+    expect(() => controller().hydrate(duplicate)).toThrow(/duplicate/i);
+
+    const converted = controller();
+    converted.debugSeedReservoirSand(100);
+    converted.update(0);
+    converted.invokeRitual();
+    advance(converted, 2);
+    const corrupted = converted.serialize();
+    const contained = corrupted.compression.state.batch!.motes[0]!.entityId;
+    corrupted.compression.state.reservoirIds.push(contained);
+    expect(() => controller().hydrate(corrupted)).toThrow(/collection|contained|owner/i);
+  });
+});
+
+describe("automation and canonical input", () => {
+  it("uses the configured manual cast amount and enforces one shared cooldown", () => {
+    const c = controller();
+    c.upgradeLevels["manual-cast-count"] = 2;
+    expect(c.castSand()).toHaveLength(3);
+    expect(c.castSand(8)).toHaveLength(0);
+    c.update(0.2);
+    expect(c.castSand(8)).toHaveLength(8);
+  });
+
+  it("has exactly one stage automatic casting result per configured interval", () => {
+    const c = controller();
+    c.upgradeLevels["auto-cast"] = 1;
+    c.update(0.99);
+    expect(c.sandfall.state.lifetimeCreated).toBe(0);
+    c.update(0.02);
+    expect(c.sandfall.state.lifetimeCreated).toBe(1);
+  });
+
+  it("suppresses the synthetic mouse event after touch and rejects menu coordinates", () => {
+    const gate = new StageInputModalityGate();
+    expect(gate.accept("touch", 1000)).toBe(true);
+    expect(gate.accept("mouse", 1100)).toBe(false);
+    expect(gate.accept("mouse", 1800)).toBe(true);
+    expect(pointerIsInWorld(100, 100)).toBe(false);
+    expect(pointerIsInWorld(101, 100)).toBe(true);
+  });
+});
+
+describe("bounded event queues", () => {
+  it("does not retain historical conversions after consumers drain them", () => {
+    const tiny = structuredClone(stageJson);
+    tiny.stages[1]!.settings!.recipeInputCount = 1;
+    for (const key of Object.keys(tiny.ritualTimings) as Array<keyof typeof tiny.ritualTimings>)
+      tiny.ritualTimings[key] = 0.001;
+    const c = new StageController(validateStageConfig(tiny));
+    for (let index = 0; index < 30; index++) {
+      c.debugSeedReservoirSand(1);
+      c.update(0);
+      expect(c.invokeRitual()).toBe(true);
+      advance(c, 0.05);
+      expect(c.drainEvents().filter((event) => event.kind === "conversion")).toHaveLength(1);
+    }
+    expect(c.drainEvents()).toHaveLength(0);
   });
 });
 

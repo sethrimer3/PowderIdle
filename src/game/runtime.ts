@@ -80,7 +80,9 @@ import {
   consumeFromInventory,
   takeFromInventory
 } from '../state/inventories';
-import { IntegratedStageWorld } from './stageWorldRuntime';
+import { IntegratedStageWorld, type RuntimeSaveSections } from './stageWorldRuntime';
+import type { PowderIdleSaveV3, SaveValidationContext } from './persistence/saveSchema';
+import { pointerIsInWorld } from './input/stageInput';
 
 // Game constants
       const BASE_SCREEN_W = 360;
@@ -95,13 +97,11 @@ import { IntegratedStageWorld } from './stageWorldRuntime';
       let layoutScaleY = 1;
       let canvas: P5.Renderer;
       const BASE_FALL_SPEED = 2;
-      const BASE_DROPPER_INTERVAL = 2000; // ms
-      const AUTO_DROP_INTERVAL = 1200;
-      const AUTO_COMPRESS_INTERVAL = 1800;
       const CHAIN_REQUIREMENT = 100;
       const stageWorld = new IntegratedStageWorld();
       let stageSaveLoaded = false;
       let integratedSaveTimer = 0;
+      let prestigeInProgress = false;
       const MODULE_UNLOCK_ORDER: MachineModuleKey[] = [];
       const DEFAULT_MENU_TABS = [
         { key: 'sandfall', label: 'Sandfall', icon: '🜃' },
@@ -1597,12 +1597,9 @@ import { IntegratedStageWorld } from './stageWorldRuntime';
         menuScroll = 0;
         menuScrollMax = 0;
         if (!stageSaveLoaded) {
-          const restored = stageWorld.load();
+          const restored = stageWorld.load(saveValidationContext(), runtimeSaveSections());
           if (restored) {
-            dust = Math.max(0, restored.dust);
-            upgradesState = createUpgradeState(restored.upgrades);
-            researchState = { ...researchState, ...restored.research };
-            powderCounts = powderCounts.map((value, index) => Math.max(value, restored.powderCounts[index] ?? 0));
+            restoreIntegratedGame(restored);
           }
           stageSaveLoaded = true;
         }
@@ -1945,24 +1942,18 @@ import { IntegratedStageWorld } from './stageWorldRuntime';
         stageWorld.update(deltaTime / 1000);
         stageWorld.render(MENU_W, 0, Math.min(PLAY_AREA_W, SCREEN_H));
         integratedSaveTimer += deltaTime;
-        if (integratedSaveTimer >= 2000) {
+        if (!prestigeInProgress && integratedSaveTimer >= 2000) {
           integratedSaveTimer = 0;
           saveIntegratedGame();
         }
 
-        updateAutoDroppers();
-        updateAutomationControllers();
         autoUnlockAvailableModules();
         updateMilestones();
-        const ritualSand = stageWorld.controller.compression.state.batch?.conversionCompleted
-          ? 0
-          : (stageWorld.controller.compression.state.batch?.motes.length ?? 0);
-        powderCounts[0] = stageWorld.controller.sandfall.state.activeIds.length
-          + stageWorld.controller.sandfall.state.outputIds.length
-          + stageWorld.controller.transfers.length
-          + stageWorld.controller.compression.state.reservoirIds.length
-          + ritualSand;
-        powderCounts[1] = stageWorld.controller.compression.state.outputIds.length;
+        syncMaterialEconomyView();
+        totalPowderCollected = Math.max(
+          totalPowderCollected,
+          stageWorld.controller.sandfall.state.lifetimeCreated
+        );
         drawMenu();
       }
 
@@ -5061,78 +5052,8 @@ import { IntegratedStageWorld } from './stageWorldRuntime';
         return Math.max(1, Math.round((recipe.baseCost || 1) / efficiency));
       }
 
-      function updateAutoDroppers() {
-        for (let i = 0; i < autoDroppers.length; i++) {
-          const dropperCount = autoDroppers[i] ?? 0;
-          if (dropperCount <= 0) continue;
-          if (!isPowderTierUnlocked(i, tierUpgrades)) continue;
-          let baseInterval = BASE_DROPPER_INTERVAL / (1 + (dropperCount - 1) * 0.4);
-          baseInterval /= getAutoDropperSpeedMultiplier();
-          let timer = (dropperTimers[i] ?? 0) - deltaTime;
-          if (timer <= 0) {
-            for (let d = 0; d < dropperCount; d++) {
-              dropPowder(i);
-            }
-            timer += Math.max(320, baseInterval);
-          }
-          dropperTimers[i] = timer;
-        }
-      }
-
-      function updateAutomationControllers() {
-        if (automationSettings.autoDrop && automationUnlocks.autoDrop) {
-          let interval = Math.max(
-            260,
-            AUTO_DROP_INTERVAL / getAutomationIntervalMultiplier()
-          );
-          autoDropTimer -= deltaTime;
-          if (autoDropTimer <= 0) {
-            dropPowder(selectedPowder);
-            autoDropTimer += interval;
-          }
-        } else {
-          autoDropTimer = 0;
-        }
-
-        if (
-          automationSettings.autoCompress &&
-          automationUnlocks.autoCompress &&
-          getUpgradeLevel('compressor') > 0
-        ) {
-          let interval = Math.max(
-            380,
-            AUTO_COMPRESS_INTERVAL / getAutomationIntervalMultiplier()
-          );
-          autoCompressTimer -= deltaTime;
-          if (autoCompressTimer <= 0) {
-            attemptAutoCompression();
-            autoCompressTimer += interval;
-          }
-        } else {
-          autoCompressTimer = 0;
-        }
-      }
-
-      function attemptAutoCompression() {
-        let efficiency = getCompressorEfficiency();
-        if (efficiency <= 0) return;
-        let availableRecipes = compressionRecipes
-          .filter((recipe) =>
-            recipe.to === 0 ? true : tierUpgrades[recipe.to - 1]
-          )
-          .sort((a, b) => b.to - a.to);
-        for (let recipe of availableRecipes) {
-          let cost = calculateCompressionCost(recipe, efficiency);
-          if (ensureInventory(recipe.from).length >= cost) {
-            if (executeCompressionRecipe(recipe, cost)) {
-              break;
-            }
-          }
-        }
-      }
-
       function executeCompressionRecipe(recipe: CompressionRecipe, cost: number): boolean {
-        if (!recipe) return false;
+        if (!recipe || recipe.from < 2) return false;
         let consumed = takeEntities(recipe.from, cost);
         if (consumed.length < cost) {
           gainEntities(recipe.from, consumed);
@@ -6510,8 +6431,8 @@ import { IntegratedStageWorld } from './stageWorldRuntime';
           return y + scaledY(34);
         }
 
-        let availableRecipes = compressionRecipes.filter((recipe) =>
-          recipe.to === 0 ? true : tierUpgrades[recipe.to - 1]
+        let availableRecipes = compressionRecipes.filter(
+          (recipe) => recipe.from >= 2 && (recipe.to === 0 ? true : tierUpgrades[recipe.to - 1]),
         );
         if (availableRecipes.length === 0) {
           return y;
@@ -6699,7 +6620,7 @@ import { IntegratedStageWorld } from './stageWorldRuntime';
             break;
           }
         }
-        if (!activeButton && mouseX > MENU_W) {
+        if (!activeButton && pointerIsInWorld(mouseX, MENU_W)) {
           const dropped = stageWorld.handlePointer(mouseX, mouseY, 'mouse');
           if (dropped) {
             grantManualDropDustReward();
@@ -7031,6 +6952,10 @@ import { IntegratedStageWorld } from './stageWorldRuntime';
 
       function unlockTier(index: number): void {
         if (tierUpgrades[index]) return;
+        if (index === 0) {
+          if (stageWorld.controller.unlocked.has('compression-crucible')) tierUpgrades[index] = true;
+          return;
+        }
         let cost = tierUnlockCosts[index] ?? Infinity;
         const count = powderCounts[index] ?? 0;
         if (count >= cost) {
@@ -7116,6 +7041,10 @@ import { IntegratedStageWorld } from './stageWorldRuntime';
       }
 
       function compressPowder(recipe: CompressionRecipe): void {
+        if (recipe.from < 2) {
+          stageWorld.invokeRitual();
+          return;
+        }
         if (getUpgradeLevel('compressor') <= 0) return;
         if (!(recipe.to === 0 || tierUpgrades[recipe.to - 1])) return;
         let efficiency = getCompressorEfficiency();
@@ -7132,11 +7061,8 @@ import { IntegratedStageWorld } from './stageWorldRuntime';
         if (!Number.isFinite(parsed) || parsed <= 0) {
           return;
         }
-        for (let i = 0; i < parsed; i++) {
-          let grain = createBaseEntity(0, { origin: 'developer' });
-          gainEntity(0, grain);
-          totalPowderCollected += 1;
-        }
+        const created = stageWorld.controller.sandfall.cast(parsed, 24, 0).length;
+        totalPowderCollected += created;
         milestoneMessage = `Granted ${parsed.toLocaleString()} grains for testing.`;
         milestoneMessageTimer = 3600;
       }
@@ -7161,33 +7087,50 @@ import { IntegratedStageWorld } from './stageWorldRuntime';
       function performPrestige() {
         let gain = getPrestigeGain();
         if (gain <= 0) return;
-        crystalCores += gain;
-        dust = 0;
-        powders = [];
-        powderCounts = new Array(powderTypes.length).fill(0);
-        resetInventories();
-        tierUpgrades = new Array(powderTypes.length - 1).fill(false);
-        autoDroppers = new Array(powderTypes.length).fill(0);
-        dropperTimers = new Array(powderTypes.length).fill(0);
-        let hadCompressor = getUpgradeLevel('compressor') > 0;
-        upgradesState = createUpgradeState();
-        if (hadCompressor && typeof upgradesState.compressor === 'number') {
-          upgradesState.compressor = Math.max(1, upgradesState.compressor);
+        prestigeInProgress = true;
+        try {
+          crystalCores += gain;
+          stageWorld.resetForPrestige();
+          dust = 0;
+          totalDustEarned = 0;
+          totalPowderCollected = 0;
+          powders = [];
+          powderCounts = new Array(powderTypes.length).fill(0);
+          resetInventories();
+          tierUpgrades = new Array(powderTypes.length - 1).fill(false);
+          autoDroppers = new Array(powderTypes.length).fill(0);
+          dropperTimers = new Array(powderTypes.length).fill(0);
+          upgradesState = createUpgradeState();
+          researchState = researchProjects.reduce<Record<string, number>>((state, project) => {
+            state[project.key] = 0;
+            return state;
+          }, {});
+          layerStates = strataLayers.map((_, index) => ({ unlocked: index === 0, completed: false, progress: 0 }));
+          selectedPowder = 0;
+          automationSettings.autoDrop = false;
+          automationSettings.autoCompress = false;
+          automationUnlocks.autoDrop = false;
+          automationUnlocks.autoCompress = false;
+          autoDropTimer = 0;
+          autoCompressTimer = 0;
+          activeMenu = menuTabs[0]?.key ?? 'sandfall';
+          fullscreenModule = null;
+          selectedModule = 'jar';
+          moduleStates = createDefaultModuleStates();
+          resetModuleRevealStates();
+          menuScroll = 0;
+          menuScrollMax = 0;
+          recomputeDerivedProgression();
+          syncMaterialEconomyView();
+          updateLayoutDimensions(true);
+          refreshPowderGrid(true);
+          stageWorld.save(runtimeSaveSections());
+        } catch (error) {
+          console.error('Powder Idle prestige reset failed before saving.', error);
+          throw error;
+        } finally {
+          prestigeInProgress = false;
         }
-        selectedPowder = 0;
-        automationSettings.autoDrop = false;
-        automationSettings.autoCompress = false;
-        autoDropTimer = 0;
-        autoCompressTimer = 0;
-        activeMenu = menuTabs[0]?.key ?? 'sandfall';
-        fullscreenModule = null;
-        selectedModule = activeMenu === 'jar' ? 'jar' : null;
-        moduleStates = createDefaultModuleStates();
-        resetModuleRevealStates();
-        menuScroll = 0;
-        menuScrollMax = 0;
-        updateLayoutDimensions(true);
-        refreshPowderGrid(true);
       }
 
       function getUnlockedIndices() {
@@ -7300,29 +7243,6 @@ import { IntegratedStageWorld } from './stageWorldRuntime';
         }, 0);
       }
 
-      function getAutoDropperSpeedMultiplier() {
-        return (
-          1 +
-          getUpgradeLevel('gravity') * 0.15 +
-          getUpgradeLevel('harmonics') * 0.2 +
-          crystalCores * 0.1 +
-          (researchState.overclock || 0) * 0.15 +
-          getLayerGravityBonus() * 0.5 +
-          milestoneBonuses.automation * getMilestoneBonusScale()
-        );
-      }
-
-      function getAutomationIntervalMultiplier() {
-        return (
-          1 +
-          getUpgradeLevel('harmonics') * 0.2 +
-          crystalCores * 0.1 +
-          (researchState.overclock || 0) * 0.15 +
-          getLayerGravityBonus() * 0.4 +
-          milestoneBonuses.automation * getMilestoneBonusScale()
-        );
-      }
-
       function addLayerProgress(amount: number): void {
         applyLayerProgress(
           layerStates,
@@ -7398,22 +7318,125 @@ import { IntegratedStageWorld } from './stageWorldRuntime';
         stageWorld.controller.upgradeLevels['reservoir-capacity'] = getUpgradeLevel('compressor');
         stageWorld.controller.upgradeLevels['release-speed'] = getUpgradeLevel('compressor');
         stageWorld.controller.upgradeLevels['output-throughput'] = getUpgradeLevel('harmonics');
-        stageWorld.controller.upgradeLevels['auto-cast'] = automationSettings.autoDrop ? 1 : 0;
-        stageWorld.controller.upgradeLevels['auto-ritual'] = automationSettings.autoCompress ? 1 : 0;
+        stageWorld.controller.upgradeLevels['auto-cast'] =
+          (automationSettings.autoDrop && automationUnlocks.autoDrop) || (autoDroppers[0] ?? 0) > 0 ? 1 : 0;
+        stageWorld.controller.upgradeLevels['auto-ritual'] =
+          automationSettings.autoCompress && automationUnlocks.autoCompress ? 1 : 0;
       }
 
       function saveIntegratedGame(): void {
-        stageWorld.save({
-          dust,
-          upgrades: { ...upgradesState },
-          research: { ...researchState },
-          milestones: milestoneStates.map(state => ({ ...state })),
-          powderCounts: [...powderCounts]
-        });
+        if (prestigeInProgress) return;
+        stageWorld.save(runtimeSaveSections());
+      }
+
+      function syncMaterialEconomyView(): void {
+        const economy = stageWorld.controller.economyView();
+        powderCounts[0] = economy.displayedByMaterial.sand;
+        powderCounts[1] = economy.displayedByMaterial.stone;
+        tierInventories[0] = [];
+        tierInventories[1] = [];
+      }
+
+      function saveValidationContext(): SaveValidationContext {
+        return {
+          powderCount: powderTypes.length,
+          layerCount: strataLayers.length,
+          milestoneCount: milestoneConfigs.length,
+          upgradeKeys: new Set(upgradeConfigs.map((entry) => entry.key)),
+          researchKeys: new Set(researchProjects.map((entry) => entry.key))
+        };
+      }
+
+      function runtimeSaveSections(): RuntimeSaveSections {
+        syncMaterialEconomyView();
+        return {
+          economy: {
+            dust,
+            totalDustEarned,
+            crystalCores,
+            totalPowderCollected,
+            selectedMaterial: selectedPowder,
+            tierUnlocks: [...tierUpgrades],
+            autoDroppers: [...autoDroppers],
+            dropperTimers: dropperTimers.map(value => Math.max(0, value)),
+            powderCounts: [...powderCounts],
+            legacyInventories: tierInventories.map((inventory, index) => index < 2 ? [] : structuredClone(inventory))
+          },
+          progression: {
+            upgrades: { ...upgradesState },
+            research: { ...researchState },
+            layers: layerStates.map(state => ({ ...state })),
+            milestones: milestoneStates.map(state => ({ ...state }))
+          },
+          automation: {
+            settings: { ...automationSettings },
+            unlocks: { ...automationUnlocks },
+            autoDropTimer: Math.max(0, autoDropTimer),
+            autoCompressTimer: Math.max(0, autoCompressTimer)
+          },
+          interface: {
+            activeMenu,
+            codexUnlocked,
+            selectedModule
+          }
+        };
+      }
+
+      function restoreIntegratedGame(save: PowderIdleSaveV3): void {
+        const economy = save.economy;
+        dust = economy.dust;
+        totalDustEarned = economy.totalDustEarned;
+        crystalCores = economy.crystalCores;
+        totalPowderCollected = economy.totalPowderCollected;
+        selectedPowder = economy.selectedMaterial;
+        tierUpgrades = [...economy.tierUnlocks];
+        autoDroppers = [...economy.autoDroppers];
+        dropperTimers = [...economy.dropperTimers];
+        powderCounts = [...economy.powderCounts];
+        tierInventories = economy.legacyInventories.map((inventory, index) => index < 2 ? [] : structuredClone(inventory));
+        upgradesState = createUpgradeState(save.progression.upgrades);
+        researchState = { ...researchState, ...save.progression.research };
+        layerStates = save.progression.layers.map(state => ({ ...state }));
+        milestoneStates = save.progression.milestones.map(state => ({ ...state }));
+        automationSettings = { ...save.automation.settings };
+        automationUnlocks = { ...save.automation.unlocks };
+        autoDropTimer = save.automation.autoDropTimer;
+        autoCompressTimer = save.automation.autoCompressTimer;
+        activeMenu = menuTabs.some(tab => tab.key === save.interface.activeMenu)
+          ? save.interface.activeMenu
+          : (menuTabs[0]?.key ?? 'sandfall');
+        codexUnlocked = save.interface.codexUnlocked;
+        selectedModule = isModuleKey(save.interface.selectedModule) ? save.interface.selectedModule : 'jar';
+        recomputeDerivedProgression();
+        syncMaterialEconomyView();
+      }
+
+      function isModuleKey(value: string | null): value is ModuleKey {
+        return value !== null && ['jar', 'conveyor', 'rocket', 'asteroid', 'planet', 'forge', 'galaxy', 'universe', 'singularity', 'inventory'].includes(value);
+      }
+
+      function recomputeDerivedProgression(): void {
+        milestoneBonuses = { gravity: 0, dust: 0, automation: 0, core: 0 };
+        codexUnlocked = false;
+        for (let index = 0; index < milestoneStates.length; index++) {
+          const state = milestoneStates[index], config = milestoneConfigs[index];
+          if (!state?.achieved || !config) continue;
+          state.applied = true;
+          switch (config.type) {
+            case 'unlockAutoDrop': automationUnlocks.autoDrop = true; break;
+            case 'unlockAutoCompress': automationUnlocks.autoCompress = true; break;
+            case 'gravityBonus': milestoneBonuses.gravity += config.magnitude || 0; break;
+            case 'dustBonus': milestoneBonuses.dust += config.magnitude || 0; break;
+            case 'codexUnlock': codexUnlocked = true; milestoneBonuses.automation += config.magnitude || 0; break;
+            case 'coreBonus': milestoneBonuses.core += config.magnitude || 0; break;
+          }
+        }
+        milestoneMessage = null;
+        milestoneMessageTimer = 0;
       }
 
       function touchStarted(): false | void {
-        if (gameInitialized && mouseX > MENU_W && stageWorld.handlePointer(mouseX, mouseY, 'touch')) {
+        if (gameInitialized && pointerIsInWorld(mouseX, MENU_W) && stageWorld.handlePointer(mouseX, mouseY, 'touch')) {
           grantManualDropDustReward();
           return false;
         }

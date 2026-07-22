@@ -57,6 +57,12 @@ export class StageCamera {
     this.target = { ...target };
     this.elapsed = 0;
   }
+  reset(target: CameraTarget): void {
+    this.current = { ...target };
+    this.target = { ...target };
+    this.from = { ...target };
+    this.elapsed = this.duration;
+  }
   update(dt: number): void {
     this.elapsed = Math.min(this.duration, this.elapsed + dt);
     const raw = this.duration === 0 ? 1 : this.elapsed / this.duration,

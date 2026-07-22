@@ -70,11 +70,16 @@ export class SandfallStage
     this.physics.update(this.state.activeIds, context.dt, (id) =>
       this.queue(id),
     );
-    if (context.upgrades["auto-cast"] > 0) {
+    const autoCast = this.upgradeValue("auto-cast", context.upgrades);
+    if (autoCast > 0) {
       this.state.autoCastElapsed += context.dt;
       if (this.state.autoCastElapsed >= 1) {
         this.state.autoCastElapsed -= 1;
-        this.cast(1);
+        this.cast(
+          Math.max(1, Math.floor(autoCast)),
+          24,
+          Math.max(0.02, this.upgradeValue("cast-cooldown", context.upgrades)),
+        );
       }
     }
   }
